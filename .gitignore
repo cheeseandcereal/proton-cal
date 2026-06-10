@@ -1,0 +1,11 @@
+# Binaries
+/proton-cal
+/dist/
+
+# Test artifacts
+*.out
+coverage.html
+
+# Editor
+.idea/
+.vscode/
