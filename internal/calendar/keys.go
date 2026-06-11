@@ -24,7 +24,7 @@ type Access struct {
 
 // Keychain caches unlocked calendar keys for a session.
 type Keychain struct {
-	client   *papi.Client
+	client   papi.API
 	unlocked *auth.Unlocked
 
 	mu    sync.Mutex
@@ -32,7 +32,7 @@ type Keychain struct {
 }
 
 // NewKeychain creates a keychain over unlocked address keys.
-func NewKeychain(client *papi.Client, unlocked *auth.Unlocked) *Keychain {
+func NewKeychain(client papi.API, unlocked *auth.Unlocked) *Keychain {
 	return &Keychain{
 		client:   client,
 		unlocked: unlocked,

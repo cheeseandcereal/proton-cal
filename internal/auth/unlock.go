@@ -8,7 +8,6 @@ import (
 	proton "github.com/ProtonMail/go-proton-api"
 	"github.com/ProtonMail/gopenpgp/v2/crypto"
 
-	"github.com/cheeseandcereal/proton-cal/internal/config"
 	"github.com/cheeseandcereal/proton-cal/internal/papi"
 )
 
@@ -30,8 +29,8 @@ type Unlocked struct {
 // the user/address keyrings with proton.Unlock. A session without a stored
 // salted key passphrase yields an error directing the user to run
 // `proton-cal login`.
-func UnlockKeys(ctx context.Context, client *papi.Client, store *config.SessionStore) (*Unlocked, error) {
-	sess, err := store.Load()
+func UnlockKeys(ctx context.Context, client *papi.Client) (*Unlocked, error) {
+	sess, err := client.Store().Load()
 	if err != nil {
 		return nil, fmt.Errorf("loading session: %w", err)
 	}

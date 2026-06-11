@@ -69,6 +69,7 @@ func Login(ctx context.Context, prompter Prompter) error {
 	}
 
 	m := papi.NewManager(cfg.EffectiveBaseURL())
+	defer m.Close()
 
 	pc, a, err := m.NewClientWithLogin(ctx, username, []byte(password))
 	if err != nil {
@@ -107,7 +108,6 @@ func Login(ctx context.Context, prompter Prompter) error {
 	}); err != nil {
 		return fmt.Errorf("saving session: %w", err)
 	}
-	papi.RegisterPersistence(pc, store)
 	raw := papi.New(pc, store, cfg.EffectiveBaseURL())
 
 	// In two-password mode the mailbox password (not the login password)
@@ -324,13 +324,11 @@ func captchaToken(prompter Prompter, verifyURL string) (string, error) {
 }
 
 // isInsufficientScope reports whether err indicates the access token lacks
-// the scope for the attempted endpoint (Proton code 9101 / HTTP 403).
+// the scope for the attempted endpoint (Proton code 9101). The check is
+// code-based only: a bare HTTP 403 can also mean a genuine permission
+// problem and must not trigger the SRP unlock dance.
 func isInsufficientScope(err error) bool {
-	if papi.IsCode(err, papi.CodeInsufficientScope) {
-		return true
-	}
-	var apiErr *proton.APIError
-	return errors.As(err, &apiErr) && apiErr.Status == 403
+	return papi.IsCode(err, papi.CodeInsufficientScope)
 }
 
 // unlockScope gains the elevated "locked" scope by proving knowledge of the

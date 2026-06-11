@@ -39,7 +39,7 @@ func newEventBody(frags ical.Fragments, sharedSignedSig, sharedEncData, sharedEn
 
 // Create encrypts and creates an event via the sync endpoint. Returns the
 // created raw event row echoed by the server.
-func Create(ctx context.Context, client *papi.Client, access *calendar.Access, opts CreateOptions) (*caltypes.RawEvent, error) {
+func Create(ctx context.Context, client papi.API, access *calendar.Access, opts CreateOptions) (*caltypes.RawEvent, error) {
 	uid := opts.UID
 	if uid == "" {
 		uid = NewUID()
@@ -107,7 +107,7 @@ func Create(ctx context.Context, client *papi.Client, access *calendar.Access, o
 // update fetches, merges, re-encrypts (REUSING the event's existing session
 // keys; no new key packets) and PUTs an event. Returns the updated raw
 // event when the server echoes it (may be nil on success).
-func update(ctx context.Context, client *papi.Client, access *calendar.Access, eventID string, opts UpdateOptions) (*caltypes.RawEvent, error) {
+func update(ctx context.Context, client papi.API, access *calendar.Access, eventID string, opts UpdateOptions) (*caltypes.RawEvent, error) {
 	raw, err := Get(ctx, client, access.CalendarID, eventID)
 	if err != nil {
 		return nil, err

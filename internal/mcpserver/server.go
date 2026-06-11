@@ -67,7 +67,7 @@ func bootstrapSession(ctx context.Context) (*session, error) {
 	} else if err != nil {
 		return nil, fmt.Errorf("restoring session: %w", err)
 	}
-	unlocked, err := auth.UnlockKeys(ctx, client, store)
+	unlocked, err := auth.UnlockKeys(ctx, client)
 	if err != nil {
 		return nil, fmt.Errorf("unlocking keys: %w", err)
 	}

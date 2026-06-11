@@ -65,7 +65,7 @@ type listResponse struct {
 }
 
 // List fetches and resolves all calendars on the account.
-func List(ctx context.Context, client *papi.Client) ([]Info, error) {
+func List(ctx context.Context, client papi.API) ([]Info, error) {
 	var resp listResponse
 	if err := client.Get(ctx, APIPath, nil, &resp); err != nil {
 		return nil, fmt.Errorf("listing calendars: %w", err)

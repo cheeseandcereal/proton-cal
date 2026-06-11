@@ -21,6 +21,7 @@ import (
 	"net/http"
 	"net/url"
 	"strconv"
+	"sync"
 	"time"
 
 	proton "github.com/ProtonMail/go-proton-api"
@@ -72,28 +73,49 @@ func (quietLogger) Errorf(string, ...any) {}
 func (quietLogger) Warnf(string, ...any)  {}
 func (quietLogger) Debugf(string, ...any) {}
 
+// API is the raw-request surface of Client consumed by the calendar and
+// event packages; in-memory fakes satisfy it in tests.
+type API interface {
+	Get(ctx context.Context, path string, query url.Values, out any) error
+	Put(ctx context.Context, path string, body, out any) error
+}
+
 // Client couples a go-proton-api client with the session store and a raw
 // HTTP path for endpoints go-proton-api lacks.
 type Client struct {
 	pc      *proton.Client
+	m       *proton.Manager // owned manager (FromSession); nil otherwise
 	store   *config.SessionStore
 	baseURL string
 	httpc   *http.Client
+
+	mu   sync.Mutex
+	sess config.Session // cached tokens; zero until first use
 }
 
-// New wires a Client. The given proton.Client must already have an auth
-// handler persisting refreshed tokens to store (see FromSession / auth pkg).
+// New wires a Client over an existing proton.Client. It registers the
+// auth/deauth handlers that persist token rotations to the store (and keep
+// the in-memory token cache fresh) - callers must not register their own.
 func New(pc *proton.Client, store *config.SessionStore, baseURL string) *Client {
-	return &Client{
+	c := &Client{
 		pc:      pc,
 		store:   store,
 		baseURL: baseURL,
 		httpc:   &http.Client{Timeout: 60 * time.Second},
 	}
+	pc.AddAuthHandler(func(auth proton.Auth) {
+		_ = store.UpdateTokens(auth.UID, auth.AccessToken, auth.RefreshToken)
+		c.setSession(config.Session{UID: auth.UID, AccessToken: auth.AccessToken, RefreshToken: auth.RefreshToken})
+	})
+	pc.AddDeauthHandler(func() {
+		_ = store.Clear()
+		c.setSession(config.Session{})
+	})
+	return c
 }
 
-// FromSession restores a Client from the persisted session. It registers the
-// auth/deauth handlers on the underlying go-proton-api client.
+// FromSession restores a Client from the persisted session. The returned
+// Client owns its manager; call Close when done.
 func FromSession(store *config.SessionStore, baseURL string) (*Client, error) {
 	sess, err := store.Load()
 	if err != nil {
@@ -104,22 +126,48 @@ func FromSession(store *config.SessionStore, baseURL string) (*Client, error) {
 	}
 	m := NewManager(baseURL)
 	pc := m.NewClient(sess.UID, sess.AccessToken, sess.RefreshToken)
-	RegisterPersistence(pc, store)
-	return New(pc, store, baseURL), nil
+	c := New(pc, store, baseURL)
+	c.m = m
+	return c, nil
 }
 
-// RegisterPersistence wires token-refresh persistence and deauth cleanup.
-func RegisterPersistence(pc *proton.Client, store *config.SessionStore) {
-	pc.AddAuthHandler(func(auth proton.Auth) {
-		_ = store.UpdateTokens(auth.UID, auth.AccessToken, auth.RefreshToken)
-	})
-	pc.AddDeauthHandler(func() {
-		_ = store.Clear()
-	})
+// Close releases the underlying go-proton-api client (and the manager when
+// the Client owns one, i.e. it came from FromSession).
+func (c *Client) Close() {
+	c.pc.Close()
+	if c.m != nil {
+		c.m.Close()
+	}
 }
 
 // Proton exposes the typed go-proton-api client.
 func (c *Client) Proton() *proton.Client { return c.pc }
+
+// Store exposes the session store the client persists tokens to.
+func (c *Client) Store() *config.SessionStore { return c.store }
+
+// session returns the cached tokens, loading them from the store on first
+// use (the store hits the disk under an advisory lock; the cache avoids
+// paying that on every request - rotations update it via the auth handler).
+func (c *Client) session() (config.Session, error) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.sess.Valid() {
+		return c.sess, nil
+	}
+	sess, err := c.store.Load()
+	if err != nil {
+		return config.Session{}, err
+	}
+	c.sess = sess
+	return sess, nil
+}
+
+func (c *Client) setSession(sess config.Session) {
+	c.mu.Lock()
+	c.sess = sess
+	c.mu.Unlock()
+}
 
 // Error is a Proton API error from the raw request path.
 type Error struct {
@@ -156,24 +204,37 @@ func (c *Client) Put(ctx context.Context, path string, body, out any) error {
 	return c.Do(ctx, http.MethodPut, path, nil, body, out)
 }
 
-// Do performs a raw authenticated request. On 401 it triggers the typed
-// client's token refresh (once) and retries; on 429 it honours Retry-After.
+// Do performs a raw authenticated request. On 401 it re-reads the persisted
+// session (another process may have refreshed it) and otherwise triggers the
+// typed client's token refresh (once) and retries; on 429 it honours
+// Retry-After.
 func (c *Client) Do(ctx context.Context, method, path string, query url.Values, body, out any) error {
 	refreshed := false
 	for attempt := 0; ; attempt++ {
-		status, respBody, err := c.doOnce(ctx, method, path, query, body)
+		sess, err := c.session()
+		if err != nil {
+			return err
+		}
+		status, respBody, err := c.doOnce(ctx, method, path, query, body, sess)
 		if err != nil {
 			return err
 		}
 
 		switch {
 		case status == http.StatusUnauthorized && !refreshed:
-			// Let the typed client refresh; its auth handler persists the
-			// rotated tokens, which doOnce re-reads from the store.
+			refreshed = true
+			// A concurrent process may have rotated the tokens already:
+			// prefer the persisted session when it differs from what we
+			// just used.
+			if disk, derr := c.store.Load(); derr == nil && disk.Valid() && disk.AccessToken != sess.AccessToken {
+				c.setSession(disk)
+				continue
+			}
+			// Let the typed client refresh; its auth handler updates both
+			// the store and the in-memory cache.
 			if _, err := c.pc.GetUser(ctx); err != nil {
 				return fmt.Errorf("session refresh failed: %w", err)
 			}
-			refreshed = true
 			continue
 		case status == http.StatusTooManyRequests && attempt < maxRateLimitRetries:
 			wait := retryAfter(respBody.retryAfter)
@@ -206,13 +267,8 @@ type rawResponse struct {
 	}
 }
 
-func (c *Client) doOnce(ctx context.Context, method, path string, query url.Values, body any) (int, rawResponse, error) {
+func (c *Client) doOnce(ctx context.Context, method, path string, query url.Values, body any, sess config.Session) (int, rawResponse, error) {
 	var resp rawResponse
-
-	sess, err := c.store.Load()
-	if err != nil {
-		return 0, resp, err
-	}
 
 	u := c.baseURL + path
 	if len(query) > 0 {

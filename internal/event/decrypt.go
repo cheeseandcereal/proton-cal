@@ -104,7 +104,7 @@ func mergeParsed(ev *Event, p ical.ParsedEvent) {
 
 // ListWindow queries, expands and decrypts all occurrences overlapping
 // [start, end), deduplicating decryption per event row.
-func ListWindow(ctx context.Context, client *papi.Client, calKR *crypto.KeyRing, calendarID string, start, end int64, tzName string) ([]Listed, error) {
+func ListWindow(ctx context.Context, client papi.API, calKR *crypto.KeyRing, calendarID string, start, end int64, tzName string) ([]Listed, error) {
 	raws, err := query(ctx, client, calendarID, start, end, tzName)
 	if err != nil {
 		return nil, err

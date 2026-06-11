@@ -16,7 +16,7 @@ import (
 
 // resolveSeries resolves a recurring series from any of its rows: returns
 // the master and all same-UID rows. Errors when the event is not recurring.
-func resolveSeries(ctx context.Context, client *papi.Client, calendarID, eventID string) (*caltypes.RawEvent, []*caltypes.RawEvent, error) {
+func resolveSeries(ctx context.Context, client papi.API, calendarID, eventID string) (*caltypes.RawEvent, []*caltypes.RawEvent, error) {
 	raw, err := Get(ctx, client, calendarID, eventID)
 	if err != nil {
 		return nil, nil, err
@@ -39,7 +39,7 @@ func resolveSeries(ctx context.Context, client *papi.Client, calendarID, eventID
 // deleteSeriesExceptions deletes all exception rows of a series except
 // keepEventID (used when a series-level change invalidates single edits).
 // Returns the number of rows deleted.
-func deleteSeriesExceptions(ctx context.Context, client *papi.Client, calendarID, uid, memberID, keepEventID string) (int, error) {
+func deleteSeriesExceptions(ctx context.Context, client papi.API, calendarID, uid, memberID, keepEventID string) (int, error) {
 	rows, err := GetByUID(ctx, client, calendarID, uid)
 	if err != nil {
 		return 0, err
@@ -67,7 +67,7 @@ func deleteSeriesExceptions(ctx context.Context, client *papi.Client, calendarID
 //   - master row: delete the whole series (master + all same-UID rows; the
 //     server orphans exceptions otherwise - see RESEARCH.md).
 //   - plain event: delete the row.
-func SmartDelete(ctx context.Context, client *papi.Client, access *calendar.Access, eventID string, occurrenceTS int64) (*DeleteResult, error) {
+func SmartDelete(ctx context.Context, client papi.API, access *calendar.Access, eventID string, occurrenceTS int64) (*DeleteResult, error) {
 	raw, err := Get(ctx, client, access.CalendarID, eventID)
 	if err != nil {
 		return nil, err
@@ -139,7 +139,7 @@ func SmartDelete(ctx context.Context, client *papi.Client, access *calendar.Acce
 //     SEQUENCE >= the master's). Recurrence options are rejected here.
 //   - otherwise: update the event/series; when a significant change hits a
 //     master, its now-invalid exception rows are deleted afterwards.
-func SmartUpdate(ctx context.Context, client *papi.Client, access *calendar.Access, eventID string, opts UpdateOptions, occurrenceTS int64) (*UpdateOutcome, error) {
+func SmartUpdate(ctx context.Context, client papi.API, access *calendar.Access, eventID string, opts UpdateOptions, occurrenceTS int64) (*UpdateOutcome, error) {
 	if occurrenceTS != 0 {
 		if opts.RRule != nil || opts.ClearRRule {
 			return nil, errors.New("recurrence changes cannot be combined with an occurrence edit (edit the series instead)")

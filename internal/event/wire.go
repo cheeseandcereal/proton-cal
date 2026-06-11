@@ -94,7 +94,7 @@ func (r *syncResp) firstEvent() (*caltypes.RawEvent, error) {
 	return r.Responses[0].Response.Event, nil
 }
 
-func putSync(ctx context.Context, client *papi.Client, calendarID string, payload syncReq) (*syncResp, error) {
+func putSync(ctx context.Context, client papi.API, calendarID string, payload syncReq) (*syncResp, error) {
 	var resp syncResp
 	if err := client.Put(ctx, calendar.APIPath+"/"+calendarID+"/events/sync", payload, &resp); err != nil {
 		return nil, fmt.Errorf("calendar %s: sync: %w", calendarID, err)
@@ -111,7 +111,7 @@ type eventsResponse struct {
 // client-side window filtering (the server ignores Start/End params).
 // Recurring masters always survive the filter (they are expanded later).
 // Sorted by StartTime.
-func query(ctx context.Context, client *papi.Client, calendarID string, start, end int64, tzName string) ([]*caltypes.RawEvent, error) {
+func query(ctx context.Context, client papi.API, calendarID string, start, end int64, tzName string) ([]*caltypes.RawEvent, error) {
 	var all []*caltypes.RawEvent
 	for page := 0; ; page++ {
 		q := url.Values{}
@@ -147,7 +147,7 @@ func query(ctx context.Context, client *papi.Client, calendarID string, start, e
 }
 
 // Get fetches a single raw event.
-func Get(ctx context.Context, client *papi.Client, calendarID, eventID string) (*caltypes.RawEvent, error) {
+func Get(ctx context.Context, client papi.API, calendarID, eventID string) (*caltypes.RawEvent, error) {
 	var raw json.RawMessage
 	if err := client.Get(ctx, calendar.APIPath+"/"+calendarID+"/events/"+eventID, nil, &raw); err != nil {
 		return nil, fmt.Errorf("calendar %s: fetching event %s: %w", calendarID, eventID, err)
@@ -168,7 +168,7 @@ func Get(ctx context.Context, client *papi.Client, calendarID, eventID string) (
 
 // GetByUID fetches all raw rows sharing an iCal UID (master + exceptions);
 // the UID query param filters server-side (verified live).
-func GetByUID(ctx context.Context, client *papi.Client, calendarID, uid string) ([]*caltypes.RawEvent, error) {
+func GetByUID(ctx context.Context, client papi.API, calendarID, uid string) ([]*caltypes.RawEvent, error) {
 	q := url.Values{}
 	q.Set("UID", uid)
 	q.Set("Page", "0")
@@ -181,7 +181,7 @@ func GetByUID(ctx context.Context, client *papi.Client, calendarID, uid string) 
 }
 
 // deleteRows deletes raw event rows by ID in a single sync call.
-func deleteRows(ctx context.Context, client *papi.Client, calendarID string, eventIDs []string, memberID string) error {
+func deleteRows(ctx context.Context, client papi.API, calendarID string, eventIDs []string, memberID string) error {
 	reqs := make([]syncEventReq, 0, len(eventIDs))
 	for _, id := range eventIDs {
 		reqs = append(reqs, syncEventReq{ID: id})
