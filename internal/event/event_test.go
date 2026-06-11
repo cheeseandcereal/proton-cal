@@ -262,8 +262,8 @@ func TestDecryptRoundTrip(t *testing.T) {
 	}
 	// Fragment DTSTART (09:00 Berlin = 07:00 UTC on 2026-06-15) overrides raw metadata.
 	wantStart := time.Date(2026, 6, 15, 7, 0, 0, 0, time.UTC).Unix()
-	if ev.StartTime != wantStart {
-		t.Errorf("StartTime = %d, want %d (fragment overrides metadata)", ev.StartTime, wantStart)
+	if ev.Start.Unix() != wantStart {
+		t.Errorf("Start = %d, want %d (fragment overrides metadata)", ev.Start.Unix(), wantStart)
 	}
 }
 

@@ -31,31 +31,31 @@ var NewUID = func() string {
 	return hex.EncodeToString(b[:])
 }
 
-// Event is a decrypted calendar event.
+// Event is a decrypted calendar event. Times are absolute instants;
+// rendering (including any unix-timestamp encoding) is a frontend concern.
 type Event struct {
-	EventID    string `json:"id"`
-	UID        string `json:"uid"`
-	CalendarID string `json:"calendar_id"`
+	EventID    string
+	UID        string
+	CalendarID string
 
-	Summary     string `json:"summary,omitempty"`
-	Description string `json:"description,omitempty"`
-	Location    string `json:"location,omitempty"`
-	Status      string `json:"status,omitempty"`
+	Summary     string
+	Description string
+	Location    string
+	Status      string
 
-	StartTime     int64  `json:"start_ts"`
-	EndTime       int64  `json:"end_ts"`
-	StartTimezone string `json:"start_timezone,omitempty"`
-	EndTimezone   string `json:"end_timezone,omitempty"`
-	AllDay        bool   `json:"all_day"`
+	Start, End    time.Time
+	StartTimezone string
+	EndTimezone   string
+	AllDay        bool
 
-	RRule        string  `json:"rrule,omitempty"`
-	RecurrenceID int64   `json:"recurrence_id,omitempty"`
-	Exdates      []int64 `json:"exdates,omitempty"`
+	RRule        string
+	RecurrenceID time.Time // zero = not a single-edit exception row
+	Exdates      []time.Time
 
-	// RawSharedSigned is the verbatim shared-signed fragment (SEQUENCE
-	// extraction for updates).
-	RawSharedSigned string `json:"-"`
-	Sequence        int    `json:"-"`
+	// RawSharedSigned is the verbatim shared-signed fragment (kept for
+	// diagnostics; SEQUENCE is parsed into Sequence).
+	RawSharedSigned string
+	Sequence        int
 }
 
 // IsRecurring reports whether the event is a recurring series master.
@@ -109,10 +109,20 @@ func (o UpdateOptions) Significant() bool {
 	return o.Start != nil || o.End != nil || o.RRule != nil || o.ClearRRule || len(o.AddExdates) > 0
 }
 
+// DeleteKind classifies what a SmartDelete deleted.
+type DeleteKind string
+
+// DeleteKind values.
+const (
+	DeletedOccurrence DeleteKind = "occurrence"
+	DeletedSeries     DeleteKind = "series"
+	DeletedEvent      DeleteKind = "event"
+)
+
 // DeleteResult describes what SmartDelete actually deleted.
 type DeleteResult struct {
-	Kind        string `json:"kind"` // "occurrence" | "series" | "event"
-	RowsDeleted int    `json:"rows_deleted"`
+	Kind        DeleteKind `json:"kind"`
+	RowsDeleted int        `json:"rows_deleted"`
 }
 
 // UpdateOutcome describes what SmartUpdate did.

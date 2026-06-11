@@ -102,7 +102,7 @@ func TestRecurringLifecycle(t *testing.T) {
 		t.Fatalf("expected 4 occurrences after deleting one, got %d", len(listed))
 	}
 	masterEv := getDecrypted(t, client, access, masterID)
-	if !containsTS(masterEv.Exdates, deletedOcc) {
+	if !containsTime(masterEv.Exdates, deletedOcc) {
 		t.Errorf("master Exdates %v do not contain the deleted occurrence %d", masterEv.Exdates, deletedOcc)
 	}
 	if masterEv.RRule != rrule {
@@ -130,13 +130,13 @@ func TestRecurringLifecycle(t *testing.T) {
 	var masterRows, editedRows int
 	for _, l := range listed {
 		switch {
-		case l.Event.RecurrenceID != 0:
+		case !l.Event.RecurrenceID.IsZero():
 			editedRows++
 			if l.Event.Summary != editedSummary {
 				t.Errorf("exception row summary = %q, want %q", l.Event.Summary, editedSummary)
 			}
-			if l.Event.RecurrenceID != editedOcc {
-				t.Errorf("exception RecurrenceID = %d, want the original start %d", l.Event.RecurrenceID, editedOcc)
+			if l.Event.RecurrenceID.Unix() != editedOcc {
+				t.Errorf("exception RecurrenceID = %d, want the original start %d", l.Event.RecurrenceID.Unix(), editedOcc)
 			}
 		default:
 			masterRows++
@@ -151,8 +151,8 @@ func TestRecurringLifecycle(t *testing.T) {
 
 	// d. A significant master update (start +1h) invalidates the single
 	// edit: the exception row from (c) must be cleaned up.
-	newStart := time.Unix(masterEv.StartTime, 0).UTC().Add(time.Hour)
-	newEnd := time.Unix(masterEv.EndTime, 0).UTC().Add(time.Hour)
+	newStart := masterEv.Start.Add(time.Hour)
+	newEnd := masterEv.End.Add(time.Hour)
 	outcome, err = event.SmartUpdate(ctx, client, access, masterID, event.UpdateOptions{
 		Start: ptr(newStart),
 		End:   ptr(newEnd),
@@ -186,9 +186,9 @@ func TestRecurringLifecycle(t *testing.T) {
 	}
 }
 
-func containsTS(haystack []int64, needle int64) bool {
-	for _, ts := range haystack {
-		if ts == needle {
+func containsTime(haystack []time.Time, needle int64) bool {
+	for _, t := range haystack {
+		if t.Unix() == needle {
 			return true
 		}
 	}

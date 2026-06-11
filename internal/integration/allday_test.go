@@ -67,8 +67,8 @@ func TestAllDayLifecycle(t *testing.T) {
 	if ev.Summary != summary {
 		t.Errorf("summary round-trip: got %q, want %q", ev.Summary, summary)
 	}
-	if ev.StartTime != day.Unix() {
-		t.Errorf("decrypted StartTime = %d, want %d (midnight UTC)", ev.StartTime, day.Unix())
+	if ev.Start.Unix() != day.Unix() {
+		t.Errorf("decrypted Start = %d, want %d (midnight UTC)", ev.Start.Unix(), day.Unix())
 	}
 
 	// 3. Field-only update must keep the event all-day and keep its date.

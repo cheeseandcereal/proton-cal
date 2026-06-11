@@ -44,17 +44,17 @@ func Create(ctx context.Context, client papi.API, access *calendar.Access, opts 
 	if uid == "" {
 		uid = NewUID()
 	}
-	frags, err := ical.BuildFragments(ical.EventFields{
+	frags, err := ical.BuildFragments(ical.VEvent{
 		UID:          uid,
 		DTStamp:      Now().UTC(),
-		Start:        opts.Start,
-		End:          opts.End,
+		Start:        &opts.Start,
+		End:          &opts.End,
 		TZName:       opts.TZName,
 		AllDay:       opts.AllDay,
-		Summary:      opts.Summary,
-		Description:  opts.Description,
-		Location:     opts.Location,
-		Sequence:     opts.Sequence,
+		Summary:      &opts.Summary,
+		Description:  &opts.Description,
+		Location:     &opts.Location,
+		Sequence:     &opts.Sequence,
 		RRule:        opts.RRule,
 		RecurrenceID: opts.RecurrenceID,
 	})
@@ -139,47 +139,42 @@ func update(ctx context.Context, client papi.API, access *calendar.Access, event
 		if opts.RRule != nil {
 			rrule = *opts.RRule
 		}
-		for _, ts := range current.Exdates {
-			exdates = append(exdates, time.Unix(ts, 0).UTC())
-		}
+		exdates = append(exdates, current.Exdates...)
 		exdates = append(exdates, opts.AddExdates...)
 	}
 
 	var recurrenceID *time.Time
-	if current.RecurrenceID != 0 {
-		t := time.Unix(current.RecurrenceID, 0).UTC()
+	if !current.RecurrenceID.IsZero() {
+		t := current.RecurrenceID
 		recurrenceID = &t
 	}
 
-	merged := ical.EventFields{
+	start := current.Start
+	if opts.Start != nil {
+		start = *opts.Start
+	}
+	end := current.End
+	if opts.End != nil {
+		end = *opts.End
+	}
+	summary := strOr(opts.Summary, current.Summary)
+	description := strOr(opts.Description, current.Description)
+	location := strOr(opts.Location, current.Location)
+
+	merged := ical.VEvent{
 		UID:          current.UID,
 		DTStamp:      Now().UTC(),
-		Start:        time.Unix(current.StartTime, 0).UTC(),
-		End:          time.Unix(current.EndTime, 0).UTC(),
+		Start:        &start,
+		End:          &end,
 		TZName:       tzEff,
 		AllDay:       current.AllDay,
-		Summary:      current.Summary,
-		Description:  current.Description,
-		Location:     current.Location,
-		Sequence:     sequence,
+		Summary:      &summary,
+		Description:  &description,
+		Location:     &location,
+		Sequence:     &sequence,
 		RRule:        rrule,
 		Exdates:      exdates,
 		RecurrenceID: recurrenceID,
-	}
-	if opts.Start != nil {
-		merged.Start = *opts.Start
-	}
-	if opts.End != nil {
-		merged.End = *opts.End
-	}
-	if opts.Summary != nil {
-		merged.Summary = *opts.Summary
-	}
-	if opts.Description != nil {
-		merged.Description = *opts.Description
-	}
-	if opts.Location != nil {
-		merged.Location = *opts.Location
 	}
 
 	frags, err := ical.BuildFragments(merged)

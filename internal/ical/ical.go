@@ -11,11 +11,11 @@
 //   - Content lines are folded at 75 octets per RFC 5545 §3.1, matching
 //     what the Proton web client itself produces.
 //
-// Parsing is hand-rolled rather than using github.com/emersion/go-ical:
-// that module is not in this repo's go.mod/go.sum (which must not be
-// modified), and its decoder is stricter than Proton's fragments, which
-// lack VERSION/PRODID. The tolerant parser here never panics and skips
-// anything it cannot understand.
+// Parsing is hand-rolled rather than using an iCalendar library: Proton's
+// fragments lack VERSION/PRODID and a trailing CRLF, which strict decoders
+// reject whole-input, and the signed cards must be reproduced byte-for-byte
+// (detached signatures cover the exact bytes). The tolerant parser here
+// never panics and skips anything it cannot understand.
 package ical
 
 import (
@@ -26,17 +26,29 @@ import (
 	"github.com/cheeseandcereal/proton-cal/internal/icaltime"
 )
 
-// EventFields is everything that goes into the four fragments.
-type EventFields struct {
-	UID          string
-	DTStamp      time.Time
-	Start, End   time.Time
-	TZName       string // IANA zone for serializing times; ""/"UTC" → Z form
-	AllDay       bool
-	Summary      string
-	Description  string
-	Location     string
-	Sequence     int
+// VEvent is the structured content of one VEVENT: the input to
+// BuildFragments and the output of ParseFragment. Pointer fields
+// distinguish "absent" from "present but zero" (update logic needs
+// keep-current semantics; a genuine 1970-01-01 start is not "missing").
+type VEvent struct {
+	UID     string
+	DTStamp time.Time
+
+	Start, End *time.Time
+	TZName     string // IANA zone for serializing times; ""/"UTC" → Z form
+	AllDay     bool
+
+	Summary     *string
+	Description *string
+	Location    *string
+
+	Status  *string    // build: nil → STATUS:CONFIRMED
+	Transp  *string    // build: nil → TRANSP:OPAQUE
+	Created *time.Time // build: nil → CREATED:<DTStamp>
+	Comment *string    // build: nil → empty COMMENT:
+
+	Sequence *int // build: nil → SEQUENCE:0
+
 	RRule        string      // verbatim RRULE value ("" = none)
 	Exdates      []time.Time // deleted occurrence starts
 	RecurrenceID *time.Time  // original occurrence start (exception rows)
@@ -80,73 +92,129 @@ func dtProp(name string, t time.Time, tzName string, allDay bool) (string, error
 //
 //	shared signed:      UID, DTSTAMP, DTSTART, DTEND, [RECURRENCE-ID], [RRULE], EXDATEs, SEQUENCE
 //	shared encrypted:   UID, DTSTAMP, CREATED, [SUMMARY], [DESCRIPTION], [LOCATION]
-//	calendar signed:    UID, DTSTAMP, EXDATEs, STATUS:CONFIRMED, TRANSP:OPAQUE
-//	calendar encrypted: UID, DTSTAMP, COMMENT:
+//	calendar signed:    UID, DTSTAMP, EXDATEs, STATUS, TRANSP
+//	calendar encrypted: UID, DTSTAMP, COMMENT
 //
 // TEXT values are escaped with escapeText and every content line is
 // folded with foldLine. The wrapper carries no VERSION/PRODID and no
 // trailing CRLF — Proton's parts don't.
-func BuildFragments(f EventFields) (Fragments, error) {
-	dtstamp := icaltime.FormatUTC(f.DTStamp)
+func BuildFragments(v VEvent) (Fragments, error) {
+	if v.Start == nil || v.End == nil {
+		return Fragments{}, fmt.Errorf("ical: event must have start and end times")
+	}
 
-	dtstart, err := dtProp("DTSTART", f.Start, f.TZName, f.AllDay)
+	sharedSigned, err := buildSharedSigned(v)
 	if err != nil {
 		return Fragments{}, err
 	}
-	dtend, err := dtProp("DTEND", f.End, f.TZName, f.AllDay)
+	calendarSigned, err := buildCalendarSigned(v)
 	if err != nil {
 		return Fragments{}, err
 	}
-	exdateLines := make([]string, 0, len(f.Exdates))
-	for _, d := range f.Exdates {
-		line, err := dtProp("EXDATE", d, f.TZName, f.AllDay)
-		if err != nil {
-			return Fragments{}, err
-		}
-		exdateLines = append(exdateLines, line)
-	}
-
-	// Shared signed: uid, dtstamp, dtstart, dtend, recurrence-id, rrule, exdate, sequence.
-	sharedSigned := []string{"UID:" + f.UID, "DTSTAMP:" + dtstamp, dtstart, dtend}
-	if f.RecurrenceID != nil {
-		recID, err := dtProp("RECURRENCE-ID", *f.RecurrenceID, f.TZName, f.AllDay)
-		if err != nil {
-			return Fragments{}, err
-		}
-		sharedSigned = append(sharedSigned, recID)
-	}
-	if f.RRule != "" {
-		sharedSigned = append(sharedSigned, "RRULE:"+f.RRule)
-	}
-	sharedSigned = append(sharedSigned, exdateLines...)
-	sharedSigned = append(sharedSigned, fmt.Sprintf("SEQUENCE:%d", f.Sequence))
-
-	// Shared encrypted: uid, dtstamp, created, summary, description, location.
-	sharedEncrypted := []string{"UID:" + f.UID, "DTSTAMP:" + dtstamp, "CREATED:" + dtstamp}
-	if f.Summary != "" {
-		sharedEncrypted = append(sharedEncrypted, "SUMMARY:"+escapeText(f.Summary))
-	}
-	if f.Description != "" {
-		sharedEncrypted = append(sharedEncrypted, "DESCRIPTION:"+escapeText(f.Description))
-	}
-	if f.Location != "" {
-		sharedEncrypted = append(sharedEncrypted, "LOCATION:"+escapeText(f.Location))
-	}
-
-	// Calendar signed: uid, dtstamp, exdate, status, transp.
-	calendarSigned := []string{"UID:" + f.UID, "DTSTAMP:" + dtstamp}
-	calendarSigned = append(calendarSigned, exdateLines...)
-	calendarSigned = append(calendarSigned, "STATUS:CONFIRMED", "TRANSP:OPAQUE")
-
-	// Calendar encrypted: uid, dtstamp, empty comment.
-	calendarEncrypted := []string{"UID:" + f.UID, "DTSTAMP:" + dtstamp, "COMMENT:"}
-
 	return Fragments{
 		SharedSigned:      wrap(sharedSigned),
-		SharedEncrypted:   wrap(sharedEncrypted),
+		SharedEncrypted:   wrap(buildSharedEncrypted(v)),
 		CalendarSigned:    wrap(calendarSigned),
-		CalendarEncrypted: wrap(calendarEncrypted),
+		CalendarEncrypted: wrap(buildCalendarEncrypted(v)),
 	}, nil
+}
+
+// exdateLines renders one EXDATE line per deleted occurrence.
+func exdateLines(v VEvent) ([]string, error) {
+	lines := make([]string, 0, len(v.Exdates))
+	for _, d := range v.Exdates {
+		line, err := dtProp("EXDATE", d, v.TZName, v.AllDay)
+		if err != nil {
+			return nil, err
+		}
+		lines = append(lines, line)
+	}
+	return lines, nil
+}
+
+// buildSharedSigned renders the plaintext-signed shared card: times and
+// recurrence structure.
+func buildSharedSigned(v VEvent) ([]string, error) {
+	dtstart, err := dtProp("DTSTART", *v.Start, v.TZName, v.AllDay)
+	if err != nil {
+		return nil, err
+	}
+	dtend, err := dtProp("DTEND", *v.End, v.TZName, v.AllDay)
+	if err != nil {
+		return nil, err
+	}
+
+	lines := []string{"UID:" + v.UID, "DTSTAMP:" + icaltime.FormatUTC(v.DTStamp), dtstart, dtend}
+	if v.RecurrenceID != nil {
+		recID, err := dtProp("RECURRENCE-ID", *v.RecurrenceID, v.TZName, v.AllDay)
+		if err != nil {
+			return nil, err
+		}
+		lines = append(lines, recID)
+	}
+	if v.RRule != "" {
+		lines = append(lines, "RRULE:"+v.RRule)
+	}
+	exdates, err := exdateLines(v)
+	if err != nil {
+		return nil, err
+	}
+	lines = append(lines, exdates...)
+	sequence := 0
+	if v.Sequence != nil {
+		sequence = *v.Sequence
+	}
+	return append(lines, fmt.Sprintf("SEQUENCE:%d", sequence)), nil
+}
+
+// buildSharedEncrypted renders the encrypted shared card: creation time and
+// the user-visible text fields.
+func buildSharedEncrypted(v VEvent) []string {
+	dtstamp := icaltime.FormatUTC(v.DTStamp)
+	created := dtstamp
+	if v.Created != nil {
+		created = icaltime.FormatUTC(*v.Created)
+	}
+	lines := []string{"UID:" + v.UID, "DTSTAMP:" + dtstamp, "CREATED:" + created}
+	if v.Summary != nil && *v.Summary != "" {
+		lines = append(lines, "SUMMARY:"+escapeText(*v.Summary))
+	}
+	if v.Description != nil && *v.Description != "" {
+		lines = append(lines, "DESCRIPTION:"+escapeText(*v.Description))
+	}
+	if v.Location != nil && *v.Location != "" {
+		lines = append(lines, "LOCATION:"+escapeText(*v.Location))
+	}
+	return lines
+}
+
+// buildCalendarSigned renders the plaintext-signed calendar card: EXDATEs
+// (mirrored), STATUS and TRANSP.
+func buildCalendarSigned(v VEvent) ([]string, error) {
+	lines := []string{"UID:" + v.UID, "DTSTAMP:" + icaltime.FormatUTC(v.DTStamp)}
+	exdates, err := exdateLines(v)
+	if err != nil {
+		return nil, err
+	}
+	lines = append(lines, exdates...)
+	status := "CONFIRMED"
+	if v.Status != nil && *v.Status != "" {
+		status = *v.Status
+	}
+	transp := "OPAQUE"
+	if v.Transp != nil && *v.Transp != "" {
+		transp = *v.Transp
+	}
+	return append(lines, "STATUS:"+escapeText(status), "TRANSP:"+escapeText(transp)), nil
+}
+
+// buildCalendarEncrypted renders the encrypted calendar card: the comment.
+func buildCalendarEncrypted(v VEvent) []string {
+	comment := ""
+	if v.Comment != nil {
+		comment = *v.Comment
+	}
+	return []string{"UID:" + v.UID, "DTSTAMP:" + icaltime.FormatUTC(v.DTStamp), "COMMENT:" + escapeText(comment)}
 }
 
 // wrap folds each content line and joins everything into a VCALENDAR/

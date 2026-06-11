@@ -9,21 +9,6 @@ import (
 	"github.com/cheeseandcereal/proton-cal/internal/icaltime"
 )
 
-// ParsedEvent holds fields extracted from one decrypted/plaintext
-// fragment. Pointer fields distinguish "absent" from "empty" (update
-// logic needs keep-current semantics).
-type ParsedEvent struct {
-	UID         string
-	Summary     *string
-	Description *string
-	Location    *string
-	Status      *string
-	StartTS     int64 // 0 when absent; unix ts (all-day DATE values anchor at UTC midnight)
-	EndTS       int64
-	Sequence    int // 0 when absent
-	HasSequence bool
-}
-
 // errNoContent is returned by ParseFragment when the input contains no
 // parseable iCalendar content lines at all.
 var errNoContent = errors.New("ical: no parseable content")
@@ -31,109 +16,143 @@ var errNoContent = errors.New("ical: no parseable content")
 // ParseFragment parses an iCal fragment (full VCALENDAR or bare VEVENT,
 // folded or unfolded lines, escaped TEXT values) tolerantly: unknown
 // properties are ignored, malformed datetimes are skipped, and it never
-// panics. Garbage input yields a zero ParsedEvent and an error.
+// panics. Garbage input yields a zero VEvent and an error.
 //
-// It extracts the event fields plus UID and SEQUENCE. All VEVENT
-// components are scanned (later values win); properties of nested
-// components (e.g. VALARM) and of non-VEVENT components (e.g. VTIMEZONE)
-// are skipped.
-// Input without any BEGIN:VEVENT is treated as a bare property list.
-func ParseFragment(data string) (ParsedEvent, error) {
-	var ev ParsedEvent
+// All VEVENT components are scanned (later values win); properties of
+// nested components (e.g. VALARM) and of non-VEVENT components (e.g.
+// VTIMEZONE) are skipped. Input without any BEGIN:VEVENT is treated as a
+// bare property list.
+func ParseFragment(data string) (VEvent, error) {
+	var ev VEvent
 
 	lines := unfoldLines(data)
 	if len(lines) == 0 {
 		return ev, errNoContent
 	}
 
-	hasVEvent := false
-	for _, l := range lines {
-		if strings.EqualFold(strings.TrimSpace(l), "BEGIN:VEVENT") {
-			hasVEvent = true
-			break
-		}
-	}
-
 	parsedAny := false
-	inEvent := !hasVEvent // bare property list: treat everything as event content
-	depth := 0            // nesting depth of non-VEVENT components
-
-	for _, line := range lines {
+	for _, line := range eventContentLines(lines) {
 		name, params, value, ok := splitContentLine(line)
 		if !ok {
 			continue
 		}
-		switch name {
-		case "BEGIN":
-			if hasVEvent {
-				if strings.EqualFold(value, "VEVENT") && !inEvent && depth == 0 {
-					inEvent = true
-				} else if inEvent {
-					depth++ // nested component inside VEVENT (e.g. VALARM)
-				}
-			} else {
-				depth++ // structured non-VEVENT content (e.g. VTIMEZONE)
-			}
-			continue
-		case "END":
-			if hasVEvent {
-				if inEvent && depth > 0 {
-					depth--
-				} else if inEvent && strings.EqualFold(value, "VEVENT") {
-					inEvent = false
-				}
-			} else if depth > 0 {
-				depth--
-			}
-			continue
-		}
-		if !inEvent || depth > 0 {
-			continue
-		}
-
-		switch name {
-		case "UID":
-			ev.UID = unescapeText(value)
+		if applyProperty(&ev, name, params, value) {
 			parsedAny = true
-		case "SUMMARY":
-			s := unescapeText(value)
-			ev.Summary = &s
-			parsedAny = true
-		case "DESCRIPTION":
-			s := unescapeText(value)
-			ev.Description = &s
-			parsedAny = true
-		case "LOCATION":
-			s := unescapeText(value)
-			ev.Location = &s
-			parsedAny = true
-		case "STATUS":
-			s := unescapeText(value)
-			ev.Status = &s
-			parsedAny = true
-		case "DTSTART":
-			if t, ok := parseDateTime(value, params); ok {
-				ev.StartTS = t.Unix()
-				parsedAny = true
-			}
-		case "DTEND":
-			if t, ok := parseDateTime(value, params); ok {
-				ev.EndTS = t.Unix()
-				parsedAny = true
-			}
-		case "SEQUENCE":
-			if n, err := strconv.Atoi(strings.TrimSpace(value)); err == nil {
-				ev.Sequence = n
-				ev.HasSequence = true
-				parsedAny = true
-			}
 		}
 	}
 
-	if !parsedAny && !hasVEvent {
-		return ParsedEvent{}, errNoContent
+	if !parsedAny && !hasVEventComponent(lines) {
+		return VEvent{}, errNoContent
 	}
 	return ev, nil
+}
+
+// hasVEventComponent reports whether any line opens a VEVENT component.
+func hasVEventComponent(lines []string) bool {
+	for _, l := range lines {
+		if strings.EqualFold(strings.TrimSpace(l), "BEGIN:VEVENT") {
+			return true
+		}
+	}
+	return false
+}
+
+// eventContentLines returns the content lines belonging directly to VEVENT
+// components: component-boundary lines and the contents of nested (VALARM)
+// or non-VEVENT (VTIMEZONE) components are dropped. Input without any
+// BEGIN:VEVENT is treated as a bare property list, minus any structured
+// non-VEVENT components it contains.
+func eventContentLines(lines []string) []string {
+	hasVEvent := hasVEventComponent(lines)
+
+	inEvent := !hasVEvent // bare property list: treat everything as event content
+	depth := 0            // nesting depth of non-VEVENT components
+
+	out := make([]string, 0, len(lines))
+	for _, line := range lines {
+		name, _, value, ok := splitContentLine(line)
+		if ok {
+			switch name {
+			case "BEGIN":
+				if hasVEvent {
+					if strings.EqualFold(value, "VEVENT") && !inEvent && depth == 0 {
+						inEvent = true
+					} else if inEvent {
+						depth++ // nested component inside VEVENT (e.g. VALARM)
+					}
+				} else {
+					depth++ // structured non-VEVENT content (e.g. VTIMEZONE)
+				}
+				continue
+			case "END":
+				if hasVEvent {
+					if inEvent && depth > 0 {
+						depth--
+					} else if inEvent && strings.EqualFold(value, "VEVENT") {
+						inEvent = false
+					}
+				} else if depth > 0 {
+					depth--
+				}
+				continue
+			}
+		}
+		if inEvent && depth == 0 {
+			out = append(out, line)
+		}
+	}
+	return out
+}
+
+// applyProperty applies one recognized content line to ev, reporting
+// whether anything was extracted. Unknown properties and malformed values
+// are skipped (tolerant parsing).
+func applyProperty(ev *VEvent, name string, params map[string]string, value string) bool {
+	setText := func(dst **string) bool {
+		s := unescapeText(value)
+		*dst = &s
+		return true
+	}
+	setTime := func(dst **time.Time) bool {
+		t, ok := parseDateTime(value, params)
+		if !ok {
+			return false
+		}
+		*dst = &t
+		return true
+	}
+
+	switch name {
+	case "UID":
+		ev.UID = unescapeText(value)
+		return true
+	case "SUMMARY":
+		return setText(&ev.Summary)
+	case "DESCRIPTION":
+		return setText(&ev.Description)
+	case "LOCATION":
+		return setText(&ev.Location)
+	case "STATUS":
+		return setText(&ev.Status)
+	case "TRANSP":
+		return setText(&ev.Transp)
+	case "COMMENT":
+		return setText(&ev.Comment)
+	case "DTSTART":
+		return setTime(&ev.Start)
+	case "DTEND":
+		return setTime(&ev.End)
+	case "CREATED":
+		return setTime(&ev.Created)
+	case "SEQUENCE":
+		n, err := strconv.Atoi(strings.TrimSpace(value))
+		if err != nil {
+			return false
+		}
+		ev.Sequence = &n
+		return true
+	}
+	return false
 }
 
 // splitContentLine splits a content line into upper-cased name, parameter

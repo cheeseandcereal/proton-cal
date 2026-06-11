@@ -3,6 +3,7 @@ package event
 import (
 	"context"
 	"errors"
+	"time"
 
 	"github.com/ProtonMail/gopenpgp/v2/crypto"
 
@@ -21,19 +22,27 @@ func Decrypt(raw *caltypes.RawEvent, calKR *crypto.KeyRing) (*Event, error) {
 	if raw == nil {
 		return nil, errors.New("event: nil raw event")
 	}
+	exdates := make([]time.Time, 0, len(raw.Exdates))
+	for _, ts := range raw.Exdates {
+		exdates = append(exdates, time.Unix(ts, 0).UTC())
+	}
+	var recurrenceID time.Time
+	if raw.RecurrenceID != 0 {
+		recurrenceID = time.Unix(raw.RecurrenceID, 0).UTC()
+	}
 	ev := &Event{
 		EventID:       raw.ID,
 		UID:           raw.UID,
 		CalendarID:    raw.CalendarID,
-		StartTime:     raw.StartTime,
-		EndTime:       raw.EndTime,
+		Start:         time.Unix(raw.StartTime, 0).UTC(),
+		End:           time.Unix(raw.EndTime, 0).UTC(),
 		StartTimezone: raw.StartTimezone,
 		EndTimezone:   raw.EndTimezone,
 		AllDay:        raw.IsAllDay(),
 		Status:        "CONFIRMED",
 		RRule:         raw.RRule,
-		RecurrenceID:  raw.RecurrenceID,
-		Exdates:       append([]int64(nil), raw.Exdates...),
+		RecurrenceID:  recurrenceID,
+		Exdates:       exdates,
 	}
 	// Shared parts: summary/description/location (encrypted) and
 	// times/recurrence (signed). The signed fragment is kept verbatim for
@@ -74,14 +83,14 @@ func mergeParts(ev *Event, parts []caltypes.EventPart, keyPacketB64 string, calK
 		if err != nil {
 			continue
 		}
-		if shared && signed && parsed.HasSequence {
-			ev.Sequence = parsed.Sequence
+		if shared && signed && parsed.Sequence != nil {
+			ev.Sequence = *parsed.Sequence
 		}
 		mergeParsed(ev, parsed)
 	}
 }
 
-func mergeParsed(ev *Event, p ical.ParsedEvent) {
+func mergeParsed(ev *Event, p ical.VEvent) {
 	if p.Summary != nil {
 		ev.Summary = *p.Summary
 	}
@@ -94,11 +103,11 @@ func mergeParsed(ev *Event, p ical.ParsedEvent) {
 	if p.Status != nil && *p.Status != "" {
 		ev.Status = *p.Status
 	}
-	if p.StartTS != 0 {
-		ev.StartTime = p.StartTS
+	if p.Start != nil {
+		ev.Start = p.Start.UTC()
 	}
-	if p.EndTS != 0 {
-		ev.EndTime = p.EndTS
+	if p.End != nil {
+		ev.End = p.End.UTC()
 	}
 }
 

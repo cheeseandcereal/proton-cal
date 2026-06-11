@@ -52,7 +52,7 @@ func TestZSweep(t *testing.T) {
 		// so same-UID leftovers can then be skipped.
 		var masters, others []*event.Event
 		for _, ev := range rows {
-			if ev.IsRecurring() && ev.RecurrenceID == 0 {
+			if ev.IsRecurring() && ev.RecurrenceID.IsZero() {
 				masters = append(masters, ev)
 			} else {
 				others = append(others, ev)

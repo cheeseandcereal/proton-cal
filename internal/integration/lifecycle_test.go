@@ -54,11 +54,11 @@ func TestEventLifecycle(t *testing.T) {
 	if ev.Location != location {
 		t.Errorf("location round-trip: got %q, want %q", ev.Location, location)
 	}
-	if ev.StartTime != start.Unix() {
-		t.Errorf("StartTime = %d, want %d", ev.StartTime, start.Unix())
+	if !ev.Start.Equal(start) {
+		t.Errorf("Start = %v, want %v", ev.Start, start)
 	}
-	if ev.EndTime != end.Unix() {
-		t.Errorf("EndTime = %d, want %d", ev.EndTime, end.Unix())
+	if !ev.End.Equal(end) {
+		t.Errorf("End = %v, want %v", ev.End, end)
 	}
 	if ev.AllDay {
 		t.Error("timed event decrypted as all-day")
@@ -83,9 +83,9 @@ func TestEventLifecycle(t *testing.T) {
 	if ev.Location != location {
 		t.Errorf("location not preserved across summary update: got %q", ev.Location)
 	}
-	if ev.StartTime != start.Unix() || ev.EndTime != end.Unix() {
+	if !ev.Start.Equal(start) || !ev.End.Equal(end) {
 		t.Errorf("times changed by a field-only update: start %d end %d, want %d/%d",
-			ev.StartTime, ev.EndTime, start.Unix(), end.Unix())
+			ev.Start.Unix(), ev.End.Unix(), start.Unix(), end.Unix())
 	}
 	if ev.Sequence != seq0 {
 		t.Errorf("field-only update changed SEQUENCE: got %d, want %d", ev.Sequence, seq0)
@@ -101,9 +101,9 @@ func TestEventLifecycle(t *testing.T) {
 		t.Fatalf("SmartUpdate (start +1h): %v", err)
 	}
 	ev = getDecrypted(t, client, access, created.ID)
-	if ev.StartTime != newStart.Unix() || ev.EndTime != newEnd.Unix() {
+	if !ev.Start.Equal(newStart) || !ev.End.Equal(newEnd) {
 		t.Errorf("times after +1h update: start %d end %d, want %d/%d",
-			ev.StartTime, ev.EndTime, newStart.Unix(), newEnd.Unix())
+			ev.Start.Unix(), ev.End.Unix(), newStart.Unix(), newEnd.Unix())
 	}
 	if ev.Sequence <= seq0 {
 		t.Errorf("time update did not bump SEQUENCE: got %d, want > %d", ev.Sequence, seq0)

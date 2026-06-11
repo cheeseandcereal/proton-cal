@@ -6,21 +6,24 @@
 // types are stale (verified live against the API).
 package caltypes
 
-// Calendar card types (CALENDAR_CARD_TYPE in the web client).
+// CardType is a calendar card type (CALENDAR_CARD_TYPE in the web client).
+type CardType int
+
+// Calendar card types.
 const (
-	CardClear              = 0
-	CardEncrypted          = 1
-	CardSigned             = 2
-	CardEncryptedAndSigned = 3
+	CardClear              CardType = 0
+	CardEncrypted          CardType = 1
+	CardSigned             CardType = 2
+	CardEncryptedAndSigned CardType = 3
 )
 
 // EventPart is one content card of an event.
 type EventPart struct {
-	Type      int    `json:"Type"`
-	Data      string `json:"Data"`
-	Signature string `json:"Signature,omitempty"`
-	Author    string `json:"Author,omitempty"`
-	MemberID  string `json:"MemberID,omitempty"`
+	Type      CardType `json:"Type"`
+	Data      string   `json:"Data"`
+	Signature string   `json:"Signature,omitempty"`
+	Author    string   `json:"Author,omitempty"`
+	MemberID  string   `json:"MemberID,omitempty"`
 }
 
 // IsEncrypted reports whether the part's data is PGP-encrypted.

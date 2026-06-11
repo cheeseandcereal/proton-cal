@@ -30,8 +30,8 @@ func listedTimed() event.Listed {
 			Summary:     "Standup",
 			Description: "Weekly sync",
 			Location:    "Zoom",
-			StartTime:   ts(2026, 6, 12, 9, 0),
-			EndTime:     ts(2026, 6, 12, 9, 30),
+			Start:       time.Unix(ts(2026, 6, 12, 9, 0), 0).UTC(),
+			End:         time.Unix(ts(2026, 6, 12, 9, 30), 0).UTC(),
 		},
 	}
 }
@@ -115,7 +115,7 @@ func TestOccurrenceLinesRecurringAllDayMaster(t *testing.T) {
 func TestOccurrenceLinesEditedOccurrence(t *testing.T) {
 	l := listedTimed()
 	l.Occurrence.Event.RecurrenceID = ts(2026, 6, 12, 8, 0)
-	l.Event.RecurrenceID = ts(2026, 6, 12, 8, 0)
+	l.Event.RecurrenceID = time.Unix(ts(2026, 6, 12, 8, 0), 0).UTC()
 	got := occurrenceLines(l, time.UTC)
 	if got[0] != "  2026-06-12 09:00 - 09:30  Standup  (edited occurrence)  [Zoom]" {
 		t.Errorf("edited occurrence head line = %q", got[0])
@@ -171,7 +171,7 @@ func TestOccurrenceJSONAllDayUsesUTC(t *testing.T) {
 func TestOccurrenceJSONEditedOccurrence(t *testing.T) {
 	l := listedTimed()
 	l.Occurrence.Event.RecurrenceID = ts(2026, 6, 12, 8, 0)
-	l.Event.RecurrenceID = ts(2026, 6, 12, 8, 0)
+	l.Event.RecurrenceID = time.Unix(ts(2026, 6, 12, 8, 0), 0).UTC()
 	got := occurrenceJSON(l, time.UTC)
 	if !got.EditedOccurrence || got.Recurring {
 		t.Errorf("EditedOccurrence=%v Recurring=%v, want true/false", got.EditedOccurrence, got.Recurring)

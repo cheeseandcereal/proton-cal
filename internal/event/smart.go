@@ -100,7 +100,7 @@ func SmartDelete(ctx context.Context, client papi.API, access *calendar.Access, 
 			}
 			rows = 2
 		}
-		return &DeleteResult{Kind: "occurrence", RowsDeleted: rows}, nil
+		return &DeleteResult{Kind: DeletedOccurrence, RowsDeleted: rows}, nil
 	}
 
 	if raw.RRule != "" {
@@ -124,13 +124,13 @@ func SmartDelete(ctx context.Context, client papi.API, access *calendar.Access, 
 		if err := deleteRows(ctx, client, access.CalendarID, ids, access.MemberID); err != nil {
 			return nil, err
 		}
-		return &DeleteResult{Kind: "series", RowsDeleted: len(ids)}, nil
+		return &DeleteResult{Kind: DeletedSeries, RowsDeleted: len(ids)}, nil
 	}
 
 	if err := deleteRows(ctx, client, access.CalendarID, []string{eventID}, access.MemberID); err != nil {
 		return nil, err
 	}
-	return &DeleteResult{Kind: "event", RowsDeleted: 1}, nil
+	return &DeleteResult{Kind: DeletedEvent, RowsDeleted: 1}, nil
 }
 
 // SmartUpdate picks the right update strategy for the addressed target:
@@ -167,7 +167,7 @@ func SmartUpdate(ctx context.Context, client papi.API, access *calendar.Access, 
 			return nil, err
 		}
 		occStart := time.Unix(occurrenceTS, 0).UTC()
-		duration := time.Duration(cur.EndTime-cur.StartTime) * time.Second
+		duration := cur.End.Sub(cur.Start)
 		start := occStart
 		if opts.Start != nil {
 			start = *opts.Start

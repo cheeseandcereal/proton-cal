@@ -1,6 +1,7 @@
 package ical
 
 import (
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -11,8 +12,14 @@ import (
 // ptr returns a pointer to v (test helper for expected pointer fields).
 func ptr(s string) *string { return &s }
 
-func tsUTC(year int, month time.Month, day, hour, minute, sec int) int64 {
-	return time.Date(year, month, day, hour, minute, sec, 0, time.UTC).Unix()
+func tp(t time.Time) *time.Time { return &t }
+
+func ip(n int) *int { return &n }
+
+// tpUTC returns a pointer to the given UTC instant (test helper for
+// expected parsed times).
+func tpUTC(year int, month time.Month, day, hour, minute, sec int) *time.Time {
+	return tp(time.Date(year, month, day, hour, minute, sec, 0, time.UTC))
 }
 
 func TestEscapeText(t *testing.T) {
@@ -128,12 +135,12 @@ func TestDTProp(t *testing.T) {
 }
 
 // baseFields is the shared fixture for fragment-building tests.
-func baseFields() EventFields {
-	return EventFields{
+func baseFields() VEvent {
+	return VEvent{
 		UID:     "uid-123",
 		DTStamp: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
-		Start:   time.Date(2026, 1, 2, 3, 0, 0, 0, time.UTC),
-		End:     time.Date(2026, 1, 2, 4, 0, 0, 0, time.UTC),
+		Start:   tp(time.Date(2026, 1, 2, 3, 0, 0, 0, time.UTC)),
+		End:     tp(time.Date(2026, 1, 2, 4, 0, 0, 0, time.UTC)),
 	}
 }
 
@@ -144,12 +151,12 @@ func TestBuildFragmentsGolden(t *testing.T) {
 
 	tests := []struct {
 		name   string
-		mutate func(*EventFields)
+		mutate func(*VEvent)
 		want   Fragments
 	}{
 		{
 			name:   "utc timed event",
-			mutate: func(_ *EventFields) {},
+			mutate: func(_ *VEvent) {},
 			want: Fragments{
 				SharedSigned: joinCRLF(
 					"BEGIN:VCALENDAR", "BEGIN:VEVENT",
@@ -182,9 +189,9 @@ func TestBuildFragmentsGolden(t *testing.T) {
 		},
 		{
 			name: "timed event with tzid",
-			mutate: func(f *EventFields) {
+			mutate: func(f *VEvent) {
 				f.TZName = "Europe/Paris"
-				f.Summary = "S"
+				f.Summary = ptr("S")
 			},
 			want: Fragments{
 				SharedSigned: joinCRLF(
@@ -219,10 +226,10 @@ func TestBuildFragmentsGolden(t *testing.T) {
 		},
 		{
 			name: "all day event exclusive dtend",
-			mutate: func(f *EventFields) {
+			mutate: func(f *VEvent) {
 				f.AllDay = true
-				f.Start = time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC)
-				f.End = time.Date(2026, 1, 3, 0, 0, 0, 0, time.UTC) // exclusive
+				f.Start = tp(time.Date(2026, 1, 2, 0, 0, 0, 0, time.UTC))
+				f.End = tp(time.Date(2026, 1, 3, 0, 0, 0, 0, time.UTC)) // exclusive
 			},
 			want: Fragments{
 				SharedSigned: joinCRLF(
@@ -256,14 +263,14 @@ func TestBuildFragmentsGolden(t *testing.T) {
 		},
 		{
 			name: "recurring master with exdates",
-			mutate: func(f *EventFields) {
+			mutate: func(f *VEvent) {
 				f.TZName = "Europe/Paris"
 				f.RRule = "FREQ=DAILY;COUNT=3"
 				f.Exdates = []time.Time{
 					time.Date(2026, 1, 9, 3, 0, 0, 0, time.UTC),
 					time.Date(2026, 1, 10, 3, 0, 0, 0, time.UTC),
 				}
-				f.Sequence = 1
+				f.Sequence = ip(1)
 			},
 			want: Fragments{
 				SharedSigned: joinCRLF(
@@ -302,9 +309,9 @@ func TestBuildFragmentsGolden(t *testing.T) {
 		},
 		{
 			name: "exception row with recurrence id",
-			mutate: func(f *EventFields) {
+			mutate: func(f *VEvent) {
 				f.RecurrenceID = &recID
-				f.Sequence = 2
+				f.Sequence = ip(2)
 			},
 			want: Fragments{
 				SharedSigned: joinCRLF(
@@ -339,10 +346,10 @@ func TestBuildFragmentsGolden(t *testing.T) {
 		},
 		{
 			name: "text fields escaped",
-			mutate: func(f *EventFields) {
-				f.Summary = "lunch, brunch; dinner\\snack"
-				f.Description = "line1\nline2"
-				f.Location = "Cafe; back room, 2nd floor"
+			mutate: func(f *VEvent) {
+				f.Summary = ptr("lunch, brunch; dinner\\snack")
+				f.Description = ptr("line1\nline2")
+				f.Location = ptr("Cafe; back room, 2nd floor")
 			},
 			want: Fragments{
 				SharedSigned: joinCRLF(
@@ -379,7 +386,7 @@ func TestBuildFragmentsGolden(t *testing.T) {
 		},
 		{
 			name:   "sequence rendering",
-			mutate: func(f *EventFields) { f.Sequence = 7 },
+			mutate: func(f *VEvent) { f.Sequence = ip(7) },
 			want: Fragments{
 				SharedSigned: joinCRLF(
 					"BEGIN:VCALENDAR", "BEGIN:VEVENT",
@@ -444,9 +451,29 @@ func TestBuildFragmentsInvalidTimezone(t *testing.T) {
 	}
 }
 
+func TestBuildFragmentsMissingTimes(t *testing.T) {
+	tests := []struct {
+		name   string
+		mutate func(*VEvent)
+	}{
+		{"nil start", func(f *VEvent) { f.Start = nil }},
+		{"nil end", func(f *VEvent) { f.End = nil }},
+		{"both nil", func(f *VEvent) { f.Start, f.End = nil, nil }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			f := baseFields()
+			tt.mutate(&f)
+			if _, err := BuildFragments(f); err == nil {
+				t.Error("expected error for missing start/end time")
+			}
+		})
+	}
+}
+
 func TestBuildFragmentsCRLFOnly(t *testing.T) {
 	f := baseFields()
-	f.Summary = "S"
+	f.Summary = ptr("S")
 	frags, err := BuildFragments(f)
 	if err != nil {
 		t.Fatal(err)
@@ -525,8 +552,8 @@ func TestFoldLine(t *testing.T) {
 	})
 	t.Run("build then parse round trip", func(t *testing.T) {
 		f := baseFields()
-		f.Summary = strings.Repeat("a long summary, with; punctuation\\marks ", 8)
-		f.Description = strings.Repeat("日本語テキスト☕", 30)
+		f.Summary = ptr(strings.Repeat("a long summary, with; punctuation\\marks ", 8))
+		f.Description = ptr(strings.Repeat("日本語テキスト☕", 30))
 		frags, err := BuildFragments(f)
 		if err != nil {
 			t.Fatal(err)
@@ -540,11 +567,11 @@ func TestFoldLine(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if ev.Summary == nil || *ev.Summary != f.Summary {
-			t.Errorf("summary round-trip failed:\ngot:  %q\nwant: %q", deref(ev.Summary), f.Summary)
+		if ev.Summary == nil || *ev.Summary != *f.Summary {
+			t.Errorf("summary round-trip failed:\ngot:  %q\nwant: %q", deref(ev.Summary), *f.Summary)
 		}
-		if ev.Description == nil || *ev.Description != f.Description {
-			t.Errorf("description round-trip failed:\ngot:  %q\nwant: %q", deref(ev.Description), f.Description)
+		if ev.Description == nil || *ev.Description != *f.Description {
+			t.Errorf("description round-trip failed:\ngot:  %q\nwant: %q", deref(ev.Description), *f.Description)
 		}
 	})
 }
@@ -560,7 +587,7 @@ func TestParseFragment(t *testing.T) {
 	tests := []struct {
 		name    string
 		in      string
-		want    ParsedEvent
+		want    VEvent
 		wantErr bool
 	}{
 		{
@@ -577,26 +604,26 @@ func TestParseFragment(t *testing.T) {
 				"LOCATION:There",
 				"STATUS:TENTATIVE",
 				"END:VEVENT", "END:VCALENDAR"),
-			want: ParsedEvent{
+			want: VEvent{
 				UID: "u1", Summary: ptr("Hello"), Description: ptr("World"),
 				Location: ptr("There"), Status: ptr("TENTATIVE"),
-				StartTS: tsUTC(2026, 1, 2, 3, 4, 5), EndTS: tsUTC(2026, 1, 2, 4, 4, 5),
+				Start: tpUTC(2026, 1, 2, 3, 4, 5), End: tpUTC(2026, 1, 2, 4, 4, 5),
 			},
 		},
 		{
 			name: "bare lf line endings",
 			in:   "BEGIN:VCALENDAR\nBEGIN:VEVENT\nUID:u2\nSUMMARY:LF style\nEND:VEVENT\nEND:VCALENDAR",
-			want: ParsedEvent{UID: "u2", Summary: ptr("LF style")},
+			want: VEvent{UID: "u2", Summary: ptr("LF style")},
 		},
 		{
 			name: "bare vevent without vcalendar",
 			in:   "BEGIN:VEVENT\r\nUID:u3\r\nSUMMARY:bare\r\nEND:VEVENT",
-			want: ParsedEvent{UID: "u3", Summary: ptr("bare")},
+			want: VEvent{UID: "u3", Summary: ptr("bare")},
 		},
 		{
 			name: "bare property list",
 			in:   "UID:u4\r\nSUMMARY:no wrapper at all",
-			want: ParsedEvent{UID: "u4", Summary: ptr("no wrapper at all")},
+			want: VEvent{UID: "u4", Summary: ptr("no wrapper at all")},
 		},
 		{
 			name: "tzid datetime form",
@@ -605,7 +632,7 @@ func TestParseFragment(t *testing.T) {
 				"DTSTART;TZID=Europe/Paris:20260102T040000",
 				"DTEND;TZID=Europe/Paris:20260102T050000",
 				"END:VEVENT"),
-			want: ParsedEvent{StartTS: tsUTC(2026, 1, 2, 3, 0, 0), EndTS: tsUTC(2026, 1, 2, 4, 0, 0)},
+			want: VEvent{Start: tpUTC(2026, 1, 2, 3, 0, 0), End: tpUTC(2026, 1, 2, 4, 0, 0)},
 		},
 		{
 			name: "value date form anchors at utc midnight",
@@ -614,48 +641,48 @@ func TestParseFragment(t *testing.T) {
 				"DTSTART;VALUE=DATE:20260102",
 				"DTEND;VALUE=DATE:20260103",
 				"END:VEVENT"),
-			want: ParsedEvent{StartTS: tsUTC(2026, 1, 2, 0, 0, 0), EndTS: tsUTC(2026, 1, 3, 0, 0, 0)},
+			want: VEvent{Start: tpUTC(2026, 1, 2, 0, 0, 0), End: tpUTC(2026, 1, 3, 0, 0, 0)},
 		},
 		{
 			name: "naked date string",
 			in:   "BEGIN:VEVENT\r\nDTSTART:20260102\r\nEND:VEVENT",
-			want: ParsedEvent{StartTS: tsUTC(2026, 1, 2, 0, 0, 0)},
+			want: VEvent{Start: tpUTC(2026, 1, 2, 0, 0, 0)},
 		},
 		{
 			name: "floating datetime without tzid treated as utc",
 			in:   "BEGIN:VEVENT\r\nDTSTART:20260102T030000\r\nEND:VEVENT",
-			want: ParsedEvent{StartTS: tsUTC(2026, 1, 2, 3, 0, 0)},
+			want: VEvent{Start: tpUTC(2026, 1, 2, 3, 0, 0)},
 		},
 		{
 			name: "absent fields are nil pointers",
 			in:   "BEGIN:VEVENT\r\nUID:u5\r\nEND:VEVENT",
-			want: ParsedEvent{UID: "u5"},
+			want: VEvent{UID: "u5"},
 		},
 		{
 			name: "empty fields are non-nil empty strings",
 			in:   "BEGIN:VEVENT\r\nSUMMARY:\r\nLOCATION:\r\nEND:VEVENT",
-			want: ParsedEvent{Summary: ptr(""), Location: ptr("")},
+			want: VEvent{Summary: ptr(""), Location: ptr("")},
 		},
 		{
 			name: "folded summary",
 			in: "BEGIN:VEVENT\r\nSUMMARY:part one \r\n part two\r\n" +
 				"DESCRIPTION:tab\r\n\tfolded\r\nEND:VEVENT",
-			want: ParsedEvent{Summary: ptr("part one part two"), Description: ptr("tabfolded")},
+			want: VEvent{Summary: ptr("part one part two"), Description: ptr("tabfolded")},
 		},
 		{
 			name: "escaped text values",
 			in:   `BEGIN:VEVENT` + "\r\n" + `SUMMARY:a\,b\;c\\d\ne` + "\r\n" + `END:VEVENT`,
-			want: ParsedEvent{Summary: ptr("a,b;c\\d\ne")},
+			want: VEvent{Summary: ptr("a,b;c\\d\ne")},
 		},
 		{
 			name: "sequence present",
 			in:   "BEGIN:VEVENT\r\nSEQUENCE:7\r\nEND:VEVENT",
-			want: ParsedEvent{Sequence: 7, HasSequence: true},
+			want: VEvent{Sequence: ip(7)},
 		},
 		{
 			name: "malformed sequence skipped",
 			in:   "BEGIN:VEVENT\r\nSEQUENCE:abc\r\nEND:VEVENT",
-			want: ParsedEvent{},
+			want: VEvent{},
 		},
 		{
 			name: "malformed datetimes skipped",
@@ -665,7 +692,7 @@ func TestParseFragment(t *testing.T) {
 				"DTEND;TZID=Nope/Nope:20260102T030000",
 				"SUMMARY:still parsed",
 				"END:VEVENT"),
-			want: ParsedEvent{Summary: ptr("still parsed")},
+			want: VEvent{Summary: ptr("still parsed")},
 		},
 		{
 			name: "valarm description does not leak",
@@ -676,7 +703,7 @@ func TestParseFragment(t *testing.T) {
 				"DESCRIPTION:alarm text",
 				"END:VALARM",
 				"END:VEVENT", "END:VCALENDAR"),
-			want: ParsedEvent{Summary: ptr("outer")},
+			want: VEvent{Summary: ptr("outer")},
 		},
 		{
 			name: "vtimezone dtstart does not leak",
@@ -692,7 +719,7 @@ func TestParseFragment(t *testing.T) {
 				"DTSTART:20260102T030000Z",
 				"END:VEVENT",
 				"END:VCALENDAR"),
-			want: ParsedEvent{StartTS: tsUTC(2026, 1, 2, 3, 0, 0)},
+			want: VEvent{Start: tpUTC(2026, 1, 2, 3, 0, 0)},
 		},
 		{
 			name: "unknown properties ignored",
@@ -702,12 +729,12 @@ func TestParseFragment(t *testing.T) {
 				"TRANSP:OPAQUE",
 				"UID:u6",
 				"END:VEVENT"),
-			want: ParsedEvent{UID: "u6"},
+			want: VEvent{UID: "u6", Transp: ptr("OPAQUE")},
 		},
 		{
 			name: "quoted tzid parameter",
 			in:   "BEGIN:VEVENT\r\nDTSTART;TZID=\"Europe/Paris\":20260102T040000\r\nEND:VEVENT",
-			want: ParsedEvent{StartTS: tsUTC(2026, 1, 2, 3, 0, 0)},
+			want: VEvent{Start: tpUTC(2026, 1, 2, 3, 0, 0)},
 		},
 		{
 			name:    "empty input errors",
@@ -727,7 +754,7 @@ func TestParseFragment(t *testing.T) {
 		{
 			name: "garbage with vevent wrapper is tolerated",
 			in:   "BEGIN:VEVENT\r\n%%%garbage line\r\nEND:VEVENT",
-			want: ParsedEvent{},
+			want: VEvent{},
 		},
 	}
 
@@ -738,8 +765,8 @@ func TestParseFragment(t *testing.T) {
 				if err == nil {
 					t.Fatalf("expected error, got %+v", got)
 				}
-				if got != (ParsedEvent{}) {
-					t.Errorf("error case should return zero ParsedEvent, got %+v", got)
+				if !reflect.DeepEqual(got, VEvent{}) {
+					t.Errorf("error case should return zero VEvent, got %+v", got)
 				}
 				return
 			}
@@ -751,7 +778,7 @@ func TestParseFragment(t *testing.T) {
 	}
 }
 
-func assertParsedEqual(t *testing.T, got, want ParsedEvent) {
+func assertParsedEqual(t *testing.T, got, want VEvent) {
 	t.Helper()
 	if got.UID != want.UID {
 		t.Errorf("UID = %q, want %q", got.UID, want.UID)
@@ -760,16 +787,12 @@ func assertParsedEqual(t *testing.T, got, want ParsedEvent) {
 	assertStrPtr(t, "Description", got.Description, want.Description)
 	assertStrPtr(t, "Location", got.Location, want.Location)
 	assertStrPtr(t, "Status", got.Status, want.Status)
-	if got.StartTS != want.StartTS {
-		t.Errorf("StartTS = %d, want %d", got.StartTS, want.StartTS)
-	}
-	if got.EndTS != want.EndTS {
-		t.Errorf("EndTS = %d, want %d", got.EndTS, want.EndTS)
-	}
-	if got.Sequence != want.Sequence || got.HasSequence != want.HasSequence {
-		t.Errorf("Sequence = (%d, %v), want (%d, %v)",
-			got.Sequence, got.HasSequence, want.Sequence, want.HasSequence)
-	}
+	assertStrPtr(t, "Transp", got.Transp, want.Transp)
+	assertStrPtr(t, "Comment", got.Comment, want.Comment)
+	assertTimePtr(t, "Start", got.Start, want.Start)
+	assertTimePtr(t, "End", got.End, want.End)
+	assertTimePtr(t, "Created", got.Created, want.Created)
+	assertIntPtr(t, "Sequence", got.Sequence, want.Sequence)
 }
 
 func assertStrPtr(t *testing.T, field string, got, want *string) {
@@ -783,12 +806,34 @@ func assertStrPtr(t *testing.T, field string, got, want *string) {
 	}
 }
 
+func assertTimePtr(t *testing.T, field string, got, want *time.Time) {
+	t.Helper()
+	switch {
+	case got == nil && want == nil:
+	case got == nil || want == nil:
+		t.Errorf("%s = %v, want %v", field, got, want)
+	case got.Unix() != want.Unix():
+		t.Errorf("%s = %d, want %d", field, got.Unix(), want.Unix())
+	}
+}
+
+func assertIntPtr(t *testing.T, field string, got, want *int) {
+	t.Helper()
+	switch {
+	case got == nil && want == nil:
+	case got == nil || want == nil:
+		t.Errorf("%s = %v, want %v", field, got, want)
+	case *got != *want:
+		t.Errorf("%s = %d, want %d", field, *got, *want)
+	}
+}
+
 func TestParseFragmentRoundTripsBuiltFragments(t *testing.T) {
 	f := baseFields()
-	f.Summary = "Team sync, weekly; planning\\review"
-	f.Description = "agenda:\nitem one\nitem two"
-	f.Location = "Room 2; building A"
-	f.Sequence = 3
+	f.Summary = ptr("Team sync, weekly; planning\\review")
+	f.Description = ptr("agenda:\nitem one\nitem two")
+	f.Location = ptr("Room 2; building A")
+	f.Sequence = ip(3)
 	frags, err := BuildFragments(f)
 	if err != nil {
 		t.Fatal(err)
@@ -801,26 +846,27 @@ func TestParseFragmentRoundTripsBuiltFragments(t *testing.T) {
 	if shared.UID != f.UID {
 		t.Errorf("UID = %q", shared.UID)
 	}
-	if shared.StartTS != f.Start.Unix() || shared.EndTS != f.End.Unix() {
-		t.Errorf("times = (%d, %d), want (%d, %d)",
-			shared.StartTS, shared.EndTS, f.Start.Unix(), f.End.Unix())
+	if shared.Start == nil || shared.End == nil ||
+		shared.Start.Unix() != f.Start.Unix() || shared.End.Unix() != f.End.Unix() {
+		t.Errorf("times = (%v, %v), want (%v, %v)",
+			shared.Start, shared.End, f.Start, f.End)
 	}
-	if !shared.HasSequence || shared.Sequence != 3 {
-		t.Errorf("sequence = (%d, %v)", shared.Sequence, shared.HasSequence)
+	if shared.Sequence == nil || *shared.Sequence != 3 {
+		t.Errorf("sequence = %v", shared.Sequence)
 	}
 
 	enc, err := ParseFragment(frags.SharedEncrypted)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if enc.Summary == nil || *enc.Summary != f.Summary {
-		t.Errorf("Summary = %s, want %q", deref(enc.Summary), f.Summary)
+	if enc.Summary == nil || *enc.Summary != *f.Summary {
+		t.Errorf("Summary = %s, want %q", deref(enc.Summary), *f.Summary)
 	}
-	if enc.Description == nil || *enc.Description != f.Description {
-		t.Errorf("Description = %s, want %q", deref(enc.Description), f.Description)
+	if enc.Description == nil || *enc.Description != *f.Description {
+		t.Errorf("Description = %s, want %q", deref(enc.Description), *f.Description)
 	}
-	if enc.Location == nil || *enc.Location != f.Location {
-		t.Errorf("Location = %s, want %q", deref(enc.Location), f.Location)
+	if enc.Location == nil || *enc.Location != *f.Location {
+		t.Errorf("Location = %s, want %q", deref(enc.Location), *f.Location)
 	}
 
 	cal, err := ParseFragment(frags.CalendarSigned)
@@ -857,8 +903,12 @@ func TestParseFragmentSequence(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ParseFragment: %v", err)
 			}
-			if ev.Sequence != tt.want || ev.HasSequence != tt.wantHas {
-				t.Errorf("got (%d, %v), want (%d, %v)", ev.Sequence, ev.HasSequence, tt.want, tt.wantHas)
+			if tt.wantHas {
+				if ev.Sequence == nil || *ev.Sequence != tt.want {
+					t.Errorf("got %v, want %d", ev.Sequence, tt.want)
+				}
+			} else if ev.Sequence != nil {
+				t.Errorf("got %d, want nil sequence", *ev.Sequence)
 			}
 		})
 	}
@@ -866,7 +916,7 @@ func TestParseFragmentSequence(t *testing.T) {
 
 func TestSequenceFromBuiltFragment(t *testing.T) {
 	f := baseFields()
-	f.Sequence = 9
+	f.Sequence = ip(9)
 	frags, err := BuildFragments(f)
 	if err != nil {
 		t.Fatal(err)
@@ -875,7 +925,7 @@ func TestSequenceFromBuiltFragment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !ev.HasSequence || ev.Sequence != 9 {
-		t.Errorf("got %d (has=%v), want 9", ev.Sequence, ev.HasSequence)
+	if ev.Sequence == nil || *ev.Sequence != 9 {
+		t.Errorf("got %v, want 9", ev.Sequence)
 	}
 }

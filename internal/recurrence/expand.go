@@ -86,7 +86,17 @@ func expandMaster(ev *caltypes.RawEvent, start, end int64, shadowed map[int64]bo
 	winStart := windowDt(start-duration, loc)
 	winEnd := windowDt(end, loc)
 	var occurrences []Occurrence
-	for _, occDt := range rule.Between(winStart, winEnd, true) {
+	// Iterate lazily (rule.Between would materialize every occurrence in
+	// the window before the cap could fire).
+	next := rule.Iterator()
+	for {
+		occDt, ok := next()
+		if !ok || occDt.After(winEnd) {
+			break
+		}
+		if occDt.Before(winStart) {
+			continue
+		}
 		occStart := occDt.Unix()
 		if exdates[occStart] || shadowed[occStart] {
 			continue
@@ -193,12 +203,8 @@ func ResolveOccurrence(master *caltypes.RawEvent, related []*caltypes.RawEvent, 
 	if err != nil {
 		return nil, fmt.Errorf("event %s: %w", master.ID, err)
 	}
-	probeStart := windowDt(occurrenceTS-1, loc)
-	probeEnd := windowDt(occurrenceTS+1, loc)
-	for _, occDt := range rule.Between(probeStart, probeEnd, true) {
-		if occDt.Unix() == occurrenceTS {
-			return nil, nil
-		}
+	if occ := rule.After(windowDt(occurrenceTS, loc), true); !occ.IsZero() && occ.Unix() == occurrenceTS {
+		return nil, nil
 	}
 	return nil, fmt.Errorf("timestamp %d is not an occurrence of this event", occurrenceTS)
 }

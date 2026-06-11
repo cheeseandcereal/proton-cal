@@ -112,7 +112,7 @@ func TestRenderOccurrenceEdited(t *testing.T) {
 
 	edited := listedAt(
 		&caltypes.RawEvent{ID: "ev-3", RecurrenceID: start.Unix()},
-		&event.Event{EventID: "ev-3", Summary: "Moved mtg", RecurrenceID: start.Unix()},
+		&event.Event{EventID: "ev-3", Summary: "Moved mtg", RecurrenceID: start},
 		start, end,
 	)
 	got := renderOccurrence(edited, time.UTC)
