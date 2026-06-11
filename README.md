@@ -174,9 +174,10 @@ internal/integration  opt-in live test suite (build tag `integration`)
 is built on: auth flow, key hierarchy, event encryption model, sync payload
 semantics, recurrence behavior (all verified live against the API), plus the
 sharp edges of the libraries involved. Other key references:
-[`go-proton-api`](https://github.com/ProtonMail/go-proton-api) and
+[`go-proton-api`](https://github.com/ProtonMail/go-proton-api),
 [`ProtonMail/WebClients`](https://github.com/ProtonMail/WebClients) (calendar
-crypto in `packages/shared/lib/calendar/`).
+crypto in `packages/shared/lib/calendar/`), and
+[`proton-calendar-cli`](https://github.com/Nojuza/proton-calendar-cli).
 
 ### Integration tests
 
