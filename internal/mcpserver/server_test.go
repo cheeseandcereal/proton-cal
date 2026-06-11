@@ -89,18 +89,15 @@ func TestToolErrorsAreToolResults(t *testing.T) {
 	}
 
 	// Validation errors too - and the server keeps serving afterwards.
-	text, isErr = callText(t, cs, "update_event", map[string]any{
+	cs2 := connectTestClient(t, stubServer(config.Config{Timezone: "UTC"}))
+	text, isErr = callText(t, cs2, "update_event", map[string]any{
 		"event_id":  "abc",
 		"no_repeat": true,
 		"repeat":    "daily",
 	})
-	if !isErr || !strings.Contains(text, "no_repeat cannot be combined") {
+	if !isErr || !strings.Contains(text, "no-repeat cannot be combined") {
 		t.Errorf("isErr=%v text=%q", isErr, text)
 	}
-
-	// With a working (stubbed) session, argument validation errors surface
-	// the same way.
-	cs2 := connectTestClient(t, stubServer(config.Config{Timezone: "UTC"}))
 	text, isErr = callText(t, cs2, "create_event", map[string]any{
 		"summary": "X",
 		"start":   "2026-06-15 09:00",

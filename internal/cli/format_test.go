@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cheeseandcereal/proton-cal/internal/calsvc"
 	"github.com/cheeseandcereal/proton-cal/internal/caltypes"
 	"github.com/cheeseandcereal/proton-cal/internal/event"
 	"github.com/cheeseandcereal/proton-cal/internal/recurrence"
@@ -180,10 +181,10 @@ func TestOccurrenceJSONEditedOccurrence(t *testing.T) {
 
 func TestFormatOccurrenceStart(t *testing.T) {
 	loc := time.FixedZone("UTC+2", 2*60*60)
-	if got := formatOccurrenceStart(ts(2026, 6, 12, 9, 0), false, loc); got != "2026-06-12 11:00" {
+	if got := calsvc.FormatOccurrenceStart(ts(2026, 6, 12, 9, 0), false, loc); got != "2026-06-12 11:00" {
 		t.Errorf("timed = %q", got)
 	}
-	if got := formatOccurrenceStart(ts(2026, 6, 12, 0, 0), true, loc); got != "2026-06-12" {
+	if got := calsvc.FormatOccurrenceStart(ts(2026, 6, 12, 0, 0), true, loc); got != "2026-06-12" {
 		t.Errorf("all-day = %q", got)
 	}
 }

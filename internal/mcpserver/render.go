@@ -6,31 +6,9 @@ import (
 	"time"
 
 	"github.com/cheeseandcereal/proton-cal/internal/calendar"
+	"github.com/cheeseandcereal/proton-cal/internal/calsvc"
 	"github.com/cheeseandcereal/proton-cal/internal/event"
 )
-
-// calTypeString maps a calendar type to its display name.
-func calTypeString(t int) string {
-	switch t {
-	case 0:
-		return "normal"
-	case 1:
-		return "subscribed"
-	case 2:
-		return "holidays"
-	default:
-		return fmt.Sprintf("type %d", t)
-	}
-}
-
-// isDefaultCalendar reports whether cal matches the configured default
-// calendar selector (by ID or case-insensitive name).
-func isDefaultCalendar(cal calendar.Info, defaultSelector string) bool {
-	if defaultSelector == "" {
-		return false
-	}
-	return cal.ID == defaultSelector || strings.EqualFold(cal.Name, defaultSelector)
-}
 
 // renderCalendars renders the list_calendars reply: name, type, ID and a
 // default marker.
@@ -44,24 +22,13 @@ func renderCalendars(cals []calendar.Info, defaultSelector string) string {
 			b.WriteByte('\n')
 		}
 		marker := ""
-		if isDefaultCalendar(c, defaultSelector) {
+		if c.Matches(defaultSelector) {
 			marker = "  [default]"
 		}
-		fmt.Fprintf(&b, "%s (%s)%s\n", c.Name, calTypeString(c.Type), marker)
+		fmt.Fprintf(&b, "%s (%s)%s\n", c.Name, c.TypeString(), marker)
 		fmt.Fprintf(&b, "  ID: %s", c.ID)
 	}
 	return b.String()
-}
-
-// formatOccurrenceStart renders an occurrence's original start in the form
-// the occurrence argument accepts back: the date for all-day events
-// (anchored at midnight UTC) or the wall time in loc.
-func formatOccurrenceStart(ts int64, allDay bool, loc *time.Location) string {
-	t := time.Unix(ts, 0)
-	if allDay {
-		return t.UTC().Format("2006-01-02")
-	}
-	return t.In(loc).Format("2006-01-02 15:04")
 }
 
 // renderOccurrence renders one listed occurrence as a text block in the
@@ -99,7 +66,7 @@ func renderOccurrence(l event.Listed, loc *time.Location) string {
 	}
 	line += "\n  ID: " + ev.EventID
 	if recurring {
-		line += "\n  occurrence start: " + formatOccurrenceStart(l.Occurrence.Start, ev.AllDay, loc)
+		line += "\n  occurrence start: " + calsvc.FormatOccurrenceStart(l.Occurrence.Start, ev.AllDay, loc)
 	}
 	return line
 }
@@ -118,14 +85,32 @@ func renderEvents(listed []event.Listed, days int, loc *time.Location) string {
 	return strings.Join(lines, "\n")
 }
 
+// renderCreated renders the create_event reply.
+func renderCreated(created *calsvc.CreatedEvent) string {
+	var when string
+	if created.AllDay {
+		when = created.Start.UTC().Format("Mon 02 Jan")
+	} else {
+		when = created.Start.Format("Mon 02 Jan 15:04") + " - " + created.End.Format("15:04")
+	}
+	out := fmt.Sprintf("Event created: %s\n  %s", created.Summary, when)
+	if created.ID != "" {
+		out += "\n  ID: " + created.ID
+	}
+	if created.RRule != "" {
+		out += "\n  Repeats: " + created.RRule
+	}
+	return out
+}
+
 // renderDeleteResult renders the delete_event reply by result kind.
 func renderDeleteResult(res *event.DeleteResult, eventID string) string {
 	switch res.Kind {
-	case "occurrence":
+	case event.DeletedOccurrence:
 		return "Occurrence deleted."
-	case "series":
+	case event.DeletedSeries:
 		return fmt.Sprintf("Recurring series deleted (%d row(s)).", res.RowsDeleted)
-	case "event":
+	case event.DeletedEvent:
 		return fmt.Sprintf("Event %s deleted.", eventID)
 	default:
 		return fmt.Sprintf("Deleted (%s, %d row(s)).", res.Kind, res.RowsDeleted)

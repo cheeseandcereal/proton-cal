@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/cheeseandcereal/proton-cal/internal/calsvc"
 	"github.com/cheeseandcereal/proton-cal/internal/event"
 )
 
@@ -22,17 +23,6 @@ type eventJSON struct {
 	OccurrenceStartTS int64  `json:"occurrence_start_ts"`
 	RRule             string `json:"rrule,omitempty"`
 	CalendarID        string `json:"calendar_id,omitempty"`
-}
-
-// formatOccurrenceStart renders an occurrence's original start in the form
-// `--occurrence` accepts back: the date (all-day events are anchored at
-// midnight UTC) or the wall time in loc.
-func formatOccurrenceStart(ts int64, allDay bool, loc *time.Location) string {
-	t := time.Unix(ts, 0)
-	if allDay {
-		return t.UTC().Format("2006-01-02")
-	}
-	return t.In(loc).Format("2006-01-02 15:04")
 }
 
 // occurrenceLines renders one listed occurrence as human-readable output
@@ -72,7 +62,7 @@ func occurrenceLines(l event.Listed, loc *time.Location) []string {
 	}
 	lines = append(lines, "    ID: "+ev.EventID)
 	if recurring {
-		lines = append(lines, "    occurrence start: "+formatOccurrenceStart(l.Occurrence.Start, ev.AllDay, loc))
+		lines = append(lines, "    occurrence start: "+calsvc.FormatOccurrenceStart(l.Occurrence.Start, ev.AllDay, loc))
 	}
 	return lines
 }

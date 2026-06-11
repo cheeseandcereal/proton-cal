@@ -231,3 +231,41 @@ func TestResolveAmbiguousErrorListsCandidates(t *testing.T) {
 		}
 	}
 }
+
+func TestInfoTypeString(t *testing.T) {
+	tests := []struct {
+		in   int
+		want string
+	}{
+		{0, "normal"},
+		{1, "subscribed"},
+		{2, "holidays"},
+		{7, "type 7"},
+	}
+	for _, tt := range tests {
+		if got := (Info{Type: tt.in}).TypeString(); got != tt.want {
+			t.Errorf("TypeString(%d) = %q, want %q", tt.in, got, tt.want)
+		}
+	}
+}
+
+func TestInfoMatches(t *testing.T) {
+	cal := Info{ID: "cal-id-1", Name: "Personal"}
+	tests := []struct {
+		name     string
+		selector string
+		want     bool
+	}{
+		{name: "empty selector", selector: "", want: false},
+		{name: "by ID", selector: "cal-id-1", want: true},
+		{name: "by name case-insensitive", selector: "personal", want: true},
+		{name: "no match", selector: "Work", want: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := cal.Matches(tt.selector); got != tt.want {
+				t.Errorf("Matches(%q) = %v, want %v", tt.selector, got, tt.want)
+			}
+		})
+	}
+}

@@ -5,16 +5,12 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/cheeseandcereal/proton-cal/internal/calsvc"
 	"github.com/cheeseandcereal/proton-cal/internal/event"
-	"github.com/cheeseandcereal/proton-cal/internal/front"
 )
 
 func newDeleteCmd() *cobra.Command {
-	var (
-		calSel     string
-		occurrence string
-		tzFlag     string
-	)
+	var in calsvc.DeleteEventInput
 
 	cmd := &cobra.Command{
 		Use:   "delete EVENT_ID",
@@ -26,31 +22,17 @@ unless --occurrence limits it to one occurrence. Passing an edited
 occurrence's own ID deletes just that occurrence.`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			eventID := args[0]
+			in.EventID = args[0]
 
-			a, err := newApp()
+			svc, err := newService()
 			if err != nil {
 				return err
 			}
-			tz := a.effectiveTZ(tzFlag)
+			defer svc.Close()
 
-			var occurrenceTS int64
-			if occurrence != "" {
-				occurrenceTS, err = front.ParseOccurrence(occurrence, tz)
-				if err != nil {
-					return err
-				}
-			}
-
-			ctx := cmd.Context()
-			_, access, err := a.resolveAccess(ctx, calSel)
+			res, err := svc.DeleteEvent(cmd.Context(), in)
 			if err != nil {
 				return err
-			}
-
-			res, err := event.SmartDelete(ctx, a.client, access, eventID, occurrenceTS)
-			if err != nil {
-				return fmt.Errorf("deleting event: %w", err)
 			}
 
 			if jsonOutput {
@@ -59,11 +41,11 @@ occurrence's own ID deletes just that occurrence.`,
 
 			w := humanOut()
 			switch res.Kind {
-			case "occurrence":
+			case event.DeletedOccurrence:
 				fmt.Fprintln(w, "Occurrence deleted.")
-			case "series":
+			case event.DeletedSeries:
 				fmt.Fprintf(w, "Recurring series deleted (%d row(s)).\n", res.RowsDeleted)
-			case "event":
+			case event.DeletedEvent:
 				fmt.Fprintln(w, "Event deleted.")
 			default:
 				fmt.Fprintf(w, "Deleted (%s, %d row(s)).\n", res.Kind, res.RowsDeleted)
@@ -72,12 +54,8 @@ occurrence's own ID deletes just that occurrence.`,
 		},
 	}
 
-	cmd.Flags().StringVar(&calSel, "calendar", "", "calendar ID or name (default: configured default, else first)")
-	cmd.Flags().StringVar(&occurrence, "occurrence", "", "delete only this occurrence of a recurring event (original start: 'YYYY-MM-DD HH:MM' or 'YYYY-MM-DD')")
-	cmd.Flags().StringVar(&tzFlag, "tz", "", "IANA timezone for --occurrence (default: from config / system)")
+	addCalendarFlag(cmd, &in.Calendar)
+	addOccurrenceFlag(cmd, &in.Occurrence, "delete")
+	addTZFlag(cmd, &in.TZ, "--occurrence (default: from config / system)")
 	return cmd
-}
-
-func init() {
-	rootCmd.AddCommand(newDeleteCmd())
 }

@@ -37,7 +37,3 @@ Example MCP client configuration (e.g. in an mcpServers section):
 		},
 	}
 }
-
-func init() {
-	rootCmd.AddCommand(newMCPCmd())
-}

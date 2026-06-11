@@ -2,26 +2,16 @@ package mcpserver
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"sort"
-	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/cheeseandcereal/proton-cal/internal/event"
-	"github.com/cheeseandcereal/proton-cal/internal/front"
+	"github.com/cheeseandcereal/proton-cal/internal/calsvc"
 )
 
 // textResult wraps a string as a successful text tool result.
 func textResult(text string) *mcp.CallToolResult {
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}
-}
-
-// invalidArgs decorates a parse/validation error with the accepted time
-// formats, replying "invalid arguments: ..." to the caller.
-func invalidArgs(err error) error {
-	return fmt.Errorf("invalid arguments: %w (times use %s)", err, front.TimeFormatHint)
 }
 
 // register adds all proton-calendar tools to the MCP server.
@@ -34,7 +24,7 @@ func (s *server) register(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "list_events",
 		Description: "List upcoming calendar events for the next N days. " +
-			"Times are shown in the configured default timezone. " +
+			"Times are shown in the configured default timezone unless tz overrides it. " +
 			"Recurring events are expanded into their individual occurrences, marked \"(recurring)\"; " +
 			"pass the shown ID plus the shown \"occurrence start\" value to update_event/delete_event to address one occurrence.",
 	}, s.listEvents)
@@ -42,7 +32,7 @@ func (s *server) register(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "create_event",
 		Description: "Create a calendar event. " +
-			"Timed events need start and end (\"YYYY-MM-DD HH:MM\" in the configured default timezone); " +
+			"Timed events need start and end (\"YYYY-MM-DD HH:MM\" in the configured default timezone, or tz); " +
 			"all-day events use dates (\"YYYY-MM-DD\") and end is the inclusive last day (default: start). " +
 			"Use repeat/every/count/until (or a raw rrule) to make it recurring.",
 	}, s.createEvent)
@@ -68,62 +58,48 @@ func (s *server) register(srv *mcp.Server) {
 type listCalendarsArgs struct{}
 
 func (s *server) listCalendars(ctx context.Context, _ *mcp.CallToolRequest, _ listCalendarsArgs) (*mcp.CallToolResult, any, error) {
-	sess, err := s.session(ctx)
+	svc, err := s.service()
 	if err != nil {
 		return nil, nil, err
 	}
-	return textResult(renderCalendars(sess.cals, sess.cfg.DefaultCalendar)), nil, nil
+	cals, err := svc.Calendars(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	return textResult(renderCalendars(cals, svc.DefaultCalendarSelector())), nil, nil
 }
 
 // ---------------------------------------------------------------- list_events
 
 type listEventsArgs struct {
 	Days     int    `json:"days,omitempty" jsonschema:"Number of days to look ahead (default 7)"`
+	From     string `json:"from,omitempty" jsonschema:"Window start \"YYYY-MM-DD HH:MM\" or \"YYYY-MM-DD\" (optional; default: now; days counts from it)"`
 	Calendar string `json:"calendar,omitempty" jsonschema:"Calendar ID or name (optional; default: the configured default calendar, else the first calendar)"`
+	TZ       string `json:"tz,omitempty" jsonschema:"IANA timezone for queries and display (optional; default: the configured timezone)"`
 }
 
 func (s *server) listEvents(ctx context.Context, _ *mcp.CallToolRequest, args listEventsArgs) (*mcp.CallToolResult, any, error) {
-	days := args.Days
-	if days <= 0 {
-		days = 7
-	}
-
-	sess, err := s.session(ctx)
+	svc, err := s.service()
 	if err != nil {
 		return nil, nil, err
 	}
-	tz := sess.cfg.EffectiveTimezone()
-	loc, err := time.LoadLocation(tz)
-	if err != nil {
-		return nil, nil, fmt.Errorf("invalid timezone %q: %w", tz, err)
-	}
-
-	info, access, err := sess.access(ctx, args.Calendar)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	start := time.Now()
-	end := start.AddDate(0, 0, days)
-	listed, err := event.ListWindow(ctx, sess.client, access.KR, info.ID, start.Unix(), end.Unix(), tz)
-	if err != nil {
-		return nil, nil, fmt.Errorf("listing events: %w", err)
-	}
-	sort.SliceStable(listed, func(i, j int) bool {
-		if listed[i].Occurrence.Start != listed[j].Occurrence.Start {
-			return listed[i].Occurrence.Start < listed[j].Occurrence.Start
-		}
-		return listed[i].Occurrence.Event.ID < listed[j].Occurrence.Event.ID
+	list, err := svc.ListEvents(ctx, calsvc.ListEventsInput{
+		Days:     args.Days,
+		From:     args.From,
+		Calendar: args.Calendar,
+		TZ:       args.TZ,
 	})
-
-	return textResult(renderEvents(listed, days, loc)), nil, nil
+	if err != nil {
+		return nil, nil, err
+	}
+	return textResult(renderEvents(list.Items, list.Days, list.Location)), nil, nil
 }
 
 // ---------------------------------------------------------------- create_event
 
 type createEventArgs struct {
 	Summary     string `json:"summary" jsonschema:"Event title"`
-	Start       string `json:"start" jsonschema:"Start time \"YYYY-MM-DD HH:MM\" (in the configured default timezone); with all_day: a \"YYYY-MM-DD\" date"`
+	Start       string `json:"start" jsonschema:"Start time \"YYYY-MM-DD HH:MM\" (in the configured default timezone, or tz); with all_day: a \"YYYY-MM-DD\" date"`
 	End         string `json:"end,omitempty" jsonschema:"End time \"YYYY-MM-DD HH:MM\"; with all_day: inclusive end date (optional, defaults to start). Required for timed events."`
 	Description string `json:"description,omitempty" jsonschema:"Optional event description"`
 	Location    string `json:"location,omitempty" jsonschema:"Optional event location"`
@@ -134,97 +110,32 @@ type createEventArgs struct {
 	Until       string `json:"until,omitempty" jsonschema:"Last day of the recurrence \"YYYY-MM-DD\" (with repeat)"`
 	RRule       string `json:"rrule,omitempty" jsonschema:"Raw RRULE value (advanced; replaces the repeat/every/count/until args)"`
 	Calendar    string `json:"calendar,omitempty" jsonschema:"Calendar ID or name (optional; default: the configured default calendar, else the first calendar)"`
-}
-
-// resolveCreateTimes resolves the create start/end times (same rules as the
-// CLI). All-day: start is a date; end is an optional
-// INCLUSIVE date (default = start), converted to the exclusive iCal end by
-// +24h. Timed: end is required; both parse as wall times in tzName.
-func resolveCreateTimes(startStr, endStr string, allDay bool, tzName string) (start, end time.Time, err error) {
-	if allDay {
-		start, err = front.ParseDate(startStr)
-		if err != nil {
-			return time.Time{}, time.Time{}, err
-		}
-		end = start
-		if endStr != "" {
-			end, err = front.ParseDate(endStr)
-			if err != nil {
-				return time.Time{}, time.Time{}, err
-			}
-		}
-		end = end.Add(24 * time.Hour) // exclusive iCal end
-		if !end.After(start) {
-			return time.Time{}, time.Time{}, errors.New("end date must not be before start date")
-		}
-		return start, end, nil
-	}
-
-	if endStr == "" {
-		return time.Time{}, time.Time{}, errors.New("end is required for timed events")
-	}
-	start, err = front.ParseLocalDateTime(startStr, tzName)
-	if err != nil {
-		return time.Time{}, time.Time{}, err
-	}
-	end, err = front.ParseLocalDateTime(endStr, tzName)
-	if err != nil {
-		return time.Time{}, time.Time{}, err
-	}
-	return start, end, nil
+	TZ          string `json:"tz,omitempty" jsonschema:"IANA timezone for the event times (optional; default: the configured timezone)"`
 }
 
 func (s *server) createEvent(ctx context.Context, _ *mcp.CallToolRequest, args createEventArgs) (*mcp.CallToolResult, any, error) {
-	sess, err := s.session(ctx)
+	svc, err := s.service()
 	if err != nil {
 		return nil, nil, err
 	}
-	tz := sess.cfg.EffectiveTimezone()
-
-	start, end, err := resolveCreateTimes(args.Start, args.End, args.AllDay, tz)
-	if err != nil {
-		return nil, nil, invalidArgs(err)
-	}
-	rec := front.RecurrenceFlags{Repeat: args.Repeat, Every: args.Every, Count: args.Count, Until: args.Until, RawRRule: args.RRule}
-	rrule, err := rec.BuildRRule(tz, args.AllDay)
-	if err != nil {
-		return nil, nil, invalidArgs(err)
-	}
-
-	_, access, err := sess.access(ctx, args.Calendar)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	raw, err := event.Create(ctx, sess.client, access, event.CreateOptions{
+	created, err := svc.CreateEvent(ctx, calsvc.CreateEventInput{
 		Summary:     args.Summary,
 		Description: args.Description,
 		Location:    args.Location,
-		Start:       start,
-		End:         end,
-		TZName:      tz,
+		Start:       args.Start,
+		End:         args.End,
 		AllDay:      args.AllDay,
-		RRule:       rrule,
+		Recurrence: calsvc.Recurrence{
+			Repeat: args.Repeat, Every: args.Every, Count: args.Count,
+			Until: args.Until, RawRRule: args.RRule,
+		},
+		Calendar: args.Calendar,
+		TZ:       args.TZ,
 	})
 	if err != nil {
-		return nil, nil, fmt.Errorf("creating event: %w", err)
+		return nil, nil, err
 	}
-
-	var when string
-	if args.AllDay {
-		when = start.UTC().Format("Mon 02 Jan")
-	} else {
-		when = start.Format("Mon 02 Jan 15:04") + " - " + end.Format("15:04")
-	}
-	id := "unknown"
-	if raw != nil {
-		id = raw.ID
-	}
-	out := fmt.Sprintf("Event created: %s\n  %s\n  ID: %s", args.Summary, when, id)
-	if rrule != "" {
-		out += "\n  Repeats: " + rrule
-	}
-	return textResult(out), nil, nil
+	return textResult(renderCreated(created)), nil, nil
 }
 
 // ---------------------------------------------------------------- update_event
@@ -232,7 +143,7 @@ func (s *server) createEvent(ctx context.Context, _ *mcp.CallToolRequest, args c
 type updateEventArgs struct {
 	EventID     string `json:"event_id" jsonschema:"The event ID (get from list_events)"`
 	Summary     string `json:"summary,omitempty" jsonschema:"New event title (leave empty to keep current)"`
-	Start       string `json:"start,omitempty" jsonschema:"New start \"YYYY-MM-DD HH:MM\" in the default timezone (\"YYYY-MM-DD\" for all-day events)"`
+	Start       string `json:"start,omitempty" jsonschema:"New start \"YYYY-MM-DD HH:MM\" (\"YYYY-MM-DD\" for all-day events)"`
 	End         string `json:"end,omitempty" jsonschema:"New end \"YYYY-MM-DD HH:MM\" (\"YYYY-MM-DD\" for all-day events)"`
 	Description string `json:"description,omitempty" jsonschema:"New description (leave empty to keep current)"`
 	Location    string `json:"location,omitempty" jsonschema:"New location (leave empty to keep current)"`
@@ -244,96 +155,43 @@ type updateEventArgs struct {
 	RRule       string `json:"rrule,omitempty" jsonschema:"Raw RRULE value (advanced; replaces repeat/every/count/until)"`
 	NoRepeat    bool   `json:"no_repeat,omitempty" jsonschema:"Remove the recurrence from this event"`
 	Calendar    string `json:"calendar,omitempty" jsonschema:"Calendar ID or name (optional; default: the configured default calendar, else the first calendar)"`
-}
-
-// validateUpdateArgs rejects conflicting update arguments: no_repeat
-// conflicts with repeat/rrule, and occurrence conflicts with all recurrence
-// args (edit the series instead).
-func validateUpdateArgs(occurrence string, noRepeat bool, rec front.RecurrenceFlags) error {
-	if noRepeat && (rec.Repeat != "" || rec.RawRRule != "") {
-		return errors.New("no_repeat cannot be combined with repeat/rrule")
-	}
-	if occurrence != "" && (noRepeat || rec.Repeat != "" || rec.RawRRule != "") {
-		return errors.New("recurrence args cannot be combined with occurrence (edit the series instead)")
-	}
-	return nil
+	TZ          string `json:"tz,omitempty" jsonschema:"IANA timezone for the event times (optional; default: the configured timezone)"`
 }
 
 func (s *server) updateEvent(ctx context.Context, _ *mcp.CallToolRequest, args updateEventArgs) (*mcp.CallToolResult, any, error) {
-	rec := front.RecurrenceFlags{Repeat: args.Repeat, Every: args.Every, Count: args.Count, Until: args.Until, RawRRule: args.RRule}
-	if err := validateUpdateArgs(args.Occurrence, args.NoRepeat, rec); err != nil {
-		return nil, nil, err
-	}
-
-	sess, err := s.session(ctx)
+	svc, err := s.service()
 	if err != nil {
 		return nil, nil, err
 	}
-	tz := sess.cfg.EffectiveTimezone()
 
-	// Empty string = keep current: pointers are built only for non-empty
-	// values (unlike the CLI, which keys off flag presence).
-	opts := event.UpdateOptions{ClearRRule: args.NoRepeat}
+	// Non-empty = change: pointers are built only for non-empty values
+	// (unlike the CLI, which keys off flag presence and can clear fields).
+	in := calsvc.UpdateEventInput{
+		EventID:    args.EventID,
+		Start:      args.Start,
+		End:        args.End,
+		Occurrence: args.Occurrence,
+		NoRepeat:   args.NoRepeat,
+		Recurrence: calsvc.Recurrence{
+			Repeat: args.Repeat, Every: args.Every, Count: args.Count,
+			Until: args.Until, RawRRule: args.RRule,
+		},
+		Calendar: args.Calendar,
+		TZ:       args.TZ,
+	}
 	if args.Summary != "" {
-		opts.Summary = &args.Summary
+		in.Summary = &args.Summary
 	}
 	if args.Description != "" {
-		opts.Description = &args.Description
+		in.Description = &args.Description
 	}
 	if args.Location != "" {
-		opts.Location = &args.Location
-	}
-	if args.Start != "" {
-		t, err := front.ParseWhen(args.Start, tz)
-		if err != nil {
-			return nil, nil, invalidArgs(err)
-		}
-		opts.Start = &t
-	}
-	if args.End != "" {
-		t, err := front.ParseWhen(args.End, tz)
-		if err != nil {
-			return nil, nil, invalidArgs(err)
-		}
-		opts.End = &t
-	}
-	if opts.Start != nil || opts.End != nil {
-		opts.TZName = tz
+		in.Location = &args.Location
 	}
 
-	var occurrenceTS int64
-	if args.Occurrence != "" {
-		occurrenceTS, err = front.ParseOccurrence(args.Occurrence, tz)
-		if err != nil {
-			return nil, nil, invalidArgs(err)
-		}
-	}
-
-	info, access, err := sess.access(ctx, args.Calendar)
+	outcome, err := svc.UpdateEvent(ctx, in)
 	if err != nil {
 		return nil, nil, err
-	}
-
-	// Recurrence args need the event's all-day-ness for the UNTIL form, so
-	// fetch the raw row first - only in that case (the occurrence path
-	// never builds an RRULE).
-	if args.Occurrence == "" && !rec.Empty() {
-		raw, err := event.Get(ctx, sess.client, info.ID, args.EventID)
-		if err != nil {
-			return nil, nil, fmt.Errorf("fetching event: %w", err)
-		}
-		rrule, err := rec.BuildRRule(tz, raw.IsAllDay())
-		if err != nil {
-			return nil, nil, invalidArgs(err)
-		}
-		if rrule != "" {
-			opts.RRule = &rrule
-		}
-	}
-
-	outcome, err := event.SmartUpdate(ctx, sess.client, access, args.EventID, opts, occurrenceTS)
-	if err != nil {
-		return nil, nil, fmt.Errorf("updating event: %w", err)
 	}
 
 	out := fmt.Sprintf("Event %s updated.", args.EventID)
@@ -352,31 +210,22 @@ type deleteEventArgs struct {
 	EventID    string `json:"event_id" jsonschema:"The event ID (get from list_events)"`
 	Occurrence string `json:"occurrence,omitempty" jsonschema:"For recurring events only - the ORIGINAL start of the one occurrence to delete (\"YYYY-MM-DD HH:MM\", or \"YYYY-MM-DD\" for all-day events), as shown by list_events"`
 	Calendar   string `json:"calendar,omitempty" jsonschema:"Calendar ID or name (optional; default: the configured default calendar, else the first calendar)"`
+	TZ         string `json:"tz,omitempty" jsonschema:"IANA timezone for occurrence (optional; default: the configured timezone)"`
 }
 
 func (s *server) deleteEvent(ctx context.Context, _ *mcp.CallToolRequest, args deleteEventArgs) (*mcp.CallToolResult, any, error) {
-	sess, err := s.session(ctx)
+	svc, err := s.service()
 	if err != nil {
 		return nil, nil, err
 	}
-	tz := sess.cfg.EffectiveTimezone()
-
-	var occurrenceTS int64
-	if args.Occurrence != "" {
-		occurrenceTS, err = front.ParseOccurrence(args.Occurrence, tz)
-		if err != nil {
-			return nil, nil, invalidArgs(err)
-		}
-	}
-
-	_, access, err := sess.access(ctx, args.Calendar)
+	res, err := svc.DeleteEvent(ctx, calsvc.DeleteEventInput{
+		EventID:    args.EventID,
+		Occurrence: args.Occurrence,
+		Calendar:   args.Calendar,
+		TZ:         args.TZ,
+	})
 	if err != nil {
 		return nil, nil, err
-	}
-
-	res, err := event.SmartDelete(ctx, sess.client, access, args.EventID, occurrenceTS)
-	if err != nil {
-		return nil, nil, fmt.Errorf("deleting event: %w", err)
 	}
 	return textResult(renderDeleteResult(res, args.EventID)), nil, nil
 }

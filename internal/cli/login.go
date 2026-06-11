@@ -52,7 +52,3 @@ func newLogoutCmd() *cobra.Command {
 		},
 	}
 }
-
-func init() {
-	rootCmd.AddCommand(newLoginCmd(), newLogoutCmd())
-}

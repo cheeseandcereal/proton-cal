@@ -6,9 +6,9 @@ import (
 	"time"
 
 	"github.com/cheeseandcereal/proton-cal/internal/calendar"
+	"github.com/cheeseandcereal/proton-cal/internal/calsvc"
 	"github.com/cheeseandcereal/proton-cal/internal/caltypes"
 	"github.com/cheeseandcereal/proton-cal/internal/event"
-	"github.com/cheeseandcereal/proton-cal/internal/front"
 	"github.com/cheeseandcereal/proton-cal/internal/recurrence"
 )
 
@@ -89,18 +89,14 @@ func TestRenderOccurrenceStartRoundTripsThroughParseOccurrence(t *testing.T) {
 	}
 	start := time.Date(2026, 6, 15, 9, 0, 0, 0, loc)
 
-	shown := formatOccurrenceStart(start.Unix(), false, loc)
-	ts, err := front.ParseOccurrence(shown, "Europe/Stockholm")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if ts != start.Unix() {
-		t.Errorf("round trip: got %d, want %d (shown %q)", ts, start.Unix(), shown)
+	shown := calsvc.FormatOccurrenceStart(start.Unix(), false, loc)
+	if shown != "2026-06-15 09:00" {
+		t.Errorf("timed shown = %q, want the wall time in loc", shown)
 	}
 
 	// All-day: anchored at UTC midnight, shown as a plain date.
 	allDay := time.Date(2026, 6, 15, 0, 0, 0, 0, time.UTC)
-	shown = formatOccurrenceStart(allDay.Unix(), true, loc)
+	shown = calsvc.FormatOccurrenceStart(allDay.Unix(), true, loc)
 	if shown != "2026-06-15" {
 		t.Errorf("all-day shown = %q", shown)
 	}

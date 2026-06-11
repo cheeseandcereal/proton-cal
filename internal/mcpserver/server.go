@@ -5,7 +5,8 @@
 //
 // Every tool takes an optional `calendar` argument (ID or name) instead of
 // hardcoding the first calendar; the default comes from the configured
-// default calendar, else the first calendar.
+// default calendar, else the first calendar. Time-taking tools take an
+// optional `tz` override, defaulting to the configured timezone.
 //
 // stdout belongs to the MCP transport; all logging goes to stderr. The
 // server never prompts: a missing session yields tool errors directing the
@@ -15,107 +16,43 @@ package mcpserver
 import (
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"sync"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/cheeseandcereal/proton-cal/internal/auth"
-	"github.com/cheeseandcereal/proton-cal/internal/calendar"
-	"github.com/cheeseandcereal/proton-cal/internal/config"
-	"github.com/cheeseandcereal/proton-cal/internal/papi"
+	"github.com/cheeseandcereal/proton-cal/internal/calsvc"
 )
 
-// session bundles the lazily initialised authenticated state shared by all
-// tool calls.
-type session struct {
-	cfg      config.Config
-	client   *papi.Client
-	cals     []calendar.Info
-	keychain *calendar.Keychain
-}
+// serverVersion is the MCP implementation version advertised to clients.
+const serverVersion = "1.0.0"
 
-// server holds the lazily initialised session, guarded by a mutex so
+// server holds the lazily initialised service, guarded by a mutex so
 // concurrent tool calls bootstrap exactly once. The bootstrap func is a
 // field so tests can stub it.
 type server struct {
 	mu        sync.Mutex
-	sess      *session
-	bootstrap func(ctx context.Context) (*session, error)
+	svc       *calsvc.Service
+	bootstrap func() (*calsvc.Service, error)
 }
 
 func newServer() *server {
-	return &server{bootstrap: bootstrapSession}
+	return &server{bootstrap: calsvc.New}
 }
 
-// bootstrapSession restores an authenticated, key-unlocked session from the
-// saved login state. It never prompts: any missing piece becomes an error
-// telling the user to run `proton-cal login` first.
-func bootstrapSession(ctx context.Context) (*session, error) {
-	cfg, err := config.Load()
-	if err != nil {
-		return nil, fmt.Errorf("loading config: %w", err)
-	}
-	store, err := config.NewSessionStore()
-	if err != nil {
-		return nil, fmt.Errorf("opening session store: %w", err)
-	}
-	client, err := papi.FromSession(store, cfg.EffectiveBaseURL())
-	if errors.Is(err, config.ErrNoSession) {
-		return nil, errors.New("not logged in; run `proton-cal login` first")
-	} else if err != nil {
-		return nil, fmt.Errorf("restoring session: %w", err)
-	}
-	unlocked, err := auth.UnlockKeys(ctx, client)
-	if err != nil {
-		return nil, fmt.Errorf("unlocking keys: %w", err)
-	}
-	cals, err := calendar.List(ctx, client)
-	if err != nil {
-		return nil, err
-	}
-	return &session{
-		cfg:      cfg,
-		client:   client,
-		cals:     cals,
-		keychain: calendar.NewKeychain(client, unlocked),
-	}, nil
-}
-
-// session returns the cached session, bootstrapping it on first use.
-func (s *server) session(ctx context.Context) (*session, error) {
+// service returns the cached service, bootstrapping it on first use.
+func (s *server) service() (*calsvc.Service, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.sess != nil {
-		return s.sess, nil
+	if s.svc != nil {
+		return s.svc, nil
 	}
-	sess, err := s.bootstrap(ctx)
+	svc, err := s.bootstrap()
 	if err != nil {
 		return nil, err
 	}
-	s.sess = sess
-	return sess, nil
-}
-
-// resolveCalendar resolves a calendar selector (ID or name; "" = the
-// configured default calendar, else the first calendar) against the cached
-// calendar list.
-func (sess *session) resolveCalendar(selector string) (calendar.Info, error) {
-	return calendar.Resolve(sess.cals, selector, sess.cfg.DefaultCalendar)
-}
-
-// access resolves the calendar selector and unlocks that calendar's keys.
-func (sess *session) access(ctx context.Context, selector string) (calendar.Info, *calendar.Access, error) {
-	info, err := sess.resolveCalendar(selector)
-	if err != nil {
-		return calendar.Info{}, nil, err
-	}
-	acc, err := sess.keychain.Unlock(ctx, info)
-	if err != nil {
-		return calendar.Info{}, nil, fmt.Errorf("unlocking calendar keys: %w", err)
-	}
-	return info, acc, nil
+	s.svc = svc
+	return svc, nil
 }
 
 // Run starts the stdio MCP server (blocks until the client disconnects or
@@ -123,7 +60,7 @@ func (sess *session) access(ctx context.Context, selector string) (calendar.Info
 // clean exit, not an error.
 func Run(ctx context.Context) error {
 	s := newServer()
-	srv := mcp.NewServer(&mcp.Implementation{Name: "proton-calendar", Version: "1.0.0"}, nil)
+	srv := mcp.NewServer(&mcp.Implementation{Name: "proton-calendar", Version: serverVersion}, nil)
 	s.register(srv)
 	err := srv.Run(ctx, &mcp.StdioTransport{})
 	if errors.Is(err, io.EOF) || errors.Is(err, mcp.ErrConnectionClosed) {

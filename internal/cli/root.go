@@ -19,6 +19,16 @@ var jsonOutput bool
 func init() {
 	rootCmd.PersistentFlags().BoolVar(&jsonOutput, "json", false,
 		"machine-readable JSON output on stdout (human messages go to stderr)")
+	rootCmd.AddCommand(
+		newLoginCmd(),
+		newLogoutCmd(),
+		newCalendarsCmd(),
+		newEventsCmd(),
+		newCreateCmd(),
+		newUpdateCmd(),
+		newDeleteCmd(),
+		newMCPCmd(),
+	)
 }
 
 // Execute runs the root command.

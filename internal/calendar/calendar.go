@@ -59,6 +59,26 @@ type Info struct {
 	Email       string // our member entry's email
 }
 
+// TypeString returns the calendar type's display name.
+func (i Info) TypeString() string {
+	switch i.Type {
+	case 0:
+		return "normal"
+	case 1:
+		return "subscribed"
+	case 2:
+		return "holidays"
+	default:
+		return fmt.Sprintf("type %d", i.Type)
+	}
+}
+
+// Matches reports whether selector addresses this calendar: by exact ID or
+// case-insensitive name. An empty selector matches nothing.
+func (i Info) Matches(selector string) bool {
+	return selector != "" && (i.ID == selector || strings.EqualFold(i.Name, selector))
+}
+
 // listResponse is the wire shape of GET /calendar/v1.
 type listResponse struct {
 	Calendars []apiCalendar `json:"Calendars"`
