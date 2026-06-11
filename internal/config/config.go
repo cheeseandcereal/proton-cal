@@ -9,14 +9,16 @@
 package config
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"github.com/BurntSushi/toml"
+	"github.com/gofrs/flock"
+	"github.com/natefinch/atomic"
 )
 
 // EnvConfigDir overrides the config directory (used by tests and the
@@ -104,11 +106,11 @@ func Save(cfg Config) error {
 	if err != nil {
 		return err
 	}
-	var sb strings.Builder
-	if err := toml.NewEncoder(&sb).Encode(cfg); err != nil {
+	var buf bytes.Buffer
+	if err := toml.NewEncoder(&buf).Encode(cfg); err != nil {
 		return err
 	}
-	return writeFileAtomic(filepath.Join(dir, configFile), []byte(sb.String()), 0o600)
+	return writeFileAtomic(filepath.Join(dir, configFile), buf.Bytes())
 }
 
 // Session holds everything needed to use the API after login: the session
@@ -186,7 +188,7 @@ func (s *SessionStore) saveLocked(sess Session) error {
 	if err != nil {
 		return err
 	}
-	return writeFileAtomic(s.sessionPath(), data, 0o600)
+	return writeFileAtomic(s.sessionPath(), data)
 }
 
 // UpdateTokens persists rotated session tokens, preserving the stored salted
@@ -220,23 +222,21 @@ func (s *SessionStore) Clear() error {
 	return nil
 }
 
-func writeFileAtomic(path string, data []byte, perm os.FileMode) error {
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".tmp-*")
-	if err != nil {
-		return err
+// lock acquires an exclusive advisory lock on path, returning an unlock
+// func. Cross-platform via gofrs/flock (flock on unix, LockFileEx on
+// Windows).
+func lock(path string) (func(), error) {
+	fl := flock.New(path)
+	if err := fl.Lock(); err != nil {
+		return nil, fmt.Errorf("locking %s: %w", path, err)
 	}
-	tmpName := tmp.Name()
-	defer func() { _ = os.Remove(tmpName) }()
-	if err := tmp.Chmod(perm); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	return os.Rename(tmpName, path)
+	return func() { _ = fl.Unlock() }, nil
+}
+
+// writeFileAtomic writes data to path atomically and durably
+// (temp file in the same directory, fsync, rename) via natefinch/atomic.
+// Fresh files are created mode 0600 (os.CreateTemp's default); existing
+// files keep their permissions.
+func writeFileAtomic(path string, data []byte) error {
+	return atomic.WriteFile(path, bytes.NewReader(data))
 }

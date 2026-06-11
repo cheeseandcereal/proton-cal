@@ -7,10 +7,12 @@ require (
 	github.com/ProtonMail/go-proton-api v0.4.1-0.20260608154204-c913195ec724
 	github.com/ProtonMail/go-srp v0.0.7
 	github.com/ProtonMail/gopenpgp/v2 v2.10.0-proton
+	github.com/gofrs/flock v0.13.0
 	github.com/modelcontextprotocol/go-sdk v1.6.1
+	github.com/natefinch/atomic v1.0.1
+	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
 	github.com/spf13/cobra v1.10.2
 	github.com/teambition/rrule-go v1.8.2
-	golang.org/x/sys v0.46.0
 	golang.org/x/term v0.44.0
 )
 
@@ -69,6 +71,7 @@ require (
 	golang.org/x/net v0.55.0 // indirect
 	golang.org/x/oauth2 v0.35.0 // indirect
 	golang.org/x/sync v0.20.0 // indirect
+	golang.org/x/sys v0.46.0 // indirect
 	golang.org/x/text v0.37.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
 )

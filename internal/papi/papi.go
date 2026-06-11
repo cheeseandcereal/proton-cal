@@ -256,16 +256,23 @@ func (c *Client) doOnce(ctx context.Context, method, path string, query url.Valu
 	return res.StatusCode, resp, nil
 }
 
+// retryAfter parses a Retry-After header (delta-seconds or HTTP-date form),
+// clamped to [10s, maxRetryAfter].
 func retryAfter(header string) time.Duration {
+	const fallback = 10 * time.Second
 	if header == "" {
-		return 10 * time.Second
+		return fallback
 	}
-	secs, err := strconv.Atoi(header)
-	if err != nil || secs < 1 {
-		return 10 * time.Second
+	var d time.Duration
+	if secs, err := strconv.Atoi(header); err == nil {
+		d = time.Duration(secs) * time.Second
+	} else if t, err := http.ParseTime(header); err == nil {
+		d = time.Until(t)
+	} else {
+		return fallback
 	}
-	if d := time.Duration(secs) * time.Second; d < maxRetryAfter {
-		return d
+	if d < fallback {
+		return fallback
 	}
-	return maxRetryAfter
+	return min(d, maxRetryAfter)
 }

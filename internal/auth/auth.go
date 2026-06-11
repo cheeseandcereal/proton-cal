@@ -25,12 +25,12 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
-	"os/exec"
 	"slices"
 	"strings"
 
 	proton "github.com/ProtonMail/go-proton-api"
 	srp "github.com/ProtonMail/go-srp"
+	"github.com/pkg/browser"
 
 	"github.com/cheeseandcereal/proton-cal/internal/config"
 	"github.com/cheeseandcereal/proton-cal/internal/papi"
@@ -308,7 +308,7 @@ func captchaToken(prompter Prompter, verifyURL string) (string, error) {
 	prompter.Notify("5. The token will appear in the console and page title.\n")
 
 	// Best-effort browser launch; on failure just show the URL.
-	if err := exec.Command("xdg-open", verifyURL).Start(); err != nil {
+	if err := browser.OpenURL(verifyURL); err != nil {
 		prompter.Notify(fmt.Sprintf("Open this URL: %s", verifyURL))
 	}
 
