@@ -22,9 +22,9 @@ type ParsedEvent struct {
 	HasSequence bool
 }
 
-// ErrNoContent is returned by ParseFragment when the input contains no
+// errNoContent is returned by ParseFragment when the input contains no
 // parseable iCalendar content lines at all.
-var ErrNoContent = errors.New("ical: no parseable content")
+var errNoContent = errors.New("ical: no parseable content")
 
 // ParseFragment parses an iCal fragment (full VCALENDAR or bare VEVENT,
 // folded or unfolded lines, escaped TEXT values) tolerantly: unknown
@@ -41,7 +41,7 @@ func ParseFragment(data string) (ParsedEvent, error) {
 
 	lines := unfoldLines(data)
 	if len(lines) == 0 {
-		return ev, ErrNoContent
+		return ev, errNoContent
 	}
 
 	hasVEvent := false
@@ -129,19 +129,9 @@ func ParseFragment(data string) (ParsedEvent, error) {
 	}
 
 	if !parsedAny && !hasVEvent {
-		return ParsedEvent{}, ErrNoContent
+		return ParsedEvent{}, errNoContent
 	}
 	return ev, nil
-}
-
-// SequenceFromFragment extracts SEQUENCE from a shared-signed fragment,
-// returning 0 on absence or any parse failure.
-func SequenceFromFragment(data string) int {
-	ev, err := ParseFragment(data)
-	if err != nil || !ev.HasSequence {
-		return 0
-	}
-	return ev.Sequence
 }
 
 // splitContentLine splits a content line into upper-cased name, parameter

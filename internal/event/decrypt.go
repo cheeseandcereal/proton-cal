@@ -13,10 +13,11 @@ import (
 	"github.com/cheeseandcereal/proton-cal/internal/recurrence"
 )
 
-// decryptImpl decrypts a raw event row's cards into an Event.
-// Lenient: any part that fails to decrypt or parse is skipped; the event is
-// still returned with whatever could be extracted.
-func decryptImpl(raw *caltypes.RawEvent, calKR *crypto.KeyRing) (*Event, error) {
+// Decrypt decrypts a raw event row's cards into an Event. Lenient:
+// signature verification is skipped and any part that fails to decrypt or
+// parse is skipped; the event is still returned with whatever could be
+// extracted. It errors only on a nil raw event.
+func Decrypt(raw *caltypes.RawEvent, calKR *crypto.KeyRing) (*Event, error) {
 	if raw == nil {
 		return nil, errors.New("event: nil raw event")
 	}
@@ -43,15 +44,16 @@ func decryptImpl(raw *caltypes.RawEvent, calKR *crypto.KeyRing) (*Event, error) 
 	return ev, nil
 }
 
-func mergeParts(ev *Event, parts []caltypes.EventPart, keyPacketB64 string, calKR *crypto.KeyRing, storeRawSigned bool) {
+func mergeParts(ev *Event, parts []caltypes.EventPart, keyPacketB64 string, calKR *crypto.KeyRing, shared bool) {
 	for _, part := range parts {
 		var data string
+		signed := false
 		switch {
 		case part.Type == caltypes.CardClear || part.Type == caltypes.CardSigned:
 			data = part.Data
-			if data != "" && storeRawSigned {
+			signed = true
+			if data != "" && shared {
 				ev.RawSharedSigned = data
-				ev.Sequence = ical.SequenceFromFragment(data)
 			}
 		case part.IsEncrypted():
 			if calKR == nil {
@@ -71,6 +73,9 @@ func mergeParts(ev *Event, parts []caltypes.EventPart, keyPacketB64 string, calK
 		parsed, err := ical.ParseFragment(data)
 		if err != nil {
 			continue
+		}
+		if shared && signed && parsed.HasSequence {
+			ev.Sequence = parsed.Sequence
 		}
 		mergeParsed(ev, parsed)
 	}
@@ -97,32 +102,26 @@ func mergeParsed(ev *Event, p ical.ParsedEvent) {
 	}
 }
 
-func listWindowImpl(ctx context.Context, client *papi.Client, calKR *crypto.KeyRing, calendarID string, start, end int64, tzName string) ([]Listed, error) {
-	raws, err := queryImpl(ctx, client, calendarID, start, end, tzName)
+// ListWindow queries, expands and decrypts all occurrences overlapping
+// [start, end), deduplicating decryption per event row.
+func ListWindow(ctx context.Context, client *papi.Client, calKR *crypto.KeyRing, calendarID string, start, end int64, tzName string) ([]Listed, error) {
+	raws, err := query(ctx, client, calendarID, start, end, tzName)
 	if err != nil {
 		return nil, err
 	}
 	occs := recurrence.ExpandOccurrences(raws, start, end)
 
-	type cached struct {
-		ev  *Event
-		err error
-	}
-	cache := make(map[string]cached)
+	cache := make(map[string]*Event)
 	out := make([]Listed, 0, len(occs))
 	for _, occ := range occs {
 		id := occ.Event.ID
-		c, ok := cache[id]
+		ev, ok := cache[id]
 		if !ok {
-			ev, err := decryptImpl(occ.Event, calKR)
-			c = cached{ev: ev, err: err}
-			cache[id] = c
+			// Decrypt errors only on a nil row; expansion never yields one.
+			ev, _ = Decrypt(occ.Event, calKR)
+			cache[id] = ev
 		}
-		l := Listed{Occurrence: occ, Err: c.err}
-		if c.err == nil {
-			l.Event = c.ev
-		}
-		out = append(out, l)
+		out = append(out, Listed{Occurrence: occ, Event: ev})
 	}
 	return out, nil
 }

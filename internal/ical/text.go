@@ -5,13 +5,13 @@ import (
 	"unicode/utf8"
 )
 
-// EscapeText escapes a TEXT property value per RFC 5545 §3.3.11:
+// escapeText escapes a TEXT property value per RFC 5545 §3.3.11:
 // backslash, semicolon and comma are escaped with a backslash, and
 // newlines become the literal two-character sequence "\n".
 //
 // Escaping prevents user-supplied text from injecting extra iCalendar
 // properties or content lines into the signed fragments.
-func EscapeText(s string) string {
+func escapeText(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))
 	for _, r := range s {
@@ -34,7 +34,7 @@ func EscapeText(s string) string {
 	return b.String()
 }
 
-// unescapeText reverses EscapeText per RFC 5545 §3.3.11. Both \n and \N
+// unescapeText reverses escapeText per RFC 5545 §3.3.11. Both \n and \N
 // decode to a newline. A trailing lone backslash is kept verbatim
 // (tolerant parsing; never an error).
 func unescapeText(s string) string {
@@ -67,11 +67,11 @@ func unescapeText(s string) string {
 // maxLineOctets is the RFC 5545 §3.1 content line limit, excluding CRLF.
 const maxLineOctets = 75
 
-// FoldLine folds a single content line per RFC 5545 §3.1: lines longer
+// foldLine folds a single content line per RFC 5545 §3.1: lines longer
 // than 75 octets are split into multiple lines joined by CRLF followed
 // by a single space, never splitting a multi-byte UTF-8 rune. Lines at
 // or under the limit are returned unchanged.
-func FoldLine(line string) string {
+func foldLine(line string) string {
 	if len(line) <= maxLineOctets {
 		return line
 	}

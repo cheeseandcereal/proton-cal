@@ -15,7 +15,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"time"
 
 	"github.com/BurntSushi/toml"
 )
@@ -116,11 +115,10 @@ func Save(cfg Config) error {
 // tokens and the derived salted key passphrase (which unlocks user/address
 // keys without the account password).
 type Session struct {
-	UID           string    `json:"uid"`
-	AccessToken   string    `json:"access_token"`
-	RefreshToken  string    `json:"refresh_token"`
-	SaltedKeyPass []byte    `json:"salted_key_pass,omitempty"`
-	SavedAt       time.Time `json:"saved_at"`
+	UID           string `json:"uid"`
+	AccessToken   string `json:"access_token"`
+	RefreshToken  string `json:"refresh_token"`
+	SaltedKeyPass []byte `json:"salted_key_pass,omitempty"`
 }
 
 // Valid reports whether the session has the fields required to make
@@ -184,7 +182,6 @@ func (s *SessionStore) Save(sess Session) error {
 }
 
 func (s *SessionStore) saveLocked(sess Session) error {
-	sess.SavedAt = time.Now().UTC()
 	data, err := json.MarshalIndent(sess, "", "  ")
 	if err != nil {
 		return err

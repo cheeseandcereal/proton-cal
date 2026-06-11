@@ -1,7 +1,6 @@
 package cli
 
 import (
-	"errors"
 	"reflect"
 	"testing"
 	"time"
@@ -128,25 +127,6 @@ func TestOccurrenceLinesEditedOccurrence(t *testing.T) {
 	}
 }
 
-func TestOccurrenceLinesDecryptError(t *testing.T) {
-	l := event.Listed{
-		Occurrence: recurrence.Occurrence{
-			Event: &caltypes.RawEvent{ID: "evt9"},
-			Start: ts(2026, 6, 12, 9, 0),
-			End:   ts(2026, 6, 12, 9, 30),
-		},
-		Err: errors.New("bad key"),
-	}
-	got := occurrenceLines(l, time.UTC)
-	want := []string{
-		"  (decrypt error: bad key)",
-		"    ID: evt9",
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("occurrenceLines() = %q, want %q", got, want)
-	}
-}
-
 func TestOccurrenceJSONTimed(t *testing.T) {
 	l := listedTimed()
 	l.Occurrence.Event.RRule = "FREQ=DAILY"
@@ -195,25 +175,6 @@ func TestOccurrenceJSONEditedOccurrence(t *testing.T) {
 	got := occurrenceJSON(l, time.UTC)
 	if !got.EditedOccurrence || got.Recurring {
 		t.Errorf("EditedOccurrence=%v Recurring=%v, want true/false", got.EditedOccurrence, got.Recurring)
-	}
-}
-
-func TestOccurrenceJSONDecryptError(t *testing.T) {
-	l := event.Listed{
-		Occurrence: recurrence.Occurrence{
-			Event: &caltypes.RawEvent{ID: "evt9"},
-			Start: ts(2026, 6, 12, 9, 0),
-		},
-		Err: errors.New("bad key"),
-	}
-	got := occurrenceJSON(l, time.UTC)
-	want := eventJSON{
-		ID:                "evt9",
-		OccurrenceStartTS: ts(2026, 6, 12, 9, 0),
-		Error:             "bad key",
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("occurrenceJSON() = %+v, want %+v", got, want)
 	}
 }
 

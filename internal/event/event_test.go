@@ -315,7 +315,7 @@ func TestQueryPaginationAndFilter(t *testing.T) {
 	})
 	client := newTestClient(t, mux)
 
-	got, err := Query(context.Background(), client, "cal1", 100, 1000, "UTC")
+	got, err := query(context.Background(), client, "cal1", 100, 1000, "UTC")
 	if err != nil {
 		t.Fatalf("Query: %v", err)
 	}
@@ -460,7 +460,7 @@ func TestUpdateSummaryOnlyReusesSessionKeyAndKeepsSequence(t *testing.T) {
 	access := testAccess(t)
 
 	newSummary := "New title"
-	if _, err := Update(context.Background(), client, access, "ev1", UpdateOptions{Summary: &newSummary}); err != nil {
+	if _, err := update(context.Background(), client, access, "ev1", UpdateOptions{Summary: &newSummary}); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
 
@@ -520,7 +520,7 @@ func TestUpdateStartBumpsSequenceAndClearRRule(t *testing.T) {
 	access := testAccess(t)
 
 	newStart := time.Date(2026, 6, 16, 8, 0, 0, 0, time.UTC)
-	if _, err := Update(context.Background(), client, access, "ev1", UpdateOptions{Start: &newStart, ClearRRule: true}); err != nil {
+	if _, err := update(context.Background(), client, access, "ev1", UpdateOptions{Start: &newStart, ClearRRule: true}); err != nil {
 		t.Fatalf("Update: %v", err)
 	}
 	frag := rec.bodies()[0]["Events"].([]any)[0].(map[string]any)["Event"].(map[string]any)["SharedEventContent"].([]any)[0].(map[string]any)["Data"].(string)

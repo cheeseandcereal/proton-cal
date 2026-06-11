@@ -36,12 +36,6 @@ import (
 	"github.com/cheeseandcereal/proton-cal/internal/papi"
 )
 
-// codeInsufficientScope is the Proton error code returned when the access
-// token lacks the scope required by an endpoint (e.g. "locked" for
-// /core/v4/keys/salts). Live-verified June 2026: HTTP 403, Code 9101,
-// "Access token does not have sufficient scope".
-const codeInsufficientScope = 9101
-
 // Login runs the full interactive login flow and persists the session
 // (tokens + salted key passphrase) and config (username, timezone).
 //
@@ -332,7 +326,7 @@ func captchaToken(prompter Prompter, verifyURL string) (string, error) {
 // isInsufficientScope reports whether err indicates the access token lacks
 // the scope for the attempted endpoint (Proton code 9101 / HTTP 403).
 func isInsufficientScope(err error) bool {
-	if papi.IsCode(err, codeInsufficientScope) {
+	if papi.IsCode(err, papi.CodeInsufficientScope) {
 		return true
 	}
 	var apiErr *proton.APIError

@@ -31,15 +31,15 @@ import (
 )
 
 const (
-	// MaxCount is the largest COUNT the Proton API accepts.
-	MaxCount = 49
-	// MaxOccurrencesPerMaster is the safety cap on occurrences generated
+	// maxCount is the largest COUNT the Proton API accepts.
+	maxCount = 49
+	// maxOccurrencesPerMaster is the safety cap on occurrences generated
 	// per master per window.
-	MaxOccurrencesPerMaster = 1000
+	maxOccurrencesPerMaster = 1000
 )
 
-// MaxUntil is the latest UNTIL date the Proton API accepts (2037-12-31).
-var MaxUntil = time.Date(2037, time.December, 31, 0, 0, 0, 0, time.UTC)
+// maxUntil is the latest UNTIL date the Proton API accepts (2037-12-31).
+var maxUntil = time.Date(2037, time.December, 31, 0, 0, 0, 0, time.UTC)
 
 // frequencies are the RRULE frequencies accepted by the Proton API.
 var frequencies = []string{"DAILY", "WEEKLY", "MONTHLY", "YEARLY"}
@@ -63,7 +63,7 @@ func isSupportedFreq(freq string) bool {
 // a floating YYYYMMDD date. An empty tzName means UTC.
 //
 // Errors are returned for unsupported frequencies, every < 1, count outside
-// [1, MaxCount], until past 2037-12-31, or count+until both set.
+// [1, maxCount], until past 2037-12-31, or count+until both set.
 func BuildRRule(repeat string, every int, count int, until string, tzName string, allDay bool) (string, error) {
 	freq := strings.ToUpper(repeat)
 	if !isSupportedFreq(freq) {
@@ -84,8 +84,8 @@ func BuildRRule(repeat string, every int, count int, until string, tzName string
 		parts = append(parts, fmt.Sprintf("INTERVAL=%d", every))
 	}
 	if count != 0 {
-		if count < 1 || count > MaxCount {
-			return "", fmt.Errorf("count must be between 1 and %d", MaxCount)
+		if count < 1 || count > maxCount {
+			return "", fmt.Errorf("count must be between 1 and %d", maxCount)
 		}
 		parts = append(parts, fmt.Sprintf("COUNT=%d", count))
 	}
@@ -94,8 +94,8 @@ func BuildRRule(repeat string, every int, count int, until string, tzName string
 		if err != nil {
 			return "", fmt.Errorf("invalid until date %q: %w", until, err)
 		}
-		if untilDate.After(MaxUntil) {
-			return "", fmt.Errorf("until must be on or before %s", MaxUntil.Format("2006-01-02"))
+		if untilDate.After(maxUntil) {
+			return "", fmt.Errorf("until must be on or before %s", maxUntil.Format("2006-01-02"))
 		}
 		if allDay {
 			parts = append(parts, "UNTIL="+untilDate.Format("20060102"))
@@ -135,7 +135,7 @@ func untilYear(value string) (int, error) {
 // exactly rather than being re-serialized as UTC datetimes.
 //
 // Rejects embedded CR/LF (injection into the iCal stream), unparseable
-// values, missing or unsupported FREQ, COUNT > MaxCount, COUNT combined with
+// values, missing or unsupported FREQ, COUNT > maxCount, COUNT combined with
 // UNTIL, and UNTIL past 2037. The canonical value is additionally verified
 // to parse with rrule-go so we never sign an RRULE we cannot expand.
 func SanitizeRRule(raw string) (string, error) {
@@ -198,16 +198,16 @@ func SanitizeRRule(raw string) (string, error) {
 	if hasCount && hasUntil {
 		return "", fmt.Errorf("RRULE must not combine COUNT and UNTIL")
 	}
-	if hasCount && count > MaxCount {
-		return "", fmt.Errorf("COUNT must be at most %d", MaxCount)
+	if hasCount && count > maxCount {
+		return "", fmt.Errorf("COUNT must be at most %d", maxCount)
 	}
 	if hasUntil {
 		year, err := untilYear(untilValue)
 		if err != nil {
 			return "", err
 		}
-		if year > MaxUntil.Year() {
-			return "", fmt.Errorf("UNTIL must be no later than %s", MaxUntil.Format("2006-01-02"))
+		if year > maxUntil.Year() {
+			return "", fmt.Errorf("UNTIL must be no later than %s", maxUntil.Format("2006-01-02"))
 		}
 	}
 

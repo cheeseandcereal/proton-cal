@@ -65,14 +65,9 @@ func formatOccurrenceStart(ts int64, allDay bool, loc *time.Location) string {
 }
 
 // renderOccurrence renders one listed occurrence as a text block in the
-// list_events line format. Decrypt failures degrade to an error
-// line; they never kill the listing.
+// list_events line format.
 func renderOccurrence(l event.Listed, loc *time.Location) string {
 	raw := l.Occurrence.Event
-	if l.Err != nil {
-		return fmt.Sprintf("- (decrypt error for %s: %v)", raw.ID, l.Err)
-	}
-
 	ev := l.Event
 	summary := ev.Summary
 	if summary == "" {

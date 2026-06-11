@@ -32,8 +32,8 @@ func TestEscapeText(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := EscapeText(tt.in); got != tt.want {
-				t.Errorf("EscapeText(%q) = %q, want %q", tt.in, got, tt.want)
+			if got := escapeText(tt.in); got != tt.want {
+				t.Errorf("escapeText(%q) = %q, want %q", tt.in, got, tt.want)
 			}
 		})
 	}
@@ -49,8 +49,8 @@ func TestEscapeUnescapeRoundTrip(t *testing.T) {
 		"unicode: héllo, wörld; ☕\\n",
 	}
 	for _, in := range inputs {
-		// CR is destroyed by EscapeText by design, so only CR-free inputs round-trip.
-		if got := unescapeText(EscapeText(in)); got != in {
+		// CR is destroyed by escapeText by design, so only CR-free inputs round-trip.
+		if got := unescapeText(escapeText(in)); got != in {
 			t.Errorf("round-trip %q -> %q", in, got)
 		}
 	}
@@ -77,13 +77,13 @@ func TestUnescapeTextTolerance(t *testing.T) {
 
 func TestFormatUTC(t *testing.T) {
 	utc := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
-	if got := FormatUTC(utc); got != "20260102T030405Z" {
-		t.Errorf("FormatUTC(utc) = %q", got)
+	if got := formatUTC(utc); got != "20260102T030405Z" {
+		t.Errorf("formatUTC(utc) = %q", got)
 	}
 	// Aware non-UTC converts to UTC.
 	plusTen := time.FixedZone("plus10", 10*3600)
-	if got := FormatUTC(time.Date(2026, 1, 2, 13, 4, 5, 0, plusTen)); got != "20260102T030405Z" {
-		t.Errorf("FormatUTC(+10) = %q", got)
+	if got := formatUTC(time.Date(2026, 1, 2, 13, 4, 5, 0, plusTen)); got != "20260102T030405Z" {
+		t.Errorf("formatUTC(+10) = %q", got)
 	}
 }
 
@@ -116,23 +116,23 @@ func TestDTProp(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := DTProp(tt.prop, tt.t, tt.tzName, tt.allDay)
+			got, err := dtProp(tt.prop, tt.t, tt.tzName, tt.allDay)
 			if err != nil {
-				t.Fatalf("DTProp: %v", err)
+				t.Fatalf("dtProp: %v", err)
 			}
 			if got != tt.want {
-				t.Errorf("DTProp = %q, want %q", got, tt.want)
+				t.Errorf("dtProp = %q, want %q", got, tt.want)
 			}
 		})
 	}
 
 	t.Run("invalid zone errors", func(t *testing.T) {
-		if _, err := DTProp("DTSTART", utc4pm, "Not/AZone", false); err == nil {
+		if _, err := dtProp("DTSTART", utc4pm, "Not/AZone", false); err == nil {
 			t.Error("expected error for invalid zone")
 		}
 	})
 	t.Run("invalid zone ignored when all day", func(t *testing.T) {
-		got, err := DTProp("DTSTART", utc4pm, "Not/AZone", true)
+		got, err := dtProp("DTSTART", utc4pm, "Not/AZone", true)
 		if err != nil || got != "DTSTART;VALUE=DATE:20260709" {
 			t.Errorf("got %q, %v", got, err)
 		}
@@ -485,7 +485,7 @@ func TestBuildFragmentsCRLFOnly(t *testing.T) {
 
 func TestFoldLine(t *testing.T) {
 	t.Run("short line unchanged", func(t *testing.T) {
-		if got := FoldLine("SUMMARY:hi"); got != "SUMMARY:hi" {
+		if got := foldLine("SUMMARY:hi"); got != "SUMMARY:hi" {
 			t.Errorf("got %q", got)
 		}
 	})
@@ -494,13 +494,13 @@ func TestFoldLine(t *testing.T) {
 		if len(line) != 75 {
 			t.Fatalf("setup: len=%d", len(line))
 		}
-		if got := FoldLine(line); got != line {
+		if got := foldLine(line); got != line {
 			t.Errorf("got %q", got)
 		}
 	})
 	t.Run("long ascii folded at 75 octets", func(t *testing.T) {
 		line := "SUMMARY:" + strings.Repeat("a", 200)
-		got := FoldLine(line)
+		got := foldLine(line)
 		physical := strings.Split(got, "\r\n")
 		if len(physical) < 2 {
 			t.Fatal("expected folding")
@@ -522,7 +522,7 @@ func TestFoldLine(t *testing.T) {
 	})
 	t.Run("multi byte runes not split", func(t *testing.T) {
 		line := "SUMMARY:" + strings.Repeat("é☕日", 40)
-		got := FoldLine(line)
+		got := foldLine(line)
 		for i, p := range strings.Split(got, "\r\n") {
 			if !utf8.ValidString(p) {
 				t.Errorf("physical line %d splits a UTF-8 rune: %q", i, p)
@@ -844,30 +844,33 @@ func TestParseFragmentRoundTripsBuiltFragments(t *testing.T) {
 	}
 }
 
-func TestSequenceFromFragment(t *testing.T) {
+func TestParseFragmentSequence(t *testing.T) {
 	wrap := func(lines ...string) string {
 		all := append([]string{"BEGIN:VCALENDAR", "BEGIN:VEVENT"}, lines...)
 		all = append(all, "END:VEVENT", "END:VCALENDAR")
 		return joinCRLF(all...)
 	}
 	tests := []struct {
-		name string
-		in   string
-		want int
+		name    string
+		in      string
+		want    int
+		wantHas bool
 	}{
-		{"present", wrap("UID:u1", "SEQUENCE:5"), 5},
-		{"zero", wrap("UID:u1", "SEQUENCE:0"), 0},
-		{"absent", wrap("UID:u1"), 0},
-		{"malformed value", wrap("SEQUENCE:abc"), 0},
-		{"empty value", wrap("SEQUENCE:"), 0},
-		{"empty input", "", 0},
-		{"garbage input", "%%% nope", 0},
-		{"folded sequence", wrap("SEQUENCE:1", "X-PAD:"+strings.Repeat("x", 100)), 1},
+		{"present", wrap("UID:u1", "SEQUENCE:5"), 5, true},
+		{"zero", wrap("UID:u1", "SEQUENCE:0"), 0, true},
+		{"absent", wrap("UID:u1"), 0, false},
+		{"malformed value", wrap("SEQUENCE:abc"), 0, false},
+		{"empty value", wrap("SEQUENCE:"), 0, false},
+		{"folded sequence", wrap("SEQUENCE:1", "X-PAD:"+strings.Repeat("x", 100)), 1, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := SequenceFromFragment(tt.in); got != tt.want {
-				t.Errorf("SequenceFromFragment = %d, want %d", got, tt.want)
+			ev, err := ParseFragment(tt.in)
+			if err != nil {
+				t.Fatalf("ParseFragment: %v", err)
+			}
+			if ev.Sequence != tt.want || ev.HasSequence != tt.wantHas {
+				t.Errorf("got (%d, %v), want (%d, %v)", ev.Sequence, ev.HasSequence, tt.want, tt.wantHas)
 			}
 		})
 	}
@@ -880,7 +883,11 @@ func TestSequenceFromBuiltFragment(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if got := SequenceFromFragment(frags.SharedSigned); got != 9 {
-		t.Errorf("got %d, want 9", got)
+	ev, err := ParseFragment(frags.SharedSigned)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !ev.HasSequence || ev.Sequence != 9 {
+		t.Errorf("got %d (has=%v), want 9", ev.Sequence, ev.HasSequence)
 	}
 }

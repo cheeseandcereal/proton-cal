@@ -22,7 +22,6 @@ type eventJSON struct {
 	OccurrenceStartTS int64  `json:"occurrence_start_ts"`
 	RRule             string `json:"rrule,omitempty"`
 	CalendarID        string `json:"calendar_id,omitempty"`
-	Error             string `json:"error,omitempty"`
 }
 
 // formatOccurrenceStart renders an occurrence's original start in the form
@@ -38,16 +37,9 @@ func formatOccurrenceStart(ts int64, allDay bool, loc *time.Location) string {
 
 // occurrenceLines renders one listed occurrence as human-readable output
 // lines. Times are rendered in loc (all-day dates in UTC, their canonical
-// anchor zone). Decrypt failures degrade to an error line plus the row ID.
+// anchor zone).
 func occurrenceLines(l event.Listed, loc *time.Location) []string {
 	raw := l.Occurrence.Event
-	if l.Err != nil {
-		return []string{
-			fmt.Sprintf("  (decrypt error: %v)", l.Err),
-			fmt.Sprintf("    ID: %s", raw.ID),
-		}
-	}
-
 	ev := l.Event
 	summary := ev.Summary
 	if summary == "" {
@@ -90,14 +82,6 @@ func occurrenceLines(l event.Listed, loc *time.Location) []string {
 // anchor zone, so the date is the event's date).
 func occurrenceJSON(l event.Listed, loc *time.Location) eventJSON {
 	raw := l.Occurrence.Event
-	if l.Err != nil {
-		return eventJSON{
-			ID:                raw.ID,
-			OccurrenceStartTS: l.Occurrence.Start,
-			Error:             l.Err.Error(),
-		}
-	}
-
 	ev := l.Event
 	renderLoc := loc
 	if ev.AllDay {

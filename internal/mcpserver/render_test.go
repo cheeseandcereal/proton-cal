@@ -1,7 +1,6 @@
 package mcpserver
 
 import (
-	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -107,7 +106,7 @@ func TestRenderOccurrenceStartRoundTripsThroughParseOccurrence(t *testing.T) {
 	}
 }
 
-func TestRenderOccurrenceEditedAndErrors(t *testing.T) {
+func TestRenderOccurrenceEdited(t *testing.T) {
 	start := time.Date(2026, 6, 16, 14, 0, 0, 0, time.UTC)
 	end := start.Add(time.Hour)
 
@@ -122,15 +121,6 @@ func TestRenderOccurrenceEditedAndErrors(t *testing.T) {
 	}
 	if strings.Contains(got, "occurrence start:") {
 		t.Errorf("edited occurrence must not print an occurrence start line:\n%s", got)
-	}
-
-	failed := event.Listed{
-		Occurrence: recurrence.Occurrence{Event: &caltypes.RawEvent{ID: "ev-bad"}, Start: start.Unix(), End: end.Unix()},
-		Err:        errors.New("no key packet"),
-	}
-	got = renderOccurrence(failed, time.UTC)
-	if got != "- (decrypt error for ev-bad: no key packet)" {
-		t.Errorf("decrypt error line = %q", got)
 	}
 
 	noTitle := listedAt(&caltypes.RawEvent{ID: "ev-4"}, &event.Event{EventID: "ev-4"}, start, end)

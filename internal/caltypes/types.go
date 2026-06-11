@@ -1,10 +1,9 @@
-// Package caltypes defines plain data types for Proton Calendar API
-// responses, shared across packages. It has no dependencies on other
-// internal packages so that recurrence/event/calendar can all import it.
+// Package caltypes defines the plain event-row wire types shared by the
+// recurrence and event packages. It has no dependencies on other internal
+// packages, breaking the cycle recurrence -> event row types <- event.
 //
 // These types intentionally do NOT come from go-proton-api: its calendar
-// types are stale (e.g. the calendar list no longer carries Name/Color at
-// the top level - verified live against the API).
+// types are stale (verified live against the API).
 package caltypes
 
 // Calendar card types (CALENDAR_CARD_TYPE in the web client).
@@ -75,30 +74,3 @@ func (e *RawEvent) IsMaster() bool { return e.RRule != "" && e.RecurrenceID == 0
 
 // IsException reports whether this row is a single-edit exception row.
 func (e *RawEvent) IsException() bool { return e.RecurrenceID != 0 }
-
-// Calendar is one entry of GET /calendar/v1. Display metadata
-// (Name/Description/Color) lives on the per-user member entry (verified
-// live; older API responses had them top-level, supported as fallback).
-type Calendar struct {
-	ID          string           `json:"ID"`
-	Type        int              `json:"Type"` // 0 = normal, 1 = subscribed (2 observed: holidays)
-	CreateTime  int64            `json:"CreateTime"`
-	Members     []CalendarMember `json:"Members"`
-	Name        string           `json:"Name,omitempty"`        // legacy top-level fallback
-	Description string           `json:"Description,omitempty"` // legacy top-level fallback
-	Color       string           `json:"Color,omitempty"`       // legacy top-level fallback
-}
-
-// CalendarMember is a member entry on a calendar (the per-user view).
-type CalendarMember struct {
-	ID          string `json:"ID"`
-	AddressID   string `json:"AddressID"`
-	CalendarID  string `json:"CalendarID"`
-	Email       string `json:"Email"`
-	Name        string `json:"Name"`
-	Description string `json:"Description"`
-	Color       string `json:"Color"`
-	Display     int    `json:"Display"`
-	Permissions int    `json:"Permissions"`
-	Flags       int    `json:"Flags"`
-}

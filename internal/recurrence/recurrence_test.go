@@ -563,8 +563,8 @@ func TestExpandOccurrences(t *testing.T) {
 	t.Run("expansion cap", func(t *testing.T) {
 		master := makeEvent(eventOpts{id: "cap1", start: daySec, end: daySec + hourSec, rrule: "FREQ=DAILY"})
 		out := ExpandOccurrences([]*caltypes.RawEvent{master}, 0, 4000*daySec) // ~11 years
-		if len(out) != MaxOccurrencesPerMaster {
-			t.Errorf("got %d occurrences, want %d", len(out), MaxOccurrencesPerMaster)
+		if len(out) != maxOccurrencesPerMaster {
+			t.Errorf("got %d occurrences, want %d", len(out), maxOccurrencesPerMaster)
 		}
 	})
 }
@@ -597,29 +597,29 @@ func TestResolveOccurrence(t *testing.T) {
 			end:          base + daySec + 2*hourSec,
 			recurrenceID: base + daySec,
 		})
-		kind, row, err := ResolveOccurrence(master, []*caltypes.RawEvent{master, exception}, base+daySec)
+		row, err := ResolveOccurrence(master, []*caltypes.RawEvent{master, exception}, base+daySec)
 		if err != nil {
 			t.Fatalf("ResolveOccurrence: %v", err)
 		}
-		if kind != KindException || row != exception {
-			t.Errorf("got (%v, %v), want (KindException, exception row)", kind, row)
+		if row != exception {
+			t.Errorf("got %v, want the exception row", row)
 		}
 	})
 
 	t.Run("plain generated occurrence", func(t *testing.T) {
 		master := resolveMaster(eventOpts{rrule: rrule})
-		kind, row, err := ResolveOccurrence(master, []*caltypes.RawEvent{master}, base+daySec)
+		row, err := ResolveOccurrence(master, []*caltypes.RawEvent{master}, base+daySec)
 		if err != nil {
 			t.Fatalf("ResolveOccurrence: %v", err)
 		}
-		if kind != KindOccurrence || row != nil {
-			t.Errorf("got (%v, %v), want (KindOccurrence, nil)", kind, row)
+		if row != nil {
+			t.Errorf("got %v, want nil (generated occurrence)", row)
 		}
 	})
 
 	t.Run("exdated occurrence errors as deleted", func(t *testing.T) {
 		master := resolveMaster(eventOpts{rrule: rrule, exdates: []int64{base + daySec}})
-		_, _, err := ResolveOccurrence(master, []*caltypes.RawEvent{master}, base+daySec)
+		_, err := ResolveOccurrence(master, []*caltypes.RawEvent{master}, base+daySec)
 		if err == nil || !strings.Contains(err.Error(), "deleted") {
 			t.Errorf("got err %v, want mention of deleted", err)
 		}
@@ -627,7 +627,7 @@ func TestResolveOccurrence(t *testing.T) {
 
 	t.Run("non-occurrence timestamp errors", func(t *testing.T) {
 		master := resolveMaster(eventOpts{rrule: rrule})
-		_, _, err := ResolveOccurrence(master, []*caltypes.RawEvent{master}, base+daySec+1234)
+		_, err := ResolveOccurrence(master, []*caltypes.RawEvent{master}, base+daySec+1234)
 		if err == nil || !strings.Contains(err.Error(), "not an occurrence") {
 			t.Errorf("got err %v, want mention of not an occurrence", err)
 		}
@@ -635,7 +635,7 @@ func TestResolveOccurrence(t *testing.T) {
 
 	t.Run("non-recurring master errors", func(t *testing.T) {
 		master := resolveMaster(eventOpts{})
-		_, _, err := ResolveOccurrence(master, []*caltypes.RawEvent{master}, base)
+		_, err := ResolveOccurrence(master, []*caltypes.RawEvent{master}, base)
 		if err == nil || !strings.Contains(err.Error(), "not a recurring event") {
 			t.Errorf("got err %v, want mention of not a recurring event", err)
 		}
@@ -650,32 +650,20 @@ func TestResolveOccurrence(t *testing.T) {
 			fullDay: 1,
 			rrule:   "FREQ=DAILY;UNTIL=20260712",
 		})
-		kind, row, err := ResolveOccurrence(master, []*caltypes.RawEvent{master}, start+2*daySec)
+		row, err := ResolveOccurrence(master, []*caltypes.RawEvent{master}, start+2*daySec)
 		if err != nil {
 			t.Fatalf("ResolveOccurrence: %v", err)
 		}
-		if kind != KindOccurrence || row != nil {
-			t.Errorf("got (%v, %v), want (KindOccurrence, nil)", kind, row)
+		if row != nil {
+			t.Errorf("got %v, want nil (generated occurrence)", row)
 		}
 	})
 
 	t.Run("malformed RRULE errors", func(t *testing.T) {
 		master := resolveMaster(eventOpts{rrule: "FREQ=BOGUS"})
-		_, _, err := ResolveOccurrence(master, []*caltypes.RawEvent{master}, base+daySec)
+		_, err := ResolveOccurrence(master, []*caltypes.RawEvent{master}, base+daySec)
 		if err == nil {
 			t.Errorf("got nil err, want parse error")
 		}
 	})
-}
-
-func TestOccurrenceKindString(t *testing.T) {
-	if KindException.String() != "exception" {
-		t.Errorf("KindException.String() = %q", KindException.String())
-	}
-	if KindOccurrence.String() != "occurrence" {
-		t.Errorf("KindOccurrence.String() = %q", KindOccurrence.String())
-	}
-	if got := OccurrenceKind(42).String(); got != "OccurrenceKind(42)" {
-		t.Errorf("OccurrenceKind(42).String() = %q", got)
-	}
 }

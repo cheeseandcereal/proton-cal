@@ -39,8 +39,8 @@ func TestZSweep(t *testing.T) {
 		// decrypted summary carries the suite tag are ever touched.
 		rows := make(map[string]*event.Event)
 		for _, l := range listed {
-			if l.Err != nil || l.Event == nil {
-				continue // undecryptable rows are not ours to delete
+			if l.Event == nil {
+				continue
 			}
 			if !strings.Contains(l.Event.Summary, summaryPrefix) {
 				continue

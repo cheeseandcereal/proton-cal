@@ -9,7 +9,6 @@ import (
 	"github.com/ProtonMail/gopenpgp/v2/crypto"
 
 	"github.com/cheeseandcereal/proton-cal/internal/auth"
-	"github.com/cheeseandcereal/proton-cal/internal/caltypes"
 	"github.com/cheeseandcereal/proton-cal/internal/papi"
 )
 
@@ -42,7 +41,7 @@ func NewKeychain(client *papi.Client, unlocked *auth.Unlocked) *Keychain {
 
 // membersResponse is the wire shape of GET /calendar/v1/{id}/members.
 type membersResponse struct {
-	Members []caltypes.CalendarMember `json:"Members"`
+	Members []apiMember `json:"Members"`
 }
 
 // passphraseResponse is the wire shape of GET /calendar/v1/{id}/passphrase.
@@ -123,7 +122,7 @@ func (k *Keychain) Unlock(ctx context.Context, calendarID string) (*Access, erro
 // back to the first member passphrase).
 func (k *Keychain) resolveMember(ctx context.Context, calendarID string) (memberID, addressID string, err error) {
 	var resp membersResponse
-	if err := k.client.Get(ctx, "/calendar/v1/"+calendarID+"/members", nil, &resp); err != nil {
+	if err := k.client.Get(ctx, APIPath+"/"+calendarID+"/members", nil, &resp); err != nil {
 		return "", "", fmt.Errorf("fetching members for calendar %s: %w", calendarID, err)
 	}
 
@@ -150,7 +149,7 @@ func (k *Keychain) resolveMember(ctx context.Context, calendarID string) (member
 // its absence or failure is non-fatal).
 func (k *Keychain) decryptPassphrase(ctx context.Context, calendarID, memberID string) ([]byte, error) {
 	var resp passphraseResponse
-	if err := k.client.Get(ctx, "/calendar/v1/"+calendarID+"/passphrase", nil, &resp); err != nil {
+	if err := k.client.Get(ctx, APIPath+"/"+calendarID+"/passphrase", nil, &resp); err != nil {
 		return nil, fmt.Errorf("fetching passphrase for calendar %s: %w", calendarID, err)
 	}
 
@@ -194,7 +193,7 @@ func (k *Keychain) decryptPassphrase(ctx context.Context, calendarID, memberID s
 // keyring. It errors when none unlock.
 func (k *Keychain) unlockCalendarKeys(ctx context.Context, calendarID string, passphrase []byte) (*crypto.KeyRing, error) {
 	var resp keysResponse
-	if err := k.client.Get(ctx, "/calendar/v1/"+calendarID+"/keys", nil, &resp); err != nil {
+	if err := k.client.Get(ctx, APIPath+"/"+calendarID+"/keys", nil, &resp); err != nil {
 		return nil, fmt.Errorf("fetching keys for calendar %s: %w", calendarID, err)
 	}
 

@@ -9,16 +9,11 @@
 package event
 
 import (
-	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"time"
 
-	"github.com/ProtonMail/gopenpgp/v2/crypto"
-
-	"github.com/cheeseandcereal/proton-cal/internal/calendar"
 	"github.com/cheeseandcereal/proton-cal/internal/caltypes"
-	"github.com/cheeseandcereal/proton-cal/internal/papi"
 	"github.com/cheeseandcereal/proton-cal/internal/recurrence"
 )
 
@@ -66,45 +61,10 @@ type Event struct {
 // IsRecurring reports whether the event is a recurring series master.
 func (e *Event) IsRecurring() bool { return e.RRule != "" }
 
-// Decrypt decrypts a raw event into an Event. Lenient: signature
-// verification is skipped and an undecryptable part degrades to missing
-// fields rather than failing the whole event (a hard error is returned only
-// when nothing useful could be extracted... see implementation).
-func Decrypt(raw *caltypes.RawEvent, calKR *crypto.KeyRing) (*Event, error) {
-	return decryptImpl(raw, calKR)
-}
-
-// Query fetches raw events for a calendar with full pagination and
-// client-side window filtering (the server ignores Start/End params).
-// Recurring masters always survive the filter (they are expanded later).
-// Sorted by StartTime.
-func Query(ctx context.Context, client *papi.Client, calendarID string, start, end int64, tzName string) ([]*caltypes.RawEvent, error) {
-	return queryImpl(ctx, client, calendarID, start, end, tzName)
-}
-
-// Get fetches a single raw event.
-func Get(ctx context.Context, client *papi.Client, calendarID, eventID string) (*caltypes.RawEvent, error) {
-	return getImpl(ctx, client, calendarID, eventID)
-}
-
-// GetByUID fetches all raw rows sharing an iCal UID (master + exceptions);
-// the UID query param filters server-side (verified live).
-func GetByUID(ctx context.Context, client *papi.Client, calendarID, uid string) ([]*caltypes.RawEvent, error) {
-	return getByUIDImpl(ctx, client, calendarID, uid)
-}
-
-// Listed is one expanded occurrence with its decrypted event (or the
-// decryption error for that row; one bad event never kills a listing).
+// Listed is one expanded occurrence with its decrypted event.
 type Listed struct {
 	Occurrence recurrence.Occurrence
-	Event      *Event // nil when Err != nil
-	Err        error
-}
-
-// ListWindow queries, expands and decrypts all occurrences overlapping
-// [start, end), deduplicating decryption per event row.
-func ListWindow(ctx context.Context, client *papi.Client, calKR *crypto.KeyRing, calendarID string, start, end int64, tzName string) ([]Listed, error) {
-	return listWindowImpl(ctx, client, calKR, calendarID, start, end, tzName)
+	Event      *Event
 }
 
 // CreateOptions describes a new event. For all-day events Start/End are
@@ -128,12 +88,6 @@ type CreateOptions struct {
 	Sequence     int
 }
 
-// Create encrypts and creates an event via the sync endpoint. Returns the
-// created raw event row echoed by the server.
-func Create(ctx context.Context, client *papi.Client, access *calendar.Access, opts CreateOptions) (*caltypes.RawEvent, error) {
-	return createImpl(ctx, client, access, opts)
-}
-
 // UpdateOptions describes a partial update; nil pointers mean "keep
 // current". SEQUENCE is bumped only on significant changes (times,
 // recurrence, exdates) per RFC 5546 - field-only edits keep it.
@@ -155,47 +109,10 @@ func (o UpdateOptions) Significant() bool {
 	return o.Start != nil || o.End != nil || o.RRule != nil || o.ClearRRule || len(o.AddExdates) > 0
 }
 
-// Update fetches, merges, re-encrypts (REUSING the event's existing session
-// keys; no new key packets) and PUTs an event. Returns the updated raw
-// event when the server echoes it (may be nil on success).
-func Update(ctx context.Context, client *papi.Client, access *calendar.Access, eventID string, opts UpdateOptions) (*caltypes.RawEvent, error) {
-	return updateImpl(ctx, client, access, eventID, opts)
-}
-
-// Delete deletes raw event rows by ID in a single sync call.
-func Delete(ctx context.Context, client *papi.Client, calendarID string, eventIDs []string, memberID string) error {
-	return deleteImpl(ctx, client, calendarID, eventIDs, memberID)
-}
-
-// ResolveSeries resolves a recurring series from any of its rows: returns
-// the master and all same-UID rows. Errors when the event is not recurring.
-func ResolveSeries(ctx context.Context, client *papi.Client, calendarID, eventID string) (master *caltypes.RawEvent, related []*caltypes.RawEvent, err error) {
-	return resolveSeriesImpl(ctx, client, calendarID, eventID)
-}
-
-// DeleteSeriesExceptions deletes all exception rows of a series except
-// keepEventID (used when a series-level change invalidates single edits).
-// Returns the number of rows deleted.
-func DeleteSeriesExceptions(ctx context.Context, client *papi.Client, calendarID, uid, memberID, keepEventID string) (int, error) {
-	return deleteSeriesExceptionsImpl(ctx, client, calendarID, uid, memberID, keepEventID)
-}
-
 // DeleteResult describes what SmartDelete actually deleted.
 type DeleteResult struct {
 	Kind        string `json:"kind"` // "occurrence" | "series" | "event"
 	RowsDeleted int    `json:"rows_deleted"`
-}
-
-// SmartDelete picks the right delete strategy for the addressed target:
-//   - occurrenceTS != 0: delete that single occurrence (EXDATE on the
-//     master; an existing exception row for it is deleted too).
-//   - occurrenceTS == 0 and the row is an exception: delete just that
-//     occurrence (EXDATE + row).
-//   - master row: delete the whole series (master + all same-UID rows; the
-//     server orphans exceptions otherwise - see RESEARCH.md).
-//   - plain event: delete the row.
-func SmartDelete(ctx context.Context, client *papi.Client, access *calendar.Access, eventID string, occurrenceTS int64) (*DeleteResult, error) {
-	return smartDeleteImpl(ctx, client, access, eventID, occurrenceTS)
 }
 
 // UpdateOutcome describes what SmartUpdate did.
@@ -203,14 +120,4 @@ type UpdateOutcome struct {
 	Updated           *caltypes.RawEvent `json:"-"`
 	EditedOccurrence  bool               `json:"edited_occurrence"`
 	RemovedExceptions int                `json:"removed_exceptions"`
-}
-
-// SmartUpdate picks the right update strategy for the addressed target:
-//   - occurrenceTS != 0: edit ONE occurrence (update its existing exception
-//     row, or create a fresh exception row seeded from the master with
-//     SEQUENCE >= the master's). Recurrence options are rejected here.
-//   - otherwise: update the event/series; when a significant change hits a
-//     master, its now-invalid exception rows are deleted afterwards.
-func SmartUpdate(ctx context.Context, client *papi.Client, access *calendar.Access, eventID string, opts UpdateOptions, occurrenceTS int64) (*UpdateOutcome, error) {
-	return smartUpdateImpl(ctx, client, access, eventID, opts, occurrenceTS)
 }

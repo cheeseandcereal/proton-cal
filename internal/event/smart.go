@@ -13,12 +13,14 @@ import (
 	"github.com/cheeseandcereal/proton-cal/internal/recurrence"
 )
 
-func resolveSeriesImpl(ctx context.Context, client *papi.Client, calendarID, eventID string) (*caltypes.RawEvent, []*caltypes.RawEvent, error) {
-	raw, err := getImpl(ctx, client, calendarID, eventID)
+// resolveSeries resolves a recurring series from any of its rows: returns
+// the master and all same-UID rows. Errors when the event is not recurring.
+func resolveSeries(ctx context.Context, client *papi.Client, calendarID, eventID string) (*caltypes.RawEvent, []*caltypes.RawEvent, error) {
+	raw, err := Get(ctx, client, calendarID, eventID)
 	if err != nil {
 		return nil, nil, err
 	}
-	related, err := getByUIDImpl(ctx, client, calendarID, raw.UID)
+	related, err := GetByUID(ctx, client, calendarID, raw.UID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -33,8 +35,11 @@ func resolveSeriesImpl(ctx context.Context, client *papi.Client, calendarID, eve
 	return nil, nil, fmt.Errorf("event %s is not a recurring event", eventID)
 }
 
-func deleteSeriesExceptionsImpl(ctx context.Context, client *papi.Client, calendarID, uid, memberID, keepEventID string) (int, error) {
-	rows, err := getByUIDImpl(ctx, client, calendarID, uid)
+// deleteSeriesExceptions deletes all exception rows of a series except
+// keepEventID (used when a series-level change invalidates single edits).
+// Returns the number of rows deleted.
+func deleteSeriesExceptions(ctx context.Context, client *papi.Client, calendarID, uid, memberID, keepEventID string) (int, error) {
+	rows, err := GetByUID(ctx, client, calendarID, uid)
 	if err != nil {
 		return 0, err
 	}
@@ -47,14 +52,22 @@ func deleteSeriesExceptionsImpl(ctx context.Context, client *papi.Client, calend
 	if len(ids) == 0 {
 		return 0, nil
 	}
-	if err := deleteImpl(ctx, client, calendarID, ids, memberID); err != nil {
+	if err := deleteRows(ctx, client, calendarID, ids, memberID); err != nil {
 		return 0, err
 	}
 	return len(ids), nil
 }
 
-func smartDeleteImpl(ctx context.Context, client *papi.Client, access *calendar.Access, eventID string, occurrenceTS int64) (*DeleteResult, error) {
-	raw, err := getImpl(ctx, client, access.CalendarID, eventID)
+// SmartDelete picks the right delete strategy for the addressed target:
+//   - occurrenceTS != 0: delete that single occurrence (EXDATE on the
+//     master; an existing exception row for it is deleted too).
+//   - occurrenceTS == 0 and the row is an exception: delete just that
+//     occurrence (EXDATE + row).
+//   - master row: delete the whole series (master + all same-UID rows; the
+//     server orphans exceptions otherwise - see RESEARCH.md).
+//   - plain event: delete the row.
+func SmartDelete(ctx context.Context, client *papi.Client, access *calendar.Access, eventID string, occurrenceTS int64) (*DeleteResult, error) {
+	raw, err := Get(ctx, client, access.CalendarID, eventID)
 	if err != nil {
 		return nil, err
 	}
@@ -65,23 +78,23 @@ func smartDeleteImpl(ctx context.Context, client *papi.Client, access *calendar.
 	}
 
 	if occurrenceTS != 0 {
-		master, related, err := resolveSeriesImpl(ctx, client, access.CalendarID, eventID)
+		master, related, err := resolveSeries(ctx, client, access.CalendarID, eventID)
 		if err != nil {
 			return nil, err
 		}
-		kind, row, err := recurrence.ResolveOccurrence(master, related, occurrenceTS)
+		row, err := recurrence.ResolveOccurrence(master, related, occurrenceTS)
 		if err != nil {
 			return nil, err
 		}
 		// EXDATE the original occurrence start on the master.
 		exdate := time.Unix(occurrenceTS, 0).UTC()
-		if _, err := updateImpl(ctx, client, access, master.ID, UpdateOptions{AddExdates: []time.Time{exdate}}); err != nil {
+		if _, err := update(ctx, client, access, master.ID, UpdateOptions{AddExdates: []time.Time{exdate}}); err != nil {
 			return nil, err
 		}
 		rows := 1
 		// If the occurrence had been single-edited, delete its exception row too.
-		if kind == recurrence.KindException && row != nil {
-			if err := deleteImpl(ctx, client, access.CalendarID, []string{row.ID}, access.MemberID); err != nil {
+		if row != nil {
+			if err := deleteRows(ctx, client, access.CalendarID, []string{row.ID}, access.MemberID); err != nil {
 				return nil, err
 			}
 			rows = 2
@@ -92,7 +105,7 @@ func smartDeleteImpl(ctx context.Context, client *papi.Client, access *calendar.
 	if raw.RRule != "" {
 		// Series delete: master + ALL same-UID rows in ONE batched call;
 		// the server orphans exception rows otherwise (verified live).
-		rows, err := getByUIDImpl(ctx, client, access.CalendarID, raw.UID)
+		rows, err := GetByUID(ctx, client, access.CalendarID, raw.UID)
 		if err != nil {
 			return nil, err
 		}
@@ -107,34 +120,40 @@ func smartDeleteImpl(ctx context.Context, client *papi.Client, access *calendar.
 			ids = append(ids, id)
 		}
 		sort.Strings(ids)
-		if err := deleteImpl(ctx, client, access.CalendarID, ids, access.MemberID); err != nil {
+		if err := deleteRows(ctx, client, access.CalendarID, ids, access.MemberID); err != nil {
 			return nil, err
 		}
 		return &DeleteResult{Kind: "series", RowsDeleted: len(ids)}, nil
 	}
 
-	if err := deleteImpl(ctx, client, access.CalendarID, []string{eventID}, access.MemberID); err != nil {
+	if err := deleteRows(ctx, client, access.CalendarID, []string{eventID}, access.MemberID); err != nil {
 		return nil, err
 	}
 	return &DeleteResult{Kind: "event", RowsDeleted: 1}, nil
 }
 
-func smartUpdateImpl(ctx context.Context, client *papi.Client, access *calendar.Access, eventID string, opts UpdateOptions, occurrenceTS int64) (*UpdateOutcome, error) {
+// SmartUpdate picks the right update strategy for the addressed target:
+//   - occurrenceTS != 0: edit ONE occurrence (update its existing exception
+//     row, or create a fresh exception row seeded from the master with
+//     SEQUENCE >= the master's). Recurrence options are rejected here.
+//   - otherwise: update the event/series; when a significant change hits a
+//     master, its now-invalid exception rows are deleted afterwards.
+func SmartUpdate(ctx context.Context, client *papi.Client, access *calendar.Access, eventID string, opts UpdateOptions, occurrenceTS int64) (*UpdateOutcome, error) {
 	if occurrenceTS != 0 {
 		if opts.RRule != nil || opts.ClearRRule {
 			return nil, errors.New("recurrence changes cannot be combined with an occurrence edit (edit the series instead)")
 		}
-		master, related, err := resolveSeriesImpl(ctx, client, access.CalendarID, eventID)
+		master, related, err := resolveSeries(ctx, client, access.CalendarID, eventID)
 		if err != nil {
 			return nil, err
 		}
-		kind, row, err := recurrence.ResolveOccurrence(master, related, occurrenceTS)
+		row, err := recurrence.ResolveOccurrence(master, related, occurrenceTS)
 		if err != nil {
 			return nil, err
 		}
-		if kind == recurrence.KindException && row != nil {
+		if row != nil {
 			// The occurrence was already single-edited: update its row.
-			updated, err := updateImpl(ctx, client, access, row.ID, opts)
+			updated, err := update(ctx, client, access, row.ID, opts)
 			if err != nil {
 				return nil, err
 			}
@@ -142,7 +161,7 @@ func smartUpdateImpl(ctx context.Context, client *papi.Client, access *calendar.
 		}
 
 		// Create a fresh exception row seeded from the master's fields.
-		cur, err := decryptImpl(master, access.KR)
+		cur, err := Decrypt(master, access.KR)
 		if err != nil {
 			return nil, err
 		}
@@ -163,7 +182,7 @@ func smartUpdateImpl(ctx context.Context, client *papi.Client, access *calendar.
 		if tz == "" {
 			tz = "UTC"
 		}
-		created, err := createImpl(ctx, client, access, CreateOptions{
+		created, err := Create(ctx, client, access, CreateOptions{
 			Summary:      strOr(opts.Summary, cur.Summary),
 			Description:  strOr(opts.Description, cur.Description),
 			Location:     strOr(opts.Location, cur.Location),
@@ -183,18 +202,18 @@ func smartUpdateImpl(ctx context.Context, client *papi.Client, access *calendar.
 		return &UpdateOutcome{Updated: created, EditedOccurrence: true}, nil
 	}
 
-	raw, err := getImpl(ctx, client, access.CalendarID, eventID)
+	raw, err := Get(ctx, client, access.CalendarID, eventID)
 	if err != nil {
 		return nil, err
 	}
-	updated, err := updateImpl(ctx, client, access, eventID, opts)
+	updated, err := update(ctx, client, access, eventID, opts)
 	if err != nil {
 		return nil, err
 	}
 	outcome := &UpdateOutcome{Updated: updated}
 	// A series-level time or recurrence change invalidates single edits.
 	if raw.IsMaster() && opts.Significant() {
-		n, err := deleteSeriesExceptionsImpl(ctx, client, access.CalendarID, raw.UID, access.MemberID, eventID)
+		n, err := deleteSeriesExceptions(ctx, client, access.CalendarID, raw.UID, access.MemberID, eventID)
 		if err != nil {
 			return nil, fmt.Errorf("event updated, but cleaning up edited occurrences failed: %w", err)
 		}

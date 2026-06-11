@@ -13,9 +13,38 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/cheeseandcereal/proton-cal/internal/caltypes"
 	"github.com/cheeseandcereal/proton-cal/internal/papi"
 )
+
+// APIPath is the route prefix of the Proton Calendar API.
+const APIPath = "/calendar/v1"
+
+// apiCalendar is one entry of GET /calendar/v1. Display metadata
+// (Name/Description/Color) lives on the per-user member entry (verified
+// live; older API responses had them top-level, supported as fallback).
+type apiCalendar struct {
+	ID          string      `json:"ID"`
+	Type        int         `json:"Type"` // 0 = normal, 1 = subscribed (2 observed: holidays)
+	CreateTime  int64       `json:"CreateTime"`
+	Members     []apiMember `json:"Members"`
+	Name        string      `json:"Name,omitempty"`        // legacy top-level fallback
+	Description string      `json:"Description,omitempty"` // legacy top-level fallback
+	Color       string      `json:"Color,omitempty"`       // legacy top-level fallback
+}
+
+// apiMember is a member entry on a calendar (the per-user view).
+type apiMember struct {
+	ID          string `json:"ID"`
+	AddressID   string `json:"AddressID"`
+	CalendarID  string `json:"CalendarID"`
+	Email       string `json:"Email"`
+	Name        string `json:"Name"`
+	Description string `json:"Description"`
+	Color       string `json:"Color"`
+	Display     int    `json:"Display"`
+	Permissions int    `json:"Permissions"`
+	Flags       int    `json:"Flags"`
+}
 
 // Info is a calendar with its display metadata resolved (from the per-user
 // member entry, with legacy top-level fallback) plus our member identity.
@@ -32,13 +61,13 @@ type Info struct {
 
 // listResponse is the wire shape of GET /calendar/v1.
 type listResponse struct {
-	Calendars []caltypes.Calendar `json:"Calendars"`
+	Calendars []apiCalendar `json:"Calendars"`
 }
 
 // List fetches and resolves all calendars on the account.
 func List(ctx context.Context, client *papi.Client) ([]Info, error) {
 	var resp listResponse
-	if err := client.Get(ctx, "/calendar/v1", nil, &resp); err != nil {
+	if err := client.Get(ctx, APIPath, nil, &resp); err != nil {
 		return nil, fmt.Errorf("listing calendars: %w", err)
 	}
 	infos := make([]Info, 0, len(resp.Calendars))
@@ -51,8 +80,8 @@ func List(ctx context.Context, client *papi.Client) ([]Info, error) {
 // newInfo resolves one calendar list entry. The modern API carries
 // Name/Description/Color on the per-user member entry (the list endpoint
 // returns only OUR member); legacy responses had them top-level.
-func newInfo(cal caltypes.Calendar) Info {
-	var member caltypes.CalendarMember
+func newInfo(cal apiCalendar) Info {
+	var member apiMember
 	if len(cal.Members) > 0 {
 		member = cal.Members[0]
 	}

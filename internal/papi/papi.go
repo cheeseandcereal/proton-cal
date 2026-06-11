@@ -39,6 +39,22 @@ const (
 	maxRetryAfter       = 60 * time.Second
 )
 
+// Proton API response codes observed on the calendar endpoints (see
+// RESEARCH.md "Error Codes").
+const (
+	// CodeSuccess is the per-entry and top-level success code.
+	CodeSuccess = 1000
+	// CodeSuccessMulti is the top-level multi-status code on batched
+	// sync calls (individual entries may still have failed).
+	CodeSuccessMulti = 1001
+	// CodeInsufficientScope accompanies 403 responses when the session
+	// lacks the "locked" scope (password re-verification required).
+	CodeInsufficientScope = 9101
+	// CodeHumanVerification accompanies 422 responses requiring a
+	// human-verification (captcha) round-trip.
+	CodeHumanVerification = 9001
+)
+
 // NewManager builds a go-proton-api Manager configured for this app.
 func NewManager(baseURL string) *proton.Manager {
 	return proton.New(

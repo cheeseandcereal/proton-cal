@@ -48,12 +48,12 @@ type Fragments struct {
 	CalendarEncrypted string
 }
 
-// FormatUTC renders a time as an iCalendar UTC datetime: 20060102T150405Z.
-func FormatUTC(t time.Time) string {
+// formatUTC renders a time as an iCalendar UTC datetime: 20060102T150405Z.
+func formatUTC(t time.Time) string {
 	return t.UTC().Format("20060102T150405Z")
 }
 
-// DTProp formats a date(-time) property line (DTSTART/DTEND/EXDATE/
+// dtProp formats a date(-time) property line (DTSTART/DTEND/EXDATE/
 // RECURRENCE-ID), no trailing CRLF, matching the Proton web client's
 // three forms:
 //
@@ -63,12 +63,12 @@ func FormatUTC(t time.Time) string {
 //
 // All-day uses t's own calendar date because converting zones could
 // shift the intended date across midnight.
-func DTProp(name string, t time.Time, tzName string, allDay bool) (string, error) {
+func dtProp(name string, t time.Time, tzName string, allDay bool) (string, error) {
 	if allDay {
 		return fmt.Sprintf("%s;VALUE=DATE:%s", name, t.Format("20060102")), nil
 	}
 	if tzName == "" || tzName == "UTC" {
-		return fmt.Sprintf("%s:%s", name, FormatUTC(t)), nil
+		return fmt.Sprintf("%s:%s", name, formatUTC(t)), nil
 	}
 	loc, err := time.LoadLocation(tzName)
 	if err != nil {
@@ -86,23 +86,23 @@ func DTProp(name string, t time.Time, tzName string, allDay bool) (string, error
 //	calendar signed:    UID, DTSTAMP, EXDATEs, STATUS:CONFIRMED, TRANSP:OPAQUE
 //	calendar encrypted: UID, DTSTAMP, COMMENT:
 //
-// TEXT values are escaped with EscapeText and every content line is
-// folded with FoldLine. The wrapper carries no VERSION/PRODID and no
+// TEXT values are escaped with escapeText and every content line is
+// folded with foldLine. The wrapper carries no VERSION/PRODID and no
 // trailing CRLF — Proton's parts don't.
 func BuildFragments(f EventFields) (Fragments, error) {
-	dtstamp := FormatUTC(f.DTStamp)
+	dtstamp := formatUTC(f.DTStamp)
 
-	dtstart, err := DTProp("DTSTART", f.Start, f.TZName, f.AllDay)
+	dtstart, err := dtProp("DTSTART", f.Start, f.TZName, f.AllDay)
 	if err != nil {
 		return Fragments{}, err
 	}
-	dtend, err := DTProp("DTEND", f.End, f.TZName, f.AllDay)
+	dtend, err := dtProp("DTEND", f.End, f.TZName, f.AllDay)
 	if err != nil {
 		return Fragments{}, err
 	}
 	exdateLines := make([]string, 0, len(f.Exdates))
 	for _, d := range f.Exdates {
-		line, err := DTProp("EXDATE", d, f.TZName, f.AllDay)
+		line, err := dtProp("EXDATE", d, f.TZName, f.AllDay)
 		if err != nil {
 			return Fragments{}, err
 		}
@@ -112,7 +112,7 @@ func BuildFragments(f EventFields) (Fragments, error) {
 	// Shared signed: uid, dtstamp, dtstart, dtend, recurrence-id, rrule, exdate, sequence.
 	sharedSigned := []string{"UID:" + f.UID, "DTSTAMP:" + dtstamp, dtstart, dtend}
 	if f.RecurrenceID != nil {
-		recID, err := DTProp("RECURRENCE-ID", *f.RecurrenceID, f.TZName, f.AllDay)
+		recID, err := dtProp("RECURRENCE-ID", *f.RecurrenceID, f.TZName, f.AllDay)
 		if err != nil {
 			return Fragments{}, err
 		}
@@ -127,13 +127,13 @@ func BuildFragments(f EventFields) (Fragments, error) {
 	// Shared encrypted: uid, dtstamp, created, summary, description, location.
 	sharedEncrypted := []string{"UID:" + f.UID, "DTSTAMP:" + dtstamp, "CREATED:" + dtstamp}
 	if f.Summary != "" {
-		sharedEncrypted = append(sharedEncrypted, "SUMMARY:"+EscapeText(f.Summary))
+		sharedEncrypted = append(sharedEncrypted, "SUMMARY:"+escapeText(f.Summary))
 	}
 	if f.Description != "" {
-		sharedEncrypted = append(sharedEncrypted, "DESCRIPTION:"+EscapeText(f.Description))
+		sharedEncrypted = append(sharedEncrypted, "DESCRIPTION:"+escapeText(f.Description))
 	}
 	if f.Location != "" {
-		sharedEncrypted = append(sharedEncrypted, "LOCATION:"+EscapeText(f.Location))
+		sharedEncrypted = append(sharedEncrypted, "LOCATION:"+escapeText(f.Location))
 	}
 
 	// Calendar signed: uid, dtstamp, exdate, status, transp.
@@ -158,7 +158,7 @@ func wrap(lines []string) string {
 	out := make([]string, 0, len(lines)+4)
 	out = append(out, "BEGIN:VCALENDAR", "BEGIN:VEVENT")
 	for _, l := range lines {
-		out = append(out, FoldLine(l))
+		out = append(out, foldLine(l))
 	}
 	out = append(out, "END:VEVENT", "END:VCALENDAR")
 	return strings.Join(out, "\r\n")

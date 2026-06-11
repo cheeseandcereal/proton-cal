@@ -16,29 +16,6 @@ type Occurrence struct {
 	End   int64              // occurrence end unix ts
 }
 
-// OccurrenceKind classifies the result of ResolveOccurrence.
-type OccurrenceKind int
-
-const (
-	// KindException means an exception row already exists for the occurrence.
-	KindException OccurrenceKind = iota
-	// KindOccurrence means the timestamp is a live generated occurrence of
-	// the master's rule (no exception row exists for it).
-	KindOccurrence
-)
-
-// String returns a human-readable name for the kind.
-func (k OccurrenceKind) String() string {
-	switch k {
-	case KindException:
-		return "exception"
-	case KindOccurrence:
-		return "occurrence"
-	default:
-		return fmt.Sprintf("OccurrenceKind(%d)", int(k))
-	}
-}
-
 // masterLocation returns the timezone a timed master's occurrences are
 // generated in (StartTimezone, falling back to UTC when empty).
 func masterLocation(ev *caltypes.RawEvent) (*time.Location, error) {
@@ -97,7 +74,7 @@ func windowDt(ts int64, loc *time.Location) time.Time {
 
 // expandMaster expands one master row into occurrences overlapping
 // [start, end), skipping EXDATEd and shadowed starts, capped at
-// MaxOccurrencesPerMaster.
+// maxOccurrencesPerMaster.
 func expandMaster(ev *caltypes.RawEvent, start, end int64, shadowed map[int64]bool) ([]Occurrence, error) {
 	rule, duration, loc, err := masterRule(ev)
 	if err != nil {
@@ -122,7 +99,7 @@ func expandMaster(ev *caltypes.RawEvent, start, end int64, shadowed map[int64]bo
 			continue
 		}
 		occurrences = append(occurrences, Occurrence{Event: ev, Start: occStart, End: occEnd})
-		if len(occurrences) >= MaxOccurrencesPerMaster {
+		if len(occurrences) >= maxOccurrencesPerMaster {
 			break
 		}
 	}
@@ -144,7 +121,7 @@ func appendIfOverlapping(results []Occurrence, ev *caltypes.RawEvent, start, end
 // Plain rows and exception rows (non-zero RecurrenceID) pass through with
 // their own times when they overlap the window. Master rows (non-empty
 // RRule) are expanded, skipping EXDATEd starts and starts shadowed by a
-// same-UID exception row, capped at MaxOccurrencesPerMaster. A malformed
+// same-UID exception row, capped at maxOccurrencesPerMaster. A malformed
 // RRULE never crashes the listing: the master falls back to passing through
 // as a single row.
 //
@@ -195,37 +172,36 @@ func ExpandOccurrences(events []*caltypes.RawEvent, start, end int64) []Occurren
 // single-occurrence operations.
 //
 // related are raw rows sharing the master's UID (the master itself may be
-// included; rows without a RecurrenceID are skipped). It returns
-// (KindException, row, nil) when an exception row already exists for that
-// occurrence, or (KindOccurrence, nil, nil) when occurrenceTS is a live
-// generated occurrence of the master's RRULE. It returns an error when the
-// master is not recurring, the occurrence was already deleted (EXDATE), or
-// the timestamp matches no occurrence. The returned kind is meaningless
-// when the error is non-nil.
-func ResolveOccurrence(master *caltypes.RawEvent, related []*caltypes.RawEvent, occurrenceTS int64) (OccurrenceKind, *caltypes.RawEvent, error) {
+// included; rows without a RecurrenceID are skipped). It returns the
+// existing exception row when the occurrence was already single-edited, or
+// (nil, nil) when occurrenceTS is a live generated occurrence of the
+// master's RRULE. It returns an error when the master is not recurring,
+// the occurrence was already deleted (EXDATE), or the timestamp matches no
+// occurrence.
+func ResolveOccurrence(master *caltypes.RawEvent, related []*caltypes.RawEvent, occurrenceTS int64) (*caltypes.RawEvent, error) {
 	if master.RRule == "" {
-		return 0, nil, fmt.Errorf("event %s is not a recurring event", master.ID)
+		return nil, fmt.Errorf("event %s is not a recurring event", master.ID)
 	}
 	for _, row := range related {
 		if row.RecurrenceID != 0 && row.RecurrenceID == occurrenceTS {
-			return KindException, row, nil
+			return row, nil
 		}
 	}
 	for _, ts := range master.Exdates {
 		if ts == occurrenceTS {
-			return 0, nil, fmt.Errorf("occurrence %d was already deleted (EXDATE)", occurrenceTS)
+			return nil, fmt.Errorf("occurrence %d was already deleted (EXDATE)", occurrenceTS)
 		}
 	}
 	rule, _, loc, err := masterRule(master)
 	if err != nil {
-		return 0, nil, fmt.Errorf("event %s: %w", master.ID, err)
+		return nil, fmt.Errorf("event %s: %w", master.ID, err)
 	}
 	probeStart := windowDt(occurrenceTS-1, loc)
 	probeEnd := windowDt(occurrenceTS+1, loc)
 	for _, occDt := range rule.Between(probeStart, probeEnd, true) {
 		if occDt.Unix() == occurrenceTS {
-			return KindOccurrence, nil, nil
+			return nil, nil
 		}
 	}
-	return 0, nil, fmt.Errorf("timestamp %d is not an occurrence of this event", occurrenceTS)
+	return nil, fmt.Errorf("timestamp %d is not an occurrence of this event", occurrenceTS)
 }

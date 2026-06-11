@@ -73,7 +73,7 @@ func bootstrapSession(ctx context.Context) (*session, error) {
 	}
 	cals, err := calendar.List(ctx, client)
 	if err != nil {
-		return nil, fmt.Errorf("listing calendars: %w", err)
+		return nil, err
 	}
 	return &session{
 		cfg:      cfg,

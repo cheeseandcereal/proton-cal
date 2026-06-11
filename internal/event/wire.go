@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 
+	"github.com/cheeseandcereal/proton-cal/internal/calendar"
 	"github.com/cheeseandcereal/proton-cal/internal/caltypes"
 	"github.com/cheeseandcereal/proton-cal/internal/papi"
 )
@@ -59,30 +60,43 @@ type syncResp struct {
 	} `json:"Responses"`
 }
 
-// firstEvent interprets the first per-event reply: (echoed event, nil) on
-// success (the event may be nil - updates do not always echo it), or an
-// error carrying the per-event code and message.
-func (r *syncResp) firstEvent() (*caltypes.RawEvent, error) {
+// firstError returns the failure carried by the response: the first
+// per-event reply's error when one is present, the top-level code
+// otherwise, nil on success.
+func (r *syncResp) firstError() error {
 	if len(r.Responses) == 0 {
 		// Deletes return only a top-level code.
-		if r.Code == 1000 || r.Code == 1001 {
-			return nil, nil
+		if r.Code == papi.CodeSuccess || r.Code == papi.CodeSuccessMulti {
+			return nil
 		}
-		return nil, fmt.Errorf("sync failed: code %d", r.Code)
+		return fmt.Errorf("sync failed: code %d", r.Code)
 	}
 	resp := r.Responses[0].Response
-	if resp.Code != 1000 {
+	if resp.Code != papi.CodeSuccess {
 		if resp.Error != "" {
-			return nil, fmt.Errorf("sync failed: code %d: %s", resp.Code, resp.Error)
+			return fmt.Errorf("sync failed: code %d: %s", resp.Code, resp.Error)
 		}
-		return nil, fmt.Errorf("sync failed: code %d", resp.Code)
+		return fmt.Errorf("sync failed: code %d", resp.Code)
 	}
-	return resp.Event, nil
+	return nil
+}
+
+// firstEvent interprets the first per-event reply: (echoed event, nil) on
+// success (the event may be nil - updates do not always echo it), or the
+// error from firstError.
+func (r *syncResp) firstEvent() (*caltypes.RawEvent, error) {
+	if err := r.firstError(); err != nil {
+		return nil, err
+	}
+	if len(r.Responses) == 0 {
+		return nil, nil
+	}
+	return r.Responses[0].Response.Event, nil
 }
 
 func putSync(ctx context.Context, client *papi.Client, calendarID string, payload syncReq) (*syncResp, error) {
 	var resp syncResp
-	if err := client.Put(ctx, "/calendar/v1/"+calendarID+"/events/sync", payload, &resp); err != nil {
+	if err := client.Put(ctx, calendar.APIPath+"/"+calendarID+"/events/sync", payload, &resp); err != nil {
 		return nil, fmt.Errorf("calendar %s: sync: %w", calendarID, err)
 	}
 	return &resp, nil
@@ -93,9 +107,11 @@ type eventsResponse struct {
 	Total  int                  `json:"Total"`
 }
 
-// Query fetches raw events for a calendar with full pagination and
+// query fetches raw events for a calendar with full pagination and
 // client-side window filtering (the server ignores Start/End params).
-func queryImpl(ctx context.Context, client *papi.Client, calendarID string, start, end int64, tzName string) ([]*caltypes.RawEvent, error) {
+// Recurring masters always survive the filter (they are expanded later).
+// Sorted by StartTime.
+func query(ctx context.Context, client *papi.Client, calendarID string, start, end int64, tzName string) ([]*caltypes.RawEvent, error) {
 	var all []*caltypes.RawEvent
 	for page := 0; ; page++ {
 		q := url.Values{}
@@ -108,7 +124,7 @@ func queryImpl(ctx context.Context, client *papi.Client, calendarID string, star
 		q.Set("PageSize", strconv.Itoa(pageSize))
 
 		var resp eventsResponse
-		if err := client.Get(ctx, "/calendar/v1/"+calendarID+"/events", q, &resp); err != nil {
+		if err := client.Get(ctx, calendar.APIPath+"/"+calendarID+"/events", q, &resp); err != nil {
 			return nil, fmt.Errorf("calendar %s: listing events: %w", calendarID, err)
 		}
 		all = append(all, resp.Events...)
@@ -130,9 +146,10 @@ func queryImpl(ctx context.Context, client *papi.Client, calendarID string, star
 	return filtered, nil
 }
 
-func getImpl(ctx context.Context, client *papi.Client, calendarID, eventID string) (*caltypes.RawEvent, error) {
+// Get fetches a single raw event.
+func Get(ctx context.Context, client *papi.Client, calendarID, eventID string) (*caltypes.RawEvent, error) {
 	var raw json.RawMessage
-	if err := client.Get(ctx, "/calendar/v1/"+calendarID+"/events/"+eventID, nil, &raw); err != nil {
+	if err := client.Get(ctx, calendar.APIPath+"/"+calendarID+"/events/"+eventID, nil, &raw); err != nil {
 		return nil, fmt.Errorf("calendar %s: fetching event %s: %w", calendarID, eventID, err)
 	}
 	// Standard shape is {"Event": {...}}; tolerate a bare event object.
@@ -149,19 +166,22 @@ func getImpl(ctx context.Context, client *papi.Client, calendarID, eventID strin
 	return &bare, nil
 }
 
-func getByUIDImpl(ctx context.Context, client *papi.Client, calendarID, uid string) ([]*caltypes.RawEvent, error) {
+// GetByUID fetches all raw rows sharing an iCal UID (master + exceptions);
+// the UID query param filters server-side (verified live).
+func GetByUID(ctx context.Context, client *papi.Client, calendarID, uid string) ([]*caltypes.RawEvent, error) {
 	q := url.Values{}
 	q.Set("UID", uid)
 	q.Set("Page", "0")
 	q.Set("PageSize", strconv.Itoa(pageSize))
 	var resp eventsResponse
-	if err := client.Get(ctx, "/calendar/v1/"+calendarID+"/events", q, &resp); err != nil {
+	if err := client.Get(ctx, calendar.APIPath+"/"+calendarID+"/events", q, &resp); err != nil {
 		return nil, fmt.Errorf("calendar %s: fetching events by UID: %w", calendarID, err)
 	}
 	return resp.Events, nil
 }
 
-func deleteImpl(ctx context.Context, client *papi.Client, calendarID string, eventIDs []string, memberID string) error {
+// deleteRows deletes raw event rows by ID in a single sync call.
+func deleteRows(ctx context.Context, client *papi.Client, calendarID string, eventIDs []string, memberID string) error {
 	reqs := make([]syncEventReq, 0, len(eventIDs))
 	for _, id := range eventIDs {
 		reqs = append(reqs, syncEventReq{ID: id})
@@ -170,12 +190,11 @@ func deleteImpl(ctx context.Context, client *papi.Client, calendarID string, eve
 	if err != nil {
 		return err
 	}
-	if resp.Code != 1000 && resp.Code != 1001 {
-		_, err := resp.firstEvent()
-		if err != nil {
-			return fmt.Errorf("deleting events: %w", err)
-		}
-		return fmt.Errorf("deleting events: code %d", resp.Code)
+	if resp.Code == papi.CodeSuccess || resp.Code == papi.CodeSuccessMulti {
+		return nil
 	}
-	return nil
+	if err := resp.firstError(); err != nil {
+		return fmt.Errorf("deleting events: %w", err)
+	}
+	return fmt.Errorf("deleting events: code %d", resp.Code)
 }
