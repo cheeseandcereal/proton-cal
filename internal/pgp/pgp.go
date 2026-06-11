@@ -43,11 +43,6 @@ func SignDetached(plaintext string, signingKR *crypto.KeyRing) (string, error) {
 // detached signature. The signature is detached: it is not embedded inside
 // the encrypted message.
 func EncryptAndSign(plaintext string, recipientKR, signingKR *crypto.KeyRing) (keyPacketB64, dataPacketB64, armoredSig string, err error) {
-	armoredSig, err = SignDetached(plaintext, signingKR)
-	if err != nil {
-		return "", "", "", err
-	}
-
 	// GenerateSessionKey uses the default cipher, which is AES-256
 	// (constants.AES256) in gopenpgp v2.
 	sk, err := crypto.GenerateSessionKey()
@@ -60,15 +55,12 @@ func EncryptAndSign(plaintext string, recipientKR, signingKR *crypto.KeyRing) (k
 		return "", "", "", fmt.Errorf("pgp: encrypting session key: %w", err)
 	}
 
-	dataPacket, err := sk.Encrypt(crypto.NewPlainMessage([]byte(plaintext)))
+	dataPacketB64, armoredSig, err = EncryptWithSessionKeyAndSign(plaintext, sk, signingKR)
 	if err != nil {
-		return "", "", "", fmt.Errorf("pgp: encrypting plaintext with session key: %w", err)
+		return "", "", "", err
 	}
 
-	return base64.StdEncoding.EncodeToString(keyPacket),
-		base64.StdEncoding.EncodeToString(dataPacket),
-		armoredSig,
-		nil
+	return base64.StdEncoding.EncodeToString(keyPacket), dataPacketB64, armoredSig, nil
 }
 
 // DecryptSessionKey decrypts a base64-encoded key packet (PKESK) with the
@@ -138,4 +130,49 @@ func DecryptPart(dataPacketB64, keyPacketB64 string, calKR *crypto.KeyRing) (str
 	// Use the raw decrypted bytes: PlainMessage.GetString would normalize
 	// CRLF to LF, which would corrupt iCalendar payloads.
 	return string(plain.GetBinary()), nil
+}
+
+// DecryptArmored decrypts an armored PGP message with the given keyring,
+// returning the raw plaintext bytes. Like all read paths in this package it
+// performs no signature verification (lenient by design; detached
+// signatures on calendar passphrases are ignored).
+func DecryptArmored(armored string, kr *crypto.KeyRing) ([]byte, error) {
+	msg, err := crypto.NewPGPMessageFromArmored(armored)
+	if err != nil {
+		return nil, fmt.Errorf("pgp: parsing armored message: %w", err)
+	}
+	// nil verify keyring and verifyTime 0 disable signature verification.
+	plain, err := kr.Decrypt(msg, nil, 0)
+	if err != nil {
+		return nil, fmt.Errorf("pgp: decrypting message: %w", err)
+	}
+	return plain.GetBinary(), nil
+}
+
+// UnlockKeyRing unlocks armored private keys with a shared passphrase and
+// collects all that unlock into one keyring. Lenient: keys that fail to
+// parse, unlock or register are skipped; it errors only when no key
+// unlocks at all.
+func UnlockKeyRing(armoredKeys []string, passphrase []byte) (*crypto.KeyRing, error) {
+	kr, err := crypto.NewKeyRing(nil)
+	if err != nil {
+		return nil, fmt.Errorf("pgp: creating keyring: %w", err)
+	}
+	for _, armored := range armoredKeys {
+		locked, err := crypto.NewKeyFromArmored(armored)
+		if err != nil {
+			continue
+		}
+		key, err := locked.Unlock(passphrase)
+		if err != nil {
+			continue
+		}
+		if err := kr.AddKey(key); err != nil {
+			continue
+		}
+	}
+	if kr.CountEntities() == 0 {
+		return nil, fmt.Errorf("pgp: no key could be unlocked")
+	}
+	return kr, nil
 }

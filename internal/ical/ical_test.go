@@ -75,18 +75,6 @@ func TestUnescapeTextTolerance(t *testing.T) {
 	}
 }
 
-func TestFormatUTC(t *testing.T) {
-	utc := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
-	if got := formatUTC(utc); got != "20260102T030405Z" {
-		t.Errorf("formatUTC(utc) = %q", got)
-	}
-	// Aware non-UTC converts to UTC.
-	plusTen := time.FixedZone("plus10", 10*3600)
-	if got := formatUTC(time.Date(2026, 1, 2, 13, 4, 5, 0, plusTen)); got != "20260102T030405Z" {
-		t.Errorf("formatUTC(+10) = %q", got)
-	}
-}
-
 func TestDTProp(t *testing.T) {
 	utc4pm := time.Date(2026, 7, 9, 16, 0, 0, 0, time.UTC)
 	melbourne, err := time.LoadLocation("Australia/Melbourne")

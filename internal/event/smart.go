@@ -9,6 +9,7 @@ import (
 
 	"github.com/cheeseandcereal/proton-cal/internal/calendar"
 	"github.com/cheeseandcereal/proton-cal/internal/caltypes"
+	"github.com/cheeseandcereal/proton-cal/internal/icaltime"
 	"github.com/cheeseandcereal/proton-cal/internal/papi"
 	"github.com/cheeseandcereal/proton-cal/internal/recurrence"
 )
@@ -177,10 +178,7 @@ func SmartUpdate(ctx context.Context, client *papi.Client, access *calendar.Acce
 		}
 		tz := opts.TZName
 		if tz == "" {
-			tz = cur.StartTimezone
-		}
-		if tz == "" {
-			tz = "UTC"
+			tz = icaltime.OrUTC(cur.StartTimezone)
 		}
 		created, err := Create(ctx, client, access, CreateOptions{
 			Summary:      strOr(opts.Summary, cur.Summary),

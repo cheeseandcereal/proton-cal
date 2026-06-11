@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/cheeseandcereal/proton-cal/internal/icaltime"
 	"github.com/cheeseandcereal/proton-cal/internal/recurrence"
 )
 
@@ -16,9 +17,9 @@ const TimeFormatHint = "YYYY-MM-DD HH:MM (timed) or YYYY-MM-DD (all-day)"
 // ParseLocalDateTime parses "YYYY-MM-DD HH:MM" as a wall time in the given
 // IANA zone.
 func ParseLocalDateTime(value, tzName string) (time.Time, error) {
-	loc, err := time.LoadLocation(tzName)
+	loc, err := icaltime.LoadLocation(tzName)
 	if err != nil {
-		return time.Time{}, fmt.Errorf("invalid timezone %q: %w", tzName, err)
+		return time.Time{}, err
 	}
 	t, err := time.ParseInLocation("2006-01-02 15:04", value, loc)
 	if err != nil {

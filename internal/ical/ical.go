@@ -22,6 +22,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/cheeseandcereal/proton-cal/internal/icaltime"
 )
 
 // EventFields is everything that goes into the four fragments.
@@ -48,11 +50,6 @@ type Fragments struct {
 	CalendarEncrypted string
 }
 
-// formatUTC renders a time as an iCalendar UTC datetime: 20060102T150405Z.
-func formatUTC(t time.Time) string {
-	return t.UTC().Format("20060102T150405Z")
-}
-
 // dtProp formats a date(-time) property line (DTSTART/DTEND/EXDATE/
 // RECURRENCE-ID), no trailing CRLF, matching the Proton web client's
 // three forms:
@@ -68,11 +65,11 @@ func dtProp(name string, t time.Time, tzName string, allDay bool) (string, error
 		return fmt.Sprintf("%s;VALUE=DATE:%s", name, t.Format("20060102")), nil
 	}
 	if tzName == "" || tzName == "UTC" {
-		return fmt.Sprintf("%s:%s", name, formatUTC(t)), nil
+		return fmt.Sprintf("%s:%s", name, icaltime.FormatUTC(t)), nil
 	}
-	loc, err := time.LoadLocation(tzName)
+	loc, err := icaltime.LoadLocation(tzName)
 	if err != nil {
-		return "", fmt.Errorf("ical: invalid timezone %q: %w", tzName, err)
+		return "", fmt.Errorf("ical: %w", err)
 	}
 	return fmt.Sprintf("%s;TZID=%s:%s", name, tzName, t.In(loc).Format("20060102T150405")), nil
 }
@@ -90,7 +87,7 @@ func dtProp(name string, t time.Time, tzName string, allDay bool) (string, error
 // folded with foldLine. The wrapper carries no VERSION/PRODID and no
 // trailing CRLF — Proton's parts don't.
 func BuildFragments(f EventFields) (Fragments, error) {
-	dtstamp := formatUTC(f.DTStamp)
+	dtstamp := icaltime.FormatUTC(f.DTStamp)
 
 	dtstart, err := dtProp("DTSTART", f.Start, f.TZName, f.AllDay)
 	if err != nil {

@@ -28,6 +28,8 @@ import (
 	"time"
 
 	"github.com/teambition/rrule-go"
+
+	"github.com/cheeseandcereal/proton-cal/internal/icaltime"
 )
 
 const (
@@ -100,15 +102,12 @@ func BuildRRule(repeat string, every int, count int, until string, tzName string
 		if allDay {
 			parts = append(parts, "UNTIL="+untilDate.Format("20060102"))
 		} else {
-			if tzName == "" {
-				tzName = "UTC"
-			}
-			loc, err := time.LoadLocation(tzName)
+			loc, err := icaltime.LoadLocation(tzName)
 			if err != nil {
-				return "", fmt.Errorf("invalid timezone %q: %w", tzName, err)
+				return "", err
 			}
 			localEnd := time.Date(untilDate.Year(), untilDate.Month(), untilDate.Day(), 23, 59, 59, 0, loc)
-			parts = append(parts, "UNTIL="+localEnd.UTC().Format("20060102T150405")+"Z")
+			parts = append(parts, "UNTIL="+icaltime.FormatUTC(localEnd))
 		}
 	}
 	return strings.Join(parts, ";"), nil
@@ -118,10 +117,8 @@ func BuildRRule(repeat string, every int, count int, until string, tzName string
 // DATE form (YYYYMMDD), local DATE-TIME form (YYYYMMDDTHHMMSS) or UTC
 // DATE-TIME form (YYYYMMDDTHHMMSSZ).
 func untilYear(value string) (int, error) {
-	for _, layout := range []string{"20060102", "20060102T150405", "20060102T150405Z"} {
-		if t, err := time.ParseInLocation(layout, value, time.UTC); err == nil {
-			return t.Year(), nil
-		}
+	if t, ok := icaltime.Parse(value, time.UTC); ok {
+		return t.Year(), nil
 	}
 	return 0, fmt.Errorf("invalid RRULE: bad UNTIL value %q", value)
 }

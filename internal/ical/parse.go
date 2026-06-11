@@ -5,6 +5,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/cheeseandcereal/proton-cal/internal/icaltime"
 )
 
 // ParsedEvent holds fields extracted from one decrypted/plaintext
@@ -196,47 +198,15 @@ func splitOutsideQuotes(s string, sep byte) []string {
 	return append(parts, s[start:])
 }
 
-// parseDateTime parses the iCalendar date(-time) forms produced by
-// Proton clients:
-//
-//	20060102T150405Z  — UTC
-//	20060102T150405   — local in the TZID param's zone (UTC when absent)
-//	20060102          — DATE (VALUE=DATE or naked), anchored at UTC midnight
-//
-// Returns ok=false for anything malformed (tolerant parsing).
+// parseDateTime parses an iCalendar date(-time) property value via the
+// shared icaltime codec, resolving local-form values in the TZID param's
+// zone (UTC when absent). Returns ok=false for anything malformed
+// (tolerant parsing).
 func parseDateTime(value string, params map[string]string) (time.Time, bool) {
 	v := strings.TrimSpace(value)
-	// EXDATE-style multi-value lists: take the first value.
-	if i := strings.IndexByte(v, ','); i >= 0 {
-		v = v[:i]
+	loc, err := icaltime.LoadLocation(params["TZID"])
+	if err != nil {
+		return time.Time{}, false
 	}
-	switch {
-	case len(v) == 16 && v[15] == 'Z':
-		t, err := time.Parse("20060102T150405Z", v)
-		if err != nil {
-			return time.Time{}, false
-		}
-		return t, true
-	case len(v) == 15:
-		loc := time.UTC
-		if tzid := params["TZID"]; tzid != "" && tzid != "UTC" {
-			l, err := time.LoadLocation(tzid)
-			if err != nil {
-				return time.Time{}, false
-			}
-			loc = l
-		}
-		t, err := time.ParseInLocation("20060102T150405", v, loc)
-		if err != nil {
-			return time.Time{}, false
-		}
-		return t, true
-	case len(v) == 8:
-		t, err := time.Parse("20060102", v)
-		if err != nil {
-			return time.Time{}, false
-		}
-		return t, true
-	}
-	return time.Time{}, false
+	return icaltime.Parse(v, loc)
 }

@@ -10,6 +10,7 @@ import (
 
 	"github.com/cheeseandcereal/proton-cal/internal/auth"
 	"github.com/cheeseandcereal/proton-cal/internal/papi"
+	"github.com/cheeseandcereal/proton-cal/internal/pgp"
 )
 
 // Access is everything event code needs for one calendar.
@@ -168,22 +169,17 @@ func (k *Keychain) decryptPassphrase(ctx context.Context, calendarID, memberID s
 		return nil, fmt.Errorf("no member passphrase found for calendar %s", calendarID)
 	}
 
-	msg, err := crypto.NewPGPMessageFromArmored(mp.Passphrase)
-	if err != nil {
-		return nil, fmt.Errorf("parsing passphrase message for calendar %s: %w", calendarID, err)
-	}
-
 	// Try address keyrings in API address order for determinism.
 	for _, addr := range k.unlocked.Addresses {
 		kr, ok := k.unlocked.AddrKRs[addr.ID]
 		if !ok {
 			continue
 		}
-		dec, err := kr.Decrypt(msg, nil, 0)
+		dec, err := pgp.DecryptArmored(mp.Passphrase, kr)
 		if err != nil {
 			continue
 		}
-		return dec.GetBinary(), nil
+		return dec, nil
 	}
 	return nil, fmt.Errorf("no address key could decrypt the passphrase for calendar %s", calendarID)
 }
@@ -197,25 +193,13 @@ func (k *Keychain) unlockCalendarKeys(ctx context.Context, calendarID string, pa
 		return nil, fmt.Errorf("fetching keys for calendar %s: %w", calendarID, err)
 	}
 
-	kr, err := crypto.NewKeyRing(nil)
-	if err != nil {
-		return nil, fmt.Errorf("creating keyring for calendar %s: %w", calendarID, err)
-	}
+	armored := make([]string, 0, len(resp.Keys))
 	for _, ck := range resp.Keys {
-		locked, err := crypto.NewKeyFromArmored(ck.PrivateKey)
-		if err != nil {
-			continue
-		}
-		key, err := locked.Unlock(passphrase)
-		if err != nil {
-			continue
-		}
-		if err := kr.AddKey(key); err != nil {
-			return nil, fmt.Errorf("adding key %s to keyring for calendar %s: %w", ck.ID, calendarID, err)
-		}
+		armored = append(armored, ck.PrivateKey)
 	}
-	if kr.CountEntities() == 0 {
-		return nil, fmt.Errorf("failed to unlock any calendar keys for calendar %s", calendarID)
+	kr, err := pgp.UnlockKeyRing(armored, passphrase)
+	if err != nil {
+		return nil, fmt.Errorf("failed to unlock any calendar keys for calendar %s: %w", calendarID, err)
 	}
 	return kr, nil
 }

@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/cheeseandcereal/proton-cal/internal/caltypes"
+	"github.com/cheeseandcereal/proton-cal/internal/icaltime"
 	"github.com/teambition/rrule-go"
 )
 
@@ -19,13 +20,9 @@ type Occurrence struct {
 // masterLocation returns the timezone a timed master's occurrences are
 // generated in (StartTimezone, falling back to UTC when empty).
 func masterLocation(ev *caltypes.RawEvent) (*time.Location, error) {
-	name := ev.StartTimezone
-	if name == "" {
-		name = "UTC"
-	}
-	loc, err := time.LoadLocation(name)
+	loc, err := icaltime.LoadLocation(ev.StartTimezone)
 	if err != nil {
-		return nil, fmt.Errorf("invalid start timezone %q: %w", name, err)
+		return nil, fmt.Errorf("invalid start timezone: %w", err)
 	}
 	return loc, nil
 }

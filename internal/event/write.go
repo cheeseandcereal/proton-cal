@@ -9,6 +9,7 @@ import (
 	"github.com/cheeseandcereal/proton-cal/internal/calendar"
 	"github.com/cheeseandcereal/proton-cal/internal/caltypes"
 	"github.com/cheeseandcereal/proton-cal/internal/ical"
+	"github.com/cheeseandcereal/proton-cal/internal/icaltime"
 	"github.com/cheeseandcereal/proton-cal/internal/papi"
 	"github.com/cheeseandcereal/proton-cal/internal/pgp"
 )
@@ -127,10 +128,7 @@ func update(ctx context.Context, client *papi.Client, access *calendar.Access, e
 	// Times keep their stored zone unless explicitly re-zoned.
 	tzEff := opts.TZName
 	if tzEff == "" {
-		tzEff = current.StartTimezone
-	}
-	if tzEff == "" {
-		tzEff = "UTC"
+		tzEff = icaltime.OrUTC(current.StartTimezone)
 	}
 
 	// Recurrence: preserve unless replaced or cleared.
