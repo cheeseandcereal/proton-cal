@@ -22,7 +22,7 @@ type createdJSON struct {
 	RRule   string `json:"rrule,omitempty"`
 }
 
-// resolveCreateTimes ports the cli.py create date wrangling. All-day: start
+// resolveCreateTimes resolves the create start/end times. All-day: start
 // is a date; end is an optional INCLUSIVE date (default = start) converted to
 // the exclusive iCal end by +24h, erroring when it lands at or before the
 // start. Timed: --end is required and both parse as wall times in tzName.

@@ -17,8 +17,8 @@ type updatedJSON struct {
 	RemovedExceptions int  `json:"removed_exceptions"`
 }
 
-// validateUpdateFlags ports the cli.py update flag-conflict validation
-// EXACTLY: --no-repeat conflicts with --repeat/--rrule, and --occurrence
+// validateUpdateFlags rejects conflicting update flag combinations:
+// --no-repeat conflicts with --repeat/--rrule, and --occurrence
 // conflicts with --no-repeat/--repeat/--rrule (edit the series instead).
 func validateUpdateFlags(occurrence string, noRepeat bool, rec front.RecurrenceFlags) error {
 	if noRepeat && (rec.Repeat != "" || rec.RawRRule != "") {
@@ -30,8 +30,7 @@ func validateUpdateFlags(occurrence string, noRepeat bool, rec front.RecurrenceF
 	return nil
 }
 
-// updateTZName ports the cli.py timezone passing rule for updates:
-// `tz_explicit or (timezone_str if (start or end) else None)` - the explicit
+// updateTZName picks the timezone to pass on updates: the explicit
 // --tz value when given, else the default timezone only when a new start or
 // end is being set, else "" (keep the event's stored timezone).
 func updateTZName(tzFlag, defaultTZ string, timesGiven bool) string {
@@ -128,8 +127,8 @@ rule and a matching weekday).`,
 			}
 
 			// Recurrence flags need the event's all-day-ness for the UNTIL
-			// form, so fetch the raw row first - only in that case (ports
-			// cli.py, where the occurrence path never builds an RRULE).
+			// form, so fetch the raw row first - only in that case (the
+			// occurrence path never builds an RRULE).
 			if occurrence == "" && !rec.Empty() {
 				raw, err := event.Get(ctx, a.client, info.ID, eventID)
 				if err != nil {

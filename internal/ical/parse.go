@@ -31,10 +31,10 @@ var ErrNoContent = errors.New("ical: no parseable content")
 // properties are ignored, malformed datetimes are skipped, and it never
 // panics. Garbage input yields a zero ParsedEvent and an error.
 //
-// It ports the Python _parse_ical_into_event, additionally extracting
-// UID and SEQUENCE. All VEVENT components are scanned (later values win,
-// matching the Python walk); properties of nested components (e.g.
-// VALARM) and of non-VEVENT components (e.g. VTIMEZONE) are skipped.
+// It extracts the event fields plus UID and SEQUENCE. All VEVENT
+// components are scanned (later values win); properties of nested
+// components (e.g. VALARM) and of non-VEVENT components (e.g. VTIMEZONE)
+// are skipped.
 // Input without any BEGIN:VEVENT is treated as a bare property list.
 func ParseFragment(data string) (ParsedEvent, error) {
 	var ev ParsedEvent
@@ -135,8 +135,7 @@ func ParseFragment(data string) (ParsedEvent, error) {
 }
 
 // SequenceFromFragment extracts SEQUENCE from a shared-signed fragment,
-// returning 0 on absence or any parse failure (ports the Python
-// _shared_signed_sequence).
+// returning 0 on absence or any parse failure.
 func SequenceFromFragment(data string) int {
 	ev, err := ParseFragment(data)
 	if err != nil || !ev.HasSequence {

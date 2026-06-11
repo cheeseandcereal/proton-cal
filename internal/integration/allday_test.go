@@ -13,7 +13,7 @@ import (
 // TestAllDayLifecycle exercises the all-day event lifecycle: create a
 // single-day VALUE=DATE event (exclusive iCal end) -> server reports
 // FullDay with midnight-UTC anchored times -> a field-only update keeps it
-// all-day (regression in the Python lineage) -> delete.
+// all-day (historically regression-prone) -> delete.
 func TestAllDayLifecycle(t *testing.T) {
 	ctx := context.Background()
 	setup(t)

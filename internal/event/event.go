@@ -2,7 +2,7 @@
 // decrypting, creating, updating and deleting events, including the
 // recurrence orchestration (exception rows, EXDATEs, series cleanup).
 //
-// This is the port of the Python events.py. The write path encrypts via
+// The write path encrypts via
 // internal/pgp, builds fragments via internal/ical, and talks to the API
 // through internal/papi raw calls (go-proton-api has no calendar write
 // support).
@@ -36,7 +36,7 @@ var NewUID = func() string {
 	return hex.EncodeToString(b[:])
 }
 
-// Event is a decrypted calendar event (port of Python ProtonEvent).
+// Event is a decrypted calendar event.
 type Event struct {
 	EventID    string `json:"id"`
 	UID        string `json:"uid"`
@@ -186,13 +186,13 @@ type DeleteResult struct {
 	RowsDeleted int    `json:"rows_deleted"`
 }
 
-// SmartDelete ports the Python CLI/MCP delete orchestration:
+// SmartDelete picks the right delete strategy for the addressed target:
 //   - occurrenceTS != 0: delete that single occurrence (EXDATE on the
 //     master; an existing exception row for it is deleted too).
 //   - occurrenceTS == 0 and the row is an exception: delete just that
 //     occurrence (EXDATE + row).
 //   - master row: delete the whole series (master + all same-UID rows; the
-//     server orphans exceptions otherwise - verified live).
+//     server orphans exceptions otherwise - see RESEARCH.md).
 //   - plain event: delete the row.
 func SmartDelete(ctx context.Context, client *papi.Client, access *calendar.CalendarAccess, eventID string, occurrenceTS int64) (*DeleteResult, error) {
 	return smartDeleteImpl(ctx, client, access, eventID, occurrenceTS)
@@ -205,7 +205,7 @@ type UpdateOutcome struct {
 	RemovedExceptions int                `json:"removed_exceptions"`
 }
 
-// SmartUpdate ports the Python CLI/MCP update orchestration:
+// SmartUpdate picks the right update strategy for the addressed target:
 //   - occurrenceTS != 0: edit ONE occurrence (update its existing exception
 //     row, or create a fresh exception row seeded from the master with
 //     SEQUENCE >= the master's). Recurrence options are rejected here.

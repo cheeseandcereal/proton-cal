@@ -15,7 +15,7 @@ import (
 const pageSize = 100
 
 // eventBody is the Event object of a sync payload. Field presence is
-// significant and mirrors the Python _event_body exactly: the content/
+// significant (see RESEARCH.md): the content/
 // attendee arrays must serialize as [] (never null) and Notifications/Color
 // as explicit null.
 type eventBody struct {

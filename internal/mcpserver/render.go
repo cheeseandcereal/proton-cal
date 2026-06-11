@@ -64,8 +64,8 @@ func formatOccurrenceStart(ts int64, allDay bool, loc *time.Location) string {
 	return t.In(loc).Format("2006-01-02 15:04")
 }
 
-// renderOccurrence renders one listed occurrence as a text block (port of
-// the Python list_events line format). Decrypt failures degrade to an error
+// renderOccurrence renders one listed occurrence as a text block in the
+// list_events line format. Decrypt failures degrade to an error
 // line; they never kill the listing.
 func renderOccurrence(l event.Listed, loc *time.Location) string {
 	raw := l.Occurrence.Event

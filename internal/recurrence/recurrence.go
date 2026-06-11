@@ -17,7 +17,7 @@
 //     timestamp onto either an existing exception row or a generated
 //     occurrence, for single-occurrence operations.
 //
-// This is a port of the Python proton_calendar.recurrence module, kept
+// The implementation is kept
 // dependency-light on purpose: stdlib + github.com/teambition/rrule-go only.
 package recurrence
 

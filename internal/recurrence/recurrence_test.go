@@ -26,7 +26,7 @@ func tsIn(t *testing.T, tz string, year int, month time.Month, day, hour int) in
 	return time.Date(year, month, day, hour, 0, 0, 0, loc).Unix()
 }
 
-// eventOpts mirrors the Python make_event keyword arguments.
+// eventOpts collects the optional fields for building a test event row.
 type eventOpts struct {
 	id           string
 	uid          string
@@ -444,14 +444,13 @@ func TestExpandOccurrences(t *testing.T) {
 		}
 	})
 
-	// DST SPIKE TEST (required by the port spec). Outcome: rrule-go DOES
-	// preserve wall-clock time across DST transitions. Its iterator builds
-	// each candidate occurrence with time.Date(y, m, d, hh, mm, ss, 0, loc)
-	// in DTSTART's location, so the local wall-clock fields are held fixed
-	// and the UTC offset is re-derived per occurrence. No workaround (e.g.
-	// iterating in a fixed-offset wall-clock domain like the Python naive
-	// approach) is needed: anchoring DTSTART in the event's StartTimezone
-	// is sufficient.
+	// DST SPIKE TEST. Outcome: rrule-go DOES preserve wall-clock time
+	// across DST transitions. Its iterator builds each candidate occurrence
+	// with time.Date(y, m, d, hh, mm, ss, 0, loc) in DTSTART's location, so
+	// the local wall-clock fields are held fixed and the UTC offset is
+	// re-derived per occurrence. No workaround (e.g. iterating in a
+	// fixed-offset wall-clock domain) is needed: anchoring DTSTART in the
+	// event's StartTimezone is sufficient.
 	t.Run("DST spike: weekly 09:00 LA across 2026-03-08 transition", func(t *testing.T) {
 		la := "America/Los_Angeles"
 		// DTSTART in winter: Sun 2026-03-01 09:00 PST (UTC-8) = 17:00 UTC.

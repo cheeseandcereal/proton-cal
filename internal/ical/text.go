@@ -9,8 +9,8 @@ import (
 // backslash, semicolon and comma are escaped with a backslash, and
 // newlines become the literal two-character sequence "\n".
 //
-// (The Python reference implementation did NOT escape TEXT values —
-// that was a latent injection bug; the Go version fixes it.)
+// Escaping prevents user-supplied text from injecting extra iCalendar
+// properties or content lines into the signed fragments.
 func EscapeText(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))

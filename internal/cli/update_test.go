@@ -24,9 +24,9 @@ func TestValidateUpdateFlags(t *testing.T) {
 		{name: "occurrence with repeat", occurrence: "2026-06-12 09:00", rec: front.RecurrenceFlags{Repeat: "daily"}, wantErr: true},
 		{name: "occurrence with rrule", occurrence: "2026-06-12 09:00", rec: front.RecurrenceFlags{RawRRule: "FREQ=DAILY"}, wantErr: true},
 		{name: "occurrence with no-repeat", occurrence: "2026-06-12 09:00", noRepeat: true, wantErr: true},
-		// Python only checks repeat/rrule_raw against --occurrence;
+		// Only --repeat/--rrule conflict with --occurrence;
 		// --count/--until/--every alone do not conflict (and are ignored
-		// on the occurrence path, like in cli.py).
+		// on the occurrence path).
 		{name: "occurrence with count only", occurrence: "2026-06-12 09:00", rec: front.RecurrenceFlags{Count: 5}, wantErr: false},
 	}
 	for _, tt := range tests {

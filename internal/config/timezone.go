@@ -9,8 +9,8 @@ import (
 
 // DetectTimezone best-effort detects the system's IANA timezone name.
 // Go cannot name the local zone (time.Local.String() == "Local"), so this
-// ports the Python implementation: TZ env var, /etc/localtime symlink into
-// the zoneinfo database, then /etc/timezone. Falls back to "UTC".
+// checks, in order: the TZ env var, the /etc/localtime symlink into the
+// zoneinfo database, then /etc/timezone. Falls back to "UTC".
 func DetectTimezone() string {
 	var candidates []string
 

@@ -5,10 +5,9 @@ Proton's undocumented internal API. There is no official Proton Calendar API
 or CalDAV support because of the end-to-end encryption, so this reproduces
 the web client's endpoints and client-side PGP key hierarchy.
 
-This is a Go re-implementation of
-[proton-calendar-cli](https://github.com/Nojuza/proton-calendar-cli) (Python),
-built on Proton's official [`go-proton-api`](https://github.com/ProtonMail/go-proton-api)
+Built on Proton's official [`go-proton-api`](https://github.com/ProtonMail/go-proton-api)
 (auth, sessions, key unlocking) with the calendar write path implemented here.
+The reverse-engineered API details are documented in [RESEARCH.md](RESEARCH.md).
 
 > Unofficial. Not affiliated with or endorsed by Proton AG. Use at your own
 > risk - the API is undocumented and may change.
@@ -169,12 +168,13 @@ internal/front        shared CLI/MCP input parsing
 internal/integration  opt-in live test suite (build tag `integration`)
 ```
 
-Key references while building: [`go-proton-api`](https://github.com/ProtonMail/go-proton-api),
+[RESEARCH.md](RESEARCH.md) documents the reverse-engineered Proton API this
+is built on: auth flow, key hierarchy, event encryption model, sync payload
+semantics, recurrence behavior (all verified live against the API), plus the
+sharp edges of the libraries involved. Other key references:
+[`go-proton-api`](https://github.com/ProtonMail/go-proton-api) and
 [`ProtonMail/WebClients`](https://github.com/ProtonMail/WebClients) (calendar
-crypto in `packages/shared/lib/calendar/`), and the Python
-[proton-calendar-cli](https://github.com/Nojuza/proton-calendar-cli)'s
-RESEARCH.md (auth flow, key hierarchy, event encryption model, recurrence
-behavior - all verified live against the API).
+crypto in `packages/shared/lib/calendar/`).
 
 ### Integration tests
 

@@ -65,8 +65,8 @@ func UnlockKeys(ctx context.Context, client *papi.Client, store *config.SessionS
 
 // PrimaryAddrKR returns the unlocked keyring for addressID, falling back to
 // any unlocked address keyring when that address is unknown or its keys
-// could not be unlocked (mirroring the Python address_key_for fallback). It
-// returns an error when no address keyrings are unlocked at all.
+// could not be unlocked. It returns an error when no address keyrings are
+// unlocked at all.
 func (u *Unlocked) PrimaryAddrKR(addressID string) (*crypto.KeyRing, error) {
 	if kr, ok := u.AddrKRs[addressID]; ok {
 		return kr, nil

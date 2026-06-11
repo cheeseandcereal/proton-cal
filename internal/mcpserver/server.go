@@ -3,8 +3,7 @@
 // create / update / delete events) over stdin/stdout JSON-RPC so AI tools
 // (Claude Code, opencode, ...) can use the calendar natively.
 //
-// This is the port of the Python mcp_server.py, with one improvement: every
-// tool takes an optional `calendar` argument (ID or name) instead of
+// Every tool takes an optional `calendar` argument (ID or name) instead of
 // hardcoding the first calendar; the default comes from the configured
 // default calendar, else the first calendar.
 //
@@ -29,7 +28,7 @@ import (
 )
 
 // session bundles the lazily initialised authenticated state shared by all
-// tool calls (port of the Python _get_session globals).
+// tool calls.
 type session struct {
 	cfg      config.Config
 	client   *papi.Client

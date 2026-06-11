@@ -1,6 +1,5 @@
 // Package front holds small helpers shared by the CLI and MCP frontends:
-// user-facing datetime parsing and recurrence flag combination. Ports the
-// duplicated helper logic from the Python cli.py / mcp_server.py.
+// user-facing datetime parsing and recurrence flag combination.
 package front
 
 import (
@@ -74,8 +73,8 @@ func (f RecurrenceFlags) Empty() bool {
 	return f.Repeat == "" && f.RawRRule == "" && f.Count == 0 && f.Until == "" && (f.Every == 0 || f.Every == 1)
 }
 
-// BuildRRule combines the flags into an RRULE value ("" = none), mirroring
-// the Python _build_recurrence validation:
+// BuildRRule combines the flags into an RRULE value ("" = none),
+// validating the flag combinations:
 //   - RawRRule is exclusive with the structured flags and is sanitized.
 //   - Every/Count/Until require Repeat.
 func (f RecurrenceFlags) BuildRRule(tzName string, allDay bool) (string, error) {

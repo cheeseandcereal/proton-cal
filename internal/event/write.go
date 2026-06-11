@@ -15,7 +15,7 @@ import (
 
 var jsonNull = json.RawMessage("null")
 
-// newEventBody assembles the common Event body (port of Python _event_body):
+// newEventBody assembles the common Event body:
 // signed cards carry the plaintext fragment + detached signature, encrypted
 // cards the base64 data packet + a signature over the PLAINTEXT.
 func newEventBody(frags ical.Fragments, sharedSignedSig, sharedEncData, sharedEncSig, calSignedSig, calEncData, calEncSig string) *eventBody {

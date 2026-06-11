@@ -19,7 +19,7 @@ func textResult(text string) *mcp.CallToolResult {
 }
 
 // invalidArgs decorates a parse/validation error with the accepted time
-// formats (port of the Python "Invalid arguments: ..." replies).
+// formats, replying "invalid arguments: ..." to the caller.
 func invalidArgs(err error) error {
 	return fmt.Errorf("invalid arguments: %v (times use %s)", err, front.TimeFormatHint)
 }
@@ -136,8 +136,8 @@ type createEventArgs struct {
 	Calendar    string `json:"calendar,omitempty" jsonschema:"Calendar ID or name (optional; default: the configured default calendar, else the first calendar)"`
 }
 
-// resolveCreateTimes ports the create date wrangling (same rules as the CLI
-// and the Python MCP server). All-day: start is a date; end is an optional
+// resolveCreateTimes resolves the create start/end times (same rules as the
+// CLI). All-day: start is a date; end is an optional
 // INCLUSIVE date (default = start), converted to the exclusive iCal end by
 // +24h. Timed: end is required; both parse as wall times in tzName.
 func resolveCreateTimes(startStr, endStr string, allDay bool, tzName string) (start, end time.Time, err error) {
@@ -246,7 +246,7 @@ type updateEventArgs struct {
 	Calendar    string `json:"calendar,omitempty" jsonschema:"Calendar ID or name (optional; default: the configured default calendar, else the first calendar)"`
 }
 
-// validateUpdateArgs ports the update conflict validation: no_repeat
+// validateUpdateArgs rejects conflicting update arguments: no_repeat
 // conflicts with repeat/rrule, and occurrence conflicts with all recurrence
 // args (edit the series instead).
 func validateUpdateArgs(occurrence string, noRepeat bool, rec front.RecurrenceFlags) error {

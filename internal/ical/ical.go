@@ -4,22 +4,18 @@
 // signed/encrypted with PGP and round-tripped verbatim, so property order
 // and line endings are byte-stable.
 //
-// This package ports the Python reference implementation
-// (proton_calendar/events.py: dt_prop, build_event_ical, dt_to_ical,
-// _parse_ical_into_event, _shared_signed_sequence), with two deliberate
-// deviations:
+// Two safety/compatibility properties of the serializer:
 //
-//   - TEXT values are escaped per RFC 5545 §3.3.11 (the Python version
-//     did not escape, a latent injection bug).
-//   - Content lines are folded at 75 octets per RFC 5545 §3.1 (the
-//     Python version sent unfolded long lines; folding matches what the
-//     Proton web client itself produces).
+//   - TEXT values are escaped per RFC 5545 §3.3.11, preventing
+//     property-injection through user-supplied text.
+//   - Content lines are folded at 75 octets per RFC 5545 §3.1, matching
+//     what the Proton web client itself produces.
 //
 // Parsing is hand-rolled rather than using github.com/emersion/go-ical:
 // that module is not in this repo's go.mod/go.sum (which must not be
 // modified), and its decoder is stricter than Proton's fragments, which
 // lack VERSION/PRODID. The tolerant parser here never panics and skips
-// anything it cannot understand, mirroring the Python try/except parse.
+// anything it cannot understand.
 package ical
 
 import (
@@ -81,8 +77,8 @@ func DTProp(name string, t time.Time, tzName string, allDay bool) (string, error
 	return fmt.Sprintf("%s;TZID=%s:%s", name, tzName, t.In(loc).Format("20060102T150405")), nil
 }
 
-// BuildFragments builds the four iCalendar fragments for an event,
-// mirroring the Python build_event_ical exactly (property order matters;
+// BuildFragments builds the four iCalendar fragments for an event
+// with a fixed property order (property order matters;
 // fragments are signed byte-for-byte):
 //
 //	shared signed:      UID, DTSTAMP, DTSTART, DTEND, [RECURRENCE-ID], [RRULE], EXDATEs, SEQUENCE

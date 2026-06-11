@@ -29,8 +29,8 @@ import (
 )
 
 const (
-	// AppVersion is sent as x-pm-appversion (matches the Python client,
-	// verified accepted by the API).
+	// AppVersion is sent as x-pm-appversion (verified accepted by the
+	// API; see RESEARCH.md).
 	AppVersion = "Other"
 	// UserAgent is sent on raw requests.
 	UserAgent = "proton-cal-go/0.1"

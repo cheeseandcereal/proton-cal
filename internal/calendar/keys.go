@@ -74,7 +74,7 @@ type keysResponse struct {
 // Unlock returns the calendar's unlocked private keyring plus the member
 // context needed for signing/writing, caching per calendar ID.
 //
-// Port of the Python KeyUnlocker.unlock_calendar chain:
+// The unlock chain is:
 // member resolution → passphrase decrypt → calendar key unlock.
 func (k *Keychain) Unlock(ctx context.Context, calendarID string) (*CalendarAccess, error) {
 	k.mu.Lock()
@@ -119,7 +119,7 @@ func (k *Keychain) Unlock(ctx context.Context, calendarID string) (*CalendarAcce
 // matches one of our addresses' emails case-insensitively (the members list
 // may include other users on shared calendars), falling back to the first
 // member. Returns empty strings when the calendar has no members at all
-// (matching the lenient Python behaviour; passphrase selection then falls
+// (lenient by design; passphrase selection then falls
 // back to the first member passphrase).
 func (k *Keychain) resolveMember(ctx context.Context, calendarID string) (memberID, addressID string, err error) {
 	var resp membersResponse
@@ -146,8 +146,8 @@ func (k *Keychain) resolveMember(ctx context.Context, calendarID string) (member
 // decryptPassphrase fetches the calendar passphrase and decrypts our
 // member's entry (falling back to the first entry) by trying every unlocked
 // address keyring - the passphrase may be encrypted to any of them. The
-// detached signature is intentionally not verified (lenient like the Python
-// implementation; its absence or failure is non-fatal).
+// detached signature is intentionally not verified (lenient by design;
+// its absence or failure is non-fatal).
 func (k *Keychain) decryptPassphrase(ctx context.Context, calendarID, memberID string) ([]byte, error) {
 	var resp passphraseResponse
 	if err := k.client.Get(ctx, "/calendar/v1/"+calendarID+"/passphrase", nil, &resp); err != nil {

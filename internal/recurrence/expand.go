@@ -62,7 +62,6 @@ func masterLocation(ev *caltypes.RawEvent) (*time.Location, error) {
 // All-day masters get a DTSTART anchored in UTC: their RRULEs use floating
 // DATE-form UNTIL values, which are then interpreted at midnight UTC,
 // matching the instants Proton stores for all-day events (midnight UTC).
-// This mirrors the Python implementation's naive-UTC-wall-time anchoring.
 func masterRule(ev *caltypes.RawEvent) (*rrule.RRule, int64, *time.Location, error) {
 	duration := ev.EndTime - ev.StartTime
 	var loc *time.Location
@@ -171,7 +170,7 @@ func ExpandOccurrences(events []*caltypes.RawEvent, start, end int64) []Occurren
 		case ev.RRule != "":
 			occs, err := expandMaster(ev, start, end, shadowed[ev.UID])
 			if err != nil {
-				// Mirror the Python behavior: a master whose RRULE
+				// A master whose RRULE
 				// cannot be expanded falls back to passing through
 				// as a single row instead of failing the listing.
 				results = appendIfOverlapping(results, ev, start, end)

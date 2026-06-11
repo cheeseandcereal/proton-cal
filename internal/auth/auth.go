@@ -13,8 +13,8 @@
 // (HTTP 403, Proton code 9101). Gaining it requires a full SRP proof to
 // PUT /core/v4/users/unlock, which go-proton-api does not implement; see
 // unlockScope. The scope is dropped again (PUT /core/v4/users/lock) as soon
-// as the salts have been fetched, mirroring the Python implementation's
-// unlock()/lock() dance.
+// as the salts have been fetched; see RESEARCH.md for the full unlock/lock
+// dance.
 package auth
 
 import (
@@ -254,8 +254,8 @@ type hvDetails struct {
 
 // loginWithHumanVerification handles a failed login attempt: if loginErr is a
 // human verification request (code 9001) offering the captcha method, it
-// walks the user through the manual captcha token paste flow (ported from
-// the Python captcha_server.py) and retries the login with the token.
+// walks the user through the manual captcha token paste flow and retries
+// the login with the token.
 // Any other error is returned wrapped.
 func loginWithHumanVerification(ctx context.Context, m *proton.Manager, prompter Prompter, username, password string, loginErr error) (*proton.Client, proton.Auth, error) {
 	var apiErr *proton.APIError
@@ -291,7 +291,7 @@ func loginWithHumanVerification(ctx context.Context, m *proton.Manager, prompter
 	// headers from APIHVDetails: x-pm-human-verification-token from Token,
 	// and x-pm-human-verification-token-type from Methods joined with ","
 	// (see hv.go addHVToRequest). Pass exactly {"captcha"} so the type
-	// header is "captcha", mirroring the Python implementation.
+	// header is "captcha".
 	pc, a, err := m.NewClientWithLoginWithHVToken(ctx, username, []byte(password), &proton.APIHVDetails{
 		Methods: []string{"captcha"},
 		Token:   token,
@@ -303,8 +303,7 @@ func loginWithHumanVerification(ctx context.Context, m *proton.Manager, prompter
 }
 
 // captchaToken guides the user through manually capturing the captcha token
-// (instructions ported verbatim from the Python captcha_server.py) and
-// returns the pasted token.
+// and returns the pasted token.
 func captchaToken(prompter Prompter, verifyURL string) (string, error) {
 	prompter.Notify("\nCAPTCHA verification required. Here's what to do:\n")
 	prompter.Notify("1. A browser window will open with the CAPTCHA.")

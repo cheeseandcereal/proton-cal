@@ -80,7 +80,7 @@ func TestFormatUTC(t *testing.T) {
 	if got := FormatUTC(utc); got != "20260102T030405Z" {
 		t.Errorf("FormatUTC(utc) = %q", got)
 	}
-	// Aware non-UTC converts to UTC (mirrors Python dt_to_ical test).
+	// Aware non-UTC converts to UTC.
 	plusTen := time.FixedZone("plus10", 10*3600)
 	if got := FormatUTC(time.Date(2026, 1, 2, 13, 4, 5, 0, plusTen)); got != "20260102T030405Z" {
 		t.Errorf("FormatUTC(+10) = %q", got)
@@ -139,7 +139,7 @@ func TestDTProp(t *testing.T) {
 	})
 }
 
-// baseFields mirrors the Python TestBuildEventIcal fixture.
+// baseFields is the shared fixture for fragment-building tests.
 func baseFields() EventFields {
 	return EventFields{
 		UID:     "uid-123",
@@ -576,7 +576,7 @@ func TestParseFragment(t *testing.T) {
 		wantErr bool
 	}{
 		{
-			// Mirrors Python TestParseIcalIntoEvent.test_populates_fields.
+			// A complete VCALENDAR populates every parsed field.
 			name: "full vcalendar crlf",
 			in: joinCRLF(
 				"BEGIN:VCALENDAR", "BEGIN:VEVENT",

@@ -13,7 +13,7 @@ import (
 	"github.com/cheeseandcereal/proton-cal-go/internal/recurrence"
 )
 
-// decryptImpl ports Python decrypt_event + _decrypt_parts_into_event.
+// decryptImpl decrypts a raw event row's cards into an Event.
 // Lenient: any part that fails to decrypt or parse is skipped; the event is
 // still returned with whatever could be extracted.
 func decryptImpl(raw *caltypes.RawEvent, calKR *crypto.KeyRing) (*Event, error) {
