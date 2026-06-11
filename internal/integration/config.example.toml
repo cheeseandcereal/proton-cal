@@ -1,0 +1,12 @@
+# Integration test configuration. Copy to config.toml (gitignored) and edit.
+# The suite SKIPS entirely unless this file exists and lists calendars.
+
+# Calendar IDs (or names) the suite may write to. Use a dedicated test
+# calendar, never a personal one. The suite only ever touches events it
+# created itself (summaries tagged "proton-cal-go-test <hex>"); the final
+# sweep test deletes any leftover event carrying that tag in the
+# now+25d..now+40d window.
+#
+# A name must match exactly one calendar; if names are ambiguous, use the
+# calendar ID (shown by `proton-cal calendars`).
+calendars = ["<calendar-id-or-name>"]

@@ -9,3 +9,6 @@ coverage.html
 # Editor
 .idea/
 .vscode/
+
+# Integration test config (contains real calendar IDs)
+/internal/integration/config.toml
