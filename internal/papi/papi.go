@@ -229,7 +229,7 @@ func (c *Client) doOnce(ctx context.Context, method, path string, query url.Valu
 	if err != nil {
 		return 0, resp, err
 	}
-	defer res.Body.Close()
+	defer func() { _ = res.Body.Close() }()
 
 	resp.raw, err = io.ReadAll(io.LimitReader(res.Body, 64<<20))
 	if err != nil {

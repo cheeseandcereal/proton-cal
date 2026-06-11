@@ -118,7 +118,7 @@ func expandMaster(ev *caltypes.RawEvent, start, end int64, shadowed map[int64]bo
 			continue
 		}
 		occEnd := occStart + duration
-		if !(occStart < end && occEnd > start) {
+		if occStart >= end || occEnd <= start {
 			continue
 		}
 		occurrences = append(occurrences, Occurrence{Event: ev, Start: occStart, End: occEnd})

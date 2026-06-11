@@ -106,7 +106,7 @@ func (sess *session) resolveCalendar(selector string) (calendar.Info, error) {
 }
 
 // access resolves the calendar selector and unlocks that calendar's keys.
-func (sess *session) access(ctx context.Context, selector string) (calendar.Info, *calendar.CalendarAccess, error) {
+func (sess *session) access(ctx context.Context, selector string) (calendar.Info, *calendar.Access, error) {
 	info, err := sess.resolveCalendar(selector)
 	if err != nil {
 		return calendar.Info{}, nil, err

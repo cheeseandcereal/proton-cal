@@ -36,7 +36,7 @@ func newEventBody(frags ical.Fragments, sharedSignedSig, sharedEncData, sharedEn
 	}
 }
 
-func createImpl(ctx context.Context, client *papi.Client, access *calendar.CalendarAccess, opts CreateOptions) (*caltypes.RawEvent, error) {
+func createImpl(ctx context.Context, client *papi.Client, access *calendar.Access, opts CreateOptions) (*caltypes.RawEvent, error) {
 	uid := opts.UID
 	if uid == "" {
 		uid = NewUID()
@@ -101,7 +101,7 @@ func createImpl(ctx context.Context, client *papi.Client, access *calendar.Calen
 	return created, nil
 }
 
-func updateImpl(ctx context.Context, client *papi.Client, access *calendar.CalendarAccess, eventID string, opts UpdateOptions) (*caltypes.RawEvent, error) {
+func updateImpl(ctx context.Context, client *papi.Client, access *calendar.Access, eventID string, opts UpdateOptions) (*caltypes.RawEvent, error) {
 	raw, err := getImpl(ctx, client, access.CalendarID, eventID)
 	if err != nil {
 		return nil, err

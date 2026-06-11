@@ -63,7 +63,7 @@ func (c *countingMux) hitCount(path string) int {
 }
 
 func (c *countingMux) handleJSON(path string, body any) {
-	c.mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
+	c.mux.HandleFunc(path, func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		if err := json.NewEncoder(w).Encode(body); err != nil {
 			panic(err)

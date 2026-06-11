@@ -145,7 +145,7 @@ Or for [opencode](https://opencode.ai) (`opencode.json`):
 | Target             | What it does                                              |
 |--------------------|-----------------------------------------------------------|
 | `make build`       | Build `./proton-cal`                                      |
-| `make lint`        | gofmt check, `go vet` (+ golangci-lint when installed)    |
+| `make lint`        | gofmt check, `go vet`, golangci-lint (required)           |
 | `make test`        | Offline unit tests                                        |
 | `make integration` | Live tests against a real Proton account (see below)      |
 

@@ -151,7 +151,7 @@ func SequenceFromFragment(data string) int {
 func splitContentLine(line string) (name string, params map[string]string, value string, ok bool) {
 	sep := -1
 	inQuotes := false
-	for i := 0; i < len(line); i++ {
+	for i := range len(line) {
 		switch line[i] {
 		case '"':
 			inQuotes = !inQuotes
@@ -192,7 +192,7 @@ func splitOutsideQuotes(s string, sep byte) []string {
 	var parts []string
 	start := 0
 	inQuotes := false
-	for i := 0; i < len(s); i++ {
+	for i := range len(s) {
 		switch s[i] {
 		case '"':
 			inQuotes = !inQuotes

@@ -53,9 +53,9 @@ func testKeys(t *testing.T) (calKR, addrKR *crypto.KeyRing) {
 	return fixtureCalKR, fixtureAdrKR
 }
 
-func testAccess(t *testing.T) *calendar.CalendarAccess {
+func testAccess(t *testing.T) *calendar.Access {
 	calKR, addrKR := testKeys(t)
-	return &calendar.CalendarAccess{
+	return &calendar.Access{
 		CalendarID: "cal1",
 		KR:         calKR,
 		MemberID:   "member1",
@@ -225,7 +225,7 @@ func (s *syncRecorder) bodies() []map[string]any {
 }
 
 func (s *syncRecorder) handleJSON(path string, body any) {
-	s.mux.HandleFunc(path, func(w http.ResponseWriter, r *http.Request) {
+	s.mux.HandleFunc(path, func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(body)
 	})

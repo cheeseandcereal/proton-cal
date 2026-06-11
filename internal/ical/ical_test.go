@@ -11,8 +11,8 @@ import (
 // ptr returns a pointer to v (test helper for expected pointer fields).
 func ptr(s string) *string { return &s }
 
-func tsUTC(year int, month time.Month, day, hour, min, sec int) int64 {
-	return time.Date(year, month, day, hour, min, sec, 0, time.UTC).Unix()
+func tsUTC(year int, month time.Month, day, hour, minute, sec int) int64 {
+	return time.Date(year, month, day, hour, minute, sec, 0, time.UTC).Unix()
 }
 
 func TestEscapeText(t *testing.T) {
@@ -161,7 +161,7 @@ func TestBuildFragmentsGolden(t *testing.T) {
 	}{
 		{
 			name:   "utc timed event",
-			mutate: func(f *EventFields) {},
+			mutate: func(_ *EventFields) {},
 			want: Fragments{
 				SharedSigned: joinCRLF(
 					"BEGIN:VCALENDAR", "BEGIN:VEVENT",

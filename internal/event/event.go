@@ -130,7 +130,7 @@ type CreateOptions struct {
 
 // Create encrypts and creates an event via the sync endpoint. Returns the
 // created raw event row echoed by the server.
-func Create(ctx context.Context, client *papi.Client, access *calendar.CalendarAccess, opts CreateOptions) (*caltypes.RawEvent, error) {
+func Create(ctx context.Context, client *papi.Client, access *calendar.Access, opts CreateOptions) (*caltypes.RawEvent, error) {
 	return createImpl(ctx, client, access, opts)
 }
 
@@ -158,7 +158,7 @@ func (o UpdateOptions) Significant() bool {
 // Update fetches, merges, re-encrypts (REUSING the event's existing session
 // keys; no new key packets) and PUTs an event. Returns the updated raw
 // event when the server echoes it (may be nil on success).
-func Update(ctx context.Context, client *papi.Client, access *calendar.CalendarAccess, eventID string, opts UpdateOptions) (*caltypes.RawEvent, error) {
+func Update(ctx context.Context, client *papi.Client, access *calendar.Access, eventID string, opts UpdateOptions) (*caltypes.RawEvent, error) {
 	return updateImpl(ctx, client, access, eventID, opts)
 }
 
@@ -194,7 +194,7 @@ type DeleteResult struct {
 //   - master row: delete the whole series (master + all same-UID rows; the
 //     server orphans exceptions otherwise - see RESEARCH.md).
 //   - plain event: delete the row.
-func SmartDelete(ctx context.Context, client *papi.Client, access *calendar.CalendarAccess, eventID string, occurrenceTS int64) (*DeleteResult, error) {
+func SmartDelete(ctx context.Context, client *papi.Client, access *calendar.Access, eventID string, occurrenceTS int64) (*DeleteResult, error) {
 	return smartDeleteImpl(ctx, client, access, eventID, occurrenceTS)
 }
 
@@ -211,6 +211,6 @@ type UpdateOutcome struct {
 //     SEQUENCE >= the master's). Recurrence options are rejected here.
 //   - otherwise: update the event/series; when a significant change hits a
 //     master, its now-invalid exception rows are deleted afterwards.
-func SmartUpdate(ctx context.Context, client *papi.Client, access *calendar.CalendarAccess, eventID string, opts UpdateOptions, occurrenceTS int64) (*UpdateOutcome, error) {
+func SmartUpdate(ctx context.Context, client *papi.Client, access *calendar.Access, eventID string, opts UpdateOptions, occurrenceTS int64) (*UpdateOutcome, error) {
 	return smartUpdateImpl(ctx, client, access, eventID, opts, occurrenceTS)
 }

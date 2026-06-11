@@ -171,7 +171,7 @@ func initSuite() {
 }
 
 // accessFor unlocks one calendar's keys (cached by the keychain).
-func (s *suite) accessFor(t *testing.T, info calendar.Info) *calendar.CalendarAccess {
+func (s *suite) accessFor(t *testing.T, info calendar.Info) *calendar.Access {
 	t.Helper()
 	access, err := s.keychain.Unlock(context.Background(), info.ID)
 	if err != nil {
@@ -183,7 +183,7 @@ func (s *suite) accessFor(t *testing.T, info calendar.Info) *calendar.CalendarAc
 // newAccess returns the client and unlocked access for the FIRST configured
 // calendar (one calendar is enough for the write-path tests), skipping when
 // the suite is not configured.
-func newAccess(t *testing.T) (*papi.Client, *calendar.CalendarAccess) {
+func newAccess(t *testing.T) (*papi.Client, *calendar.Access) {
 	t.Helper()
 	s := setup(t)
 	return s.client, s.accessFor(t, s.resolved[0])
@@ -217,7 +217,7 @@ func futureWindow() (start, end time.Time) {
 // trackEvent registers a best-effort SmartDelete cleanup for an event the
 // test created. Call the returned func once the event is known deleted so
 // the cleanup does not double-delete.
-func trackEvent(t *testing.T, client *papi.Client, access *calendar.CalendarAccess, eventID string) (markDeleted func()) {
+func trackEvent(t *testing.T, client *papi.Client, access *calendar.Access, eventID string) (markDeleted func()) {
 	t.Helper()
 	var done bool
 	t.Cleanup(func() {
@@ -232,7 +232,7 @@ func trackEvent(t *testing.T, client *papi.Client, access *calendar.CalendarAcce
 }
 
 // getDecrypted fetches and decrypts one event row.
-func getDecrypted(t *testing.T, client *papi.Client, access *calendar.CalendarAccess, eventID string) *event.Event {
+func getDecrypted(t *testing.T, client *papi.Client, access *calendar.Access, eventID string) *event.Event {
 	t.Helper()
 	raw, err := event.Get(context.Background(), client, access.CalendarID, eventID)
 	if err != nil {
@@ -249,7 +249,7 @@ func getDecrypted(t *testing.T, client *papi.Client, access *calendar.CalendarAc
 // occurrences backed by rows with the given iCal UID, failing the test if
 // any of those rows did not decrypt. Results keep ListWindow's order
 // (sorted by occurrence start).
-func listUID(t *testing.T, client *papi.Client, access *calendar.CalendarAccess, uid string, start, end time.Time, tzName string) []event.Listed {
+func listUID(t *testing.T, client *papi.Client, access *calendar.Access, uid string, start, end time.Time, tzName string) []event.Listed {
 	t.Helper()
 	listed, err := event.ListWindow(context.Background(), client, access.KR, access.CalendarID, start.Unix(), end.Unix(), tzName)
 	if err != nil {

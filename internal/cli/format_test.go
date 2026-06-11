@@ -12,8 +12,8 @@ import (
 )
 
 // ts returns the unix timestamp of a UTC wall time.
-func ts(year int, month time.Month, day, hour, min int) int64 {
-	return time.Date(year, month, day, hour, min, 0, 0, time.UTC).Unix()
+func ts(year int, month time.Month, day, hour, minute int) int64 {
+	return time.Date(year, month, day, hour, minute, 0, 0, time.UTC).Unix()
 }
 
 func listedTimed() event.Listed {

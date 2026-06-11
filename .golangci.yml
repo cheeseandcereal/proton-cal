@@ -1,0 +1,47 @@
+version: "2"
+
+run:
+  build-tags:
+    - integration
+
+linters:
+  # Defaults (errcheck, govet, ineffassign, staticcheck, unused) plus a
+  # moderate curated set.
+  enable:
+    - copyloopvar
+    - errorlint
+    - gocritic
+    - intrange
+    - misspell
+    - nolintlint
+    - revive
+    - unconvert
+    - unparam
+    - whitespace
+  settings:
+    errcheck:
+      # Human-readable CLI output; print errors to a terminal are not
+      # actionable.
+      exclude-functions:
+        - fmt.Fprint
+        - fmt.Fprintf
+        - fmt.Fprintln
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+  exclusions:
+    rules:
+      # Test helpers commonly take/ignore parameters for symmetry and use
+      # fixed inputs; these linters are noisy there.
+      - path: _test\.go
+        linters:
+          - unparam
+          - gocritic
+
+formatters:
+  enable:
+    - gofmt
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0

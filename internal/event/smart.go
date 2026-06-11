@@ -53,7 +53,7 @@ func deleteSeriesExceptionsImpl(ctx context.Context, client *papi.Client, calend
 	return len(ids), nil
 }
 
-func smartDeleteImpl(ctx context.Context, client *papi.Client, access *calendar.CalendarAccess, eventID string, occurrenceTS int64) (*DeleteResult, error) {
+func smartDeleteImpl(ctx context.Context, client *papi.Client, access *calendar.Access, eventID string, occurrenceTS int64) (*DeleteResult, error) {
 	raw, err := getImpl(ctx, client, access.CalendarID, eventID)
 	if err != nil {
 		return nil, err
@@ -119,7 +119,7 @@ func smartDeleteImpl(ctx context.Context, client *papi.Client, access *calendar.
 	return &DeleteResult{Kind: "event", RowsDeleted: 1}, nil
 }
 
-func smartUpdateImpl(ctx context.Context, client *papi.Client, access *calendar.CalendarAccess, eventID string, opts UpdateOptions, occurrenceTS int64) (*UpdateOutcome, error) {
+func smartUpdateImpl(ctx context.Context, client *papi.Client, access *calendar.Access, eventID string, opts UpdateOptions, occurrenceTS int64) (*UpdateOutcome, error) {
 	if occurrenceTS != 0 {
 		if opts.RRule != nil || opts.ClearRRule {
 			return nil, errors.New("recurrence changes cannot be combined with an occurrence edit (edit the series instead)")

@@ -21,7 +21,7 @@ func textResult(text string) *mcp.CallToolResult {
 // invalidArgs decorates a parse/validation error with the accepted time
 // formats, replying "invalid arguments: ..." to the caller.
 func invalidArgs(err error) error {
-	return fmt.Errorf("invalid arguments: %v (times use %s)", err, front.TimeFormatHint)
+	return fmt.Errorf("invalid arguments: %w (times use %s)", err, front.TimeFormatHint)
 }
 
 // register adds all proton-calendar tools to the MCP server.

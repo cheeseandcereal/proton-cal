@@ -13,8 +13,8 @@ import (
 	"github.com/cheeseandcereal/proton-cal-go/internal/papi"
 )
 
-// CalendarAccess is everything event code needs for one calendar.
-type CalendarAccess struct {
+// Access is everything event code needs for one calendar.
+type Access struct {
 	CalendarID string
 	KR         *crypto.KeyRing // unlocked calendar private keyring
 	MemberID   string          // our member ID (for sync payloads)
@@ -28,7 +28,7 @@ type Keychain struct {
 	unlocked *auth.Unlocked
 
 	mu    sync.Mutex
-	cache map[string]*CalendarAccess // calendar ID -> unlocked access
+	cache map[string]*Access // calendar ID -> unlocked access
 }
 
 // NewKeychain creates a keychain over unlocked address keys.
@@ -36,7 +36,7 @@ func NewKeychain(client *papi.Client, unlocked *auth.Unlocked) *Keychain {
 	return &Keychain{
 		client:   client,
 		unlocked: unlocked,
-		cache:    make(map[string]*CalendarAccess),
+		cache:    make(map[string]*Access),
 	}
 }
 
@@ -76,7 +76,7 @@ type keysResponse struct {
 //
 // The unlock chain is:
 // member resolution → passphrase decrypt → calendar key unlock.
-func (k *Keychain) Unlock(ctx context.Context, calendarID string) (*CalendarAccess, error) {
+func (k *Keychain) Unlock(ctx context.Context, calendarID string) (*Access, error) {
 	k.mu.Lock()
 	defer k.mu.Unlock()
 
@@ -104,7 +104,7 @@ func (k *Keychain) Unlock(ctx context.Context, calendarID string) (*CalendarAcce
 		return nil, fmt.Errorf("selecting signing key for calendar %s: %w", calendarID, err)
 	}
 
-	access := &CalendarAccess{
+	access := &Access{
 		CalendarID: calendarID,
 		KR:         calKR,
 		MemberID:   memberID,

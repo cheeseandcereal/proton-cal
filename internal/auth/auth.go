@@ -249,7 +249,7 @@ func Logout(ctx context.Context) error {
 type hvDetails struct {
 	HumanVerificationMethods []string
 	HumanVerificationToken   string
-	WebUrl                   string
+	WebURL                   string `json:"WebUrl"`
 }
 
 // loginWithHumanVerification handles a failed login attempt: if loginErr is a
@@ -277,7 +277,7 @@ func loginWithHumanVerification(ctx context.Context, m *proton.Manager, prompter
 		)
 	}
 
-	verifyURL := details.WebUrl
+	verifyURL := details.WebURL
 	if verifyURL == "" {
 		verifyURL = "https://account.proton.me/verify?methods=captcha&token=" + url.QueryEscape(details.HumanVerificationToken)
 	}

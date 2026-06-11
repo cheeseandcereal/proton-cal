@@ -363,9 +363,10 @@ func TestExpandOccurrences(t *testing.T) {
 		var masterStarts []int64
 		var exceptionOccs []Occurrence
 		for _, o := range out {
-			if o.Event == master {
+			switch o.Event {
+			case master:
 				masterStarts = append(masterStarts, o.Start)
-			} else if o.Event == exception {
+			case exception:
 				exceptionOccs = append(exceptionOccs, o)
 			}
 		}

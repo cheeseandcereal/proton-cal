@@ -46,7 +46,7 @@ func newApp() (*app, error) {
 // resolveAccess unlocks the account keys, resolves the calendar selector
 // (explicit flag, else the configured default calendar, else the first
 // calendar) and unlocks that calendar's keys.
-func (a *app) resolveAccess(ctx context.Context, calSelector string) (calendar.Info, *calendar.CalendarAccess, error) {
+func (a *app) resolveAccess(ctx context.Context, calSelector string) (calendar.Info, *calendar.Access, error) {
 	unlocked, err := auth.UnlockKeys(ctx, a.client, a.store)
 	if err != nil {
 		return calendar.Info{}, nil, fmt.Errorf("unlocking keys: %w", err)
