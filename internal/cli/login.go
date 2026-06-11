@@ -6,6 +6,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/cheeseandcereal/proton-cal/internal/auth"
+	"github.com/cheeseandcereal/proton-cal/internal/config"
 )
 
 func newLoginCmd() *cobra.Command {
@@ -14,8 +15,22 @@ func newLoginCmd() *cobra.Command {
 		Short: "Authenticate with Proton and save the session",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			if err := auth.Login(cmd.Context(), auth.NewTerminalPrompter()); err != nil {
+			cfg, err := config.Load()
+			if err != nil {
+				return fmt.Errorf("loading config: %w", err)
+			}
+			username, err := auth.Login(cmd.Context(), auth.NewTerminalPrompter(), cfg)
+			if err != nil {
 				return err
+			}
+			// Remember the username and (on first login) the detected
+			// timezone for subsequent commands.
+			cfg.Username = username
+			if cfg.Timezone == "" {
+				cfg.Timezone = config.DetectTimezone()
+			}
+			if err := config.Save(cfg); err != nil {
+				return fmt.Errorf("saving config: %w", err)
 			}
 			fmt.Fprintln(humanOut(), "Logged in successfully.")
 			return nil

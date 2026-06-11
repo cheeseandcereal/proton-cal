@@ -37,48 +37,113 @@ import (
 )
 
 // Login runs the full interactive login flow and persists the session
-// (tokens + salted key passphrase) and config (username, timezone).
+// (tokens + salted key passphrase). It returns the username that logged in;
+// persisting it (and other config) is the caller's responsibility.
 //
 // The flow handles captcha human verification (manual token paste) and TOTP
 // two-factor authentication. FIDO2-only 2FA and email-code human
 // verification are not supported.
-func Login(ctx context.Context, prompter Prompter) error {
-	cfg, err := config.Load()
+func Login(ctx context.Context, prompter Prompter, cfg config.Config) (string, error) {
+	username, password, err := promptCredentials(prompter, cfg.Username)
 	if err != nil {
-		return fmt.Errorf("loading config: %w", err)
-	}
-
-	username := cfg.Username
-	if username == "" {
-		input, err := prompter.Prompt("Proton username/email")
-		if err != nil {
-			return fmt.Errorf("reading username: %w", err)
-		}
-		username = strings.TrimSpace(input)
-		if username == "" {
-			return errors.New("no username provided")
-		}
-	}
-
-	password, err := prompter.PromptSecret("Password")
-	if err != nil {
-		return fmt.Errorf("reading password: %w", err)
-	}
-	if password == "" {
-		return errors.New("no password provided")
+		return "", err
 	}
 
 	m := papi.NewManager(cfg.EffectiveBaseURL())
 	defer m.Close()
 
+	pc, a, err := authenticate(ctx, m, prompter, username, password)
+	if err != nil {
+		return "", err
+	}
+	defer pc.Close()
+
+	// Persist tokens now: the raw client below reads them, and any token
+	// refresh during the remaining steps must land in the store. (This is
+	// why the session is written twice: the salted key passphrase is not
+	// derivable until the salts have been fetched WITH a working session.)
+	store, err := config.NewSessionStore()
+	if err != nil {
+		return "", fmt.Errorf("opening session store: %w", err)
+	}
+	if err := store.Save(config.Session{
+		UID:          a.UID,
+		AccessToken:  a.AccessToken,
+		RefreshToken: a.RefreshToken,
+	}); err != nil {
+		return "", fmt.Errorf("saving session: %w", err)
+	}
+	raw := papi.New(pc, store, cfg.EffectiveBaseURL())
+
+	keyPassword, err := promptKeyPassword(prompter, a.PasswordMode, password)
+	if err != nil {
+		return "", err
+	}
+
+	salts, err := fetchSalts(ctx, pc, m, raw, username, password)
+	if err != nil {
+		return "", err
+	}
+
+	user, err := pc.GetUser(ctx)
+	if err != nil {
+		return "", fmt.Errorf("fetching user: %w", err)
+	}
+	addrs, err := pc.GetAddresses(ctx)
+	if err != nil {
+		return "", fmt.Errorf("fetching addresses: %w", err)
+	}
+
+	saltedKeyPass, err := deriveAndVerifyKeyPass(user, addrs, salts, keyPassword)
+	if err != nil {
+		return "", err
+	}
+
+	if err := persistKeyPass(store, saltedKeyPass); err != nil {
+		return "", err
+	}
+
+	prompter.Notify("Login successful. Session saved.")
+
+	return username, nil
+}
+
+// promptCredentials returns the username (the configured one, prompting
+// only when unset) and the freshly prompted password.
+func promptCredentials(prompter Prompter, configured string) (username, password string, err error) {
+	username = configured
+	if username == "" {
+		input, err := prompter.Prompt("Proton username/email")
+		if err != nil {
+			return "", "", fmt.Errorf("reading username: %w", err)
+		}
+		username = strings.TrimSpace(input)
+		if username == "" {
+			return "", "", errors.New("no username provided")
+		}
+	}
+
+	password, err = prompter.PromptSecret("Password")
+	if err != nil {
+		return "", "", fmt.Errorf("reading password: %w", err)
+	}
+	if password == "" {
+		return "", "", errors.New("no password provided")
+	}
+	return username, password, nil
+}
+
+// authenticate performs the SRP login (with the captcha human-verification
+// fallback) and TOTP two-factor authentication, returning an authenticated
+// client.
+func authenticate(ctx context.Context, m *proton.Manager, prompter Prompter, username, password string) (*proton.Client, proton.Auth, error) {
 	pc, a, err := m.NewClientWithLogin(ctx, username, []byte(password))
 	if err != nil {
 		pc, a, err = loginWithHumanVerification(ctx, m, prompter, username, password, err)
 		if err != nil {
-			return err
+			return nil, proton.Auth{}, err
 		}
 	}
-	defer pc.Close()
 
 	// Two-factor authentication. TwoFA.Enabled is a bitmask: HasTOTP (1),
 	// HasFIDO2 (2), HasFIDO2AndTOTP (3). Prefer TOTP when available.
@@ -86,101 +151,95 @@ func Login(ctx context.Context, prompter Prompter) error {
 	case a.TwoFA.Enabled&proton.HasTOTP != 0:
 		code, err := prompter.Prompt("2FA code")
 		if err != nil {
-			return fmt.Errorf("reading 2FA code: %w", err)
+			pc.Close()
+			return nil, proton.Auth{}, fmt.Errorf("reading 2FA code: %w", err)
 		}
 		if err := pc.Auth2FA(ctx, proton.Auth2FAReq{TwoFactorCode: strings.TrimSpace(code)}); err != nil {
-			return fmt.Errorf("2FA verification failed: %w", err)
+			pc.Close()
+			return nil, proton.Auth{}, fmt.Errorf("2FA verification failed: %w", err)
 		}
 	case a.TwoFA.Enabled&proton.HasFIDO2 != 0:
-		return errors.New("this account requires FIDO2 two-factor authentication, which proton-cal does not support; enable TOTP at https://account.proton.me and retry")
+		pc.Close()
+		return nil, proton.Auth{}, errors.New("this account requires FIDO2 two-factor authentication, which proton-cal does not support; enable TOTP at https://account.proton.me and retry")
 	}
+	return pc, a, nil
+}
 
-	// Persist tokens now so the raw client (and any token refresh during the
-	// remaining steps) operates against the stored session.
-	store, err := config.NewSessionStore()
+// promptKeyPassword returns the password that unlocks the user keys: in
+// two-password mode the mailbox password (prompted), otherwise the login
+// password.
+func promptKeyPassword(prompter Prompter, mode proton.PasswordMode, loginPassword string) (string, error) {
+	if mode != proton.TwoPasswordMode {
+		return loginPassword, nil
+	}
+	keyPassword, err := prompter.PromptSecret("Mailbox password")
 	if err != nil {
-		return fmt.Errorf("opening session store: %w", err)
+		return "", fmt.Errorf("reading mailbox password: %w", err)
 	}
-	if err := store.Save(config.Session{
-		UID:          a.UID,
-		AccessToken:  a.AccessToken,
-		RefreshToken: a.RefreshToken,
-	}); err != nil {
-		return fmt.Errorf("saving session: %w", err)
+	if keyPassword == "" {
+		return "", errors.New("no mailbox password provided")
 	}
-	raw := papi.New(pc, store, cfg.EffectiveBaseURL())
+	return keyPassword, nil
+}
 
-	// In two-password mode the mailbox password (not the login password)
-	// unlocks the keys. The login password is still what unlockScope needs.
-	keyPassword := password
-	if a.PasswordMode == proton.TwoPasswordMode {
-		keyPassword, err = prompter.PromptSecret("Mailbox password")
-		if err != nil {
-			return fmt.Errorf("reading mailbox password: %w", err)
-		}
-		if keyPassword == "" {
-			return errors.New("no mailbox password provided")
-		}
-	}
-
-	// Fetch key salts; on insufficient scope, gain the "locked" scope via an
-	// SRP proof to /core/v4/users/unlock and retry once. Drop the elevated
-	// scope again afterwards (best effort).
-	didUnlock := false
+// fetchSalts fetches the key salts. On insufficient scope it gains the
+// "locked" scope via an SRP proof to /core/v4/users/unlock, retries once,
+// and drops the elevated scope again before returning (best effort).
+func fetchSalts(ctx context.Context, pc *proton.Client, m *proton.Manager, raw *papi.Client, username, password string) (proton.Salts, error) {
 	salts, err := pc.GetSalts(ctx)
-	if err != nil && isInsufficientScope(err) {
-		if err := unlockScope(ctx, m, raw, username, password); err != nil {
-			return fmt.Errorf("unlocking session scope: %w", err)
-		}
-		didUnlock = true
-		salts, err = pc.GetSalts(ctx)
+	if err == nil {
+		return salts, nil
 	}
+	if !isInsufficientScope(err) {
+		return nil, fmt.Errorf("fetching key salts: %w", err)
+	}
+	if err := unlockScope(ctx, m, raw, username, password); err != nil {
+		return nil, fmt.Errorf("unlocking session scope: %w", err)
+	}
+	// Best-effort re-lock: drop the elevated scope as soon as the salts
+	// are in hand.
+	defer func() { _ = raw.Put(ctx, "/core/v4/users/lock", struct{}{}, nil) }()
+	salts, err = pc.GetSalts(ctx)
 	if err != nil {
-		return fmt.Errorf("fetching key salts: %w", err)
+		return nil, fmt.Errorf("fetching key salts: %w", err)
 	}
+	return salts, nil
+}
 
-	user, err := pc.GetUser(ctx)
-	if err != nil {
-		return fmt.Errorf("fetching user: %w", err)
-	}
-	addrs, err := pc.GetAddresses(ctx)
-	if err != nil {
-		return fmt.Errorf("fetching addresses: %w", err)
-	}
-
+// deriveAndVerifyKeyPass derives the salted key passphrase from the key
+// password and the primary user key's salt, and verifies it actually
+// unlocks key material before it is persisted.
+func deriveAndVerifyKeyPass(user proton.User, addrs []proton.Address, salts proton.Salts, keyPassword string) ([]byte, error) {
 	primaryKeyID, err := primaryUserKeyID(user)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	saltedKeyPass, err := salts.SaltForKey([]byte(keyPassword), primaryKeyID)
 	if err != nil {
-		return fmt.Errorf("deriving salted key passphrase: %w", err)
+		return nil, fmt.Errorf("deriving salted key passphrase: %w", err)
 	}
 	if len(saltedKeyPass) == 0 {
-		return errors.New("deriving salted key passphrase: empty result")
+		return nil, errors.New("deriving salted key passphrase: empty result")
 	}
 
-	// Verify the derived passphrase actually unlocks key material before
-	// persisting it.
 	userKR, addrKRs, err := proton.Unlock(user, addrs, saltedKeyPass, nil)
 	if err != nil {
-		return fmt.Errorf("verifying key unlock (wrong mailbox password?): %w", err)
+		return nil, fmt.Errorf("verifying key unlock (wrong mailbox password?): %w", err)
 	}
 	if len(addrKRs) == 0 {
-		return errors.New("no address keys could be unlocked; calendar decryption would fail")
+		return nil, errors.New("no address keys could be unlocked; calendar decryption would fail")
 	}
 	userKR.ClearPrivateParams()
 	for _, kr := range addrKRs {
 		kr.ClearPrivateParams()
 	}
+	return saltedKeyPass, nil
+}
 
-	// Best-effort re-lock: drop the elevated "locked" scope if we gained it.
-	if didUnlock {
-		_ = raw.Put(ctx, "/core/v4/users/lock", struct{}{}, nil)
-	}
-
-	// Persist the salted key passphrase. Tokens may have rotated since the
-	// initial Save (the auth handler persists rotations), so read-modify-write.
+// persistKeyPass adds the salted key passphrase to the stored session.
+// Tokens may have rotated since the initial save (the auth handler persists
+// rotations), so this is a read-modify-write.
+func persistKeyPass(store *config.SessionStore, saltedKeyPass []byte) error {
 	sess, err := store.Load()
 	if err != nil {
 		return fmt.Errorf("reloading session: %w", err)
@@ -189,17 +248,6 @@ func Login(ctx context.Context, prompter Prompter) error {
 	if err := store.Save(sess); err != nil {
 		return fmt.Errorf("saving session: %w", err)
 	}
-
-	cfg.Username = username
-	if cfg.Timezone == "" {
-		cfg.Timezone = config.DetectTimezone()
-	}
-	if err := config.Save(cfg); err != nil {
-		return fmt.Errorf("saving config: %w", err)
-	}
-
-	prompter.Notify("Login successful. Session saved.")
-
 	return nil
 }
 

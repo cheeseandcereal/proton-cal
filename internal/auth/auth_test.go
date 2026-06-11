@@ -70,14 +70,28 @@ func startServer(t *testing.T) (addrID string) {
 	return addrID
 }
 
+// login runs Login and persists the username/timezone the way the CLI
+// login command does.
 func login(t *testing.T) {
 	t.Helper()
 	prompter := &scriptPrompter{t: t, answers: map[string]string{
 		"Proton username/email": testUser,
 		"Password":              testPass,
 	}}
-	if err := Login(context.Background(), prompter); err != nil {
+	cfg, err := config.Load()
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	username, err := Login(context.Background(), prompter, cfg)
+	if err != nil {
 		t.Fatalf("Login: %v", err)
+	}
+	cfg.Username = username
+	if cfg.Timezone == "" {
+		cfg.Timezone = config.DetectTimezone()
+	}
+	if err := config.Save(cfg); err != nil {
+		t.Fatalf("config.Save: %v", err)
 	}
 }
 
@@ -149,7 +163,11 @@ func TestLoginUsesConfiguredUsername(t *testing.T) {
 	prompter := &scriptPrompter{t: t, answers: map[string]string{
 		"Password": testPass,
 	}}
-	if err := Login(context.Background(), prompter); err != nil {
+	cfg, err = config.Load()
+	if err != nil {
+		t.Fatalf("config.Load: %v", err)
+	}
+	if _, err := Login(context.Background(), prompter, cfg); err != nil {
 		t.Fatalf("Login: %v", err)
 	}
 }
