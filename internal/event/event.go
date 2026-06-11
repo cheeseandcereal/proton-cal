@@ -41,7 +41,10 @@ type Event struct {
 	Summary     string
 	Description string
 	Location    string
-	Status      string
+	Status      string    // CONFIRMED unless the calendar-signed card says otherwise
+	Transp      string    // OPAQUE unless the calendar-signed card says otherwise
+	Comment     string    // calendar-encrypted card COMMENT
+	Created     time.Time // original creation time; zero when the card lacks CREATED
 
 	Start, End    time.Time
 	StartTimezone string

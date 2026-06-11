@@ -97,11 +97,27 @@ func pinUID(t *testing.T, uid string) {
 	t.Cleanup(func() { NewUID = old })
 }
 
+// fixtureExtras are optional card properties for fabricating events shaped
+// like web-client output (non-default status/transparency, original
+// creation time, a comment).
+type fixtureExtras struct {
+	status  string // default CONFIRMED
+	transp  string // default OPAQUE
+	created string // iCal UTC datetime; "" = omit the CREATED line
+	comment string // default empty
+}
+
 // fabricateRaw builds a server-side RawEvent encrypted with our fixtures,
-// mirroring what a previous Create would have stored.
-func fabricateRaw(t *testing.T, id, uid string, start, end int64, tz string, rrule string, recurrenceID int64, exdates []int64, summary string, sequence int) *caltypes.RawEvent {
+// mirroring what a previous Create (or the web client, with extras) would
+// have stored.
+func fabricateRaw(t *testing.T, id, uid string, start, end int64, tz string, rrule string, recurrenceID int64, exdates []int64, summary string, sequence int, extras ...fixtureExtras) *caltypes.RawEvent {
 	t.Helper()
 	calKR, addrKR := testKeys(t)
+
+	ex := fixtureExtras{status: "CONFIRMED", transp: "OPAQUE"}
+	if len(extras) > 0 {
+		ex = extras[0]
+	}
 
 	seqLine := "SEQUENCE:" + itoa(sequence)
 	sharedSignedLines := []string{
@@ -117,24 +133,30 @@ func fabricateRaw(t *testing.T, id, uid string, start, end int64, tz string, rru
 	sharedSignedLines = append(sharedSignedLines, seqLine, "END:VEVENT", "END:VCALENDAR")
 	sharedSigned := strings.Join(sharedSignedLines, "\r\n")
 
-	sharedEnc := strings.Join([]string{
+	sharedEncLines := []string{
 		"BEGIN:VCALENDAR", "BEGIN:VEVENT",
 		"UID:" + uid,
 		"DTSTAMP:20260601T000000Z",
-		"SUMMARY:" + summary,
+	}
+	if ex.created != "" {
+		sharedEncLines = append(sharedEncLines, "CREATED:"+ex.created)
+	}
+	sharedEncLines = append(sharedEncLines,
+		"SUMMARY:"+summary,
 		"DESCRIPTION:fixture description",
 		"LOCATION:fixture location",
 		"END:VEVENT", "END:VCALENDAR",
-	}, "\r\n")
+	)
+	sharedEnc := strings.Join(sharedEncLines, "\r\n")
 	calSigned := strings.Join([]string{
 		"BEGIN:VCALENDAR", "BEGIN:VEVENT",
 		"UID:" + uid, "DTSTAMP:20260601T000000Z",
-		"STATUS:CONFIRMED", "TRANSP:OPAQUE",
+		"STATUS:" + ex.status, "TRANSP:" + ex.transp,
 		"END:VEVENT", "END:VCALENDAR",
 	}, "\r\n")
 	calEnc := strings.Join([]string{
 		"BEGIN:VCALENDAR", "BEGIN:VEVENT",
-		"UID:" + uid, "DTSTAMP:20260601T000000Z", "COMMENT:",
+		"UID:" + uid, "DTSTAMP:20260601T000000Z", "COMMENT:" + ex.comment,
 		"END:VEVENT", "END:VCALENDAR",
 	}, "\r\n")
 
@@ -773,5 +795,61 @@ func TestSyncErrorSurfacesCodeAndMessage(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "2001") || !strings.Contains(err.Error(), "Sequence greater") {
 		t.Errorf("error must carry code and message, got: %v", err)
+	}
+}
+
+// TestUpdatePreservesWebClientFields guards the update round-trip against
+// silently resetting card properties this tool does not edit: a
+// web-client-set STATUS/TRANSP, the original CREATED, and the COMMENT.
+func TestUpdatePreservesWebClientFields(t *testing.T) {
+	pinNow(t, time.Date(2026, 6, 2, 12, 0, 0, 0, time.UTC))
+	calKR, _ := testKeys(t)
+	start := time.Date(2026, 6, 15, 7, 0, 0, 0, time.UTC).Unix()
+	raw := fabricateRaw(t, "ev1", "uid1", start, start+1800, "UTC", "", 0, nil, "Busy?", 0, fixtureExtras{
+		status:  "TENTATIVE",
+		transp:  "TRANSPARENT",
+		created: "20250101T080000Z",
+		comment: "keep me",
+	})
+
+	rec := newSyncRecorder()
+	serveExisting(rec, raw)
+	client := newTestClient(t, rec)
+	access := testAccess(t)
+
+	newSummary := "Still busy?"
+	if _, err := update(context.Background(), client, access, "ev1", UpdateOptions{Summary: &newSummary}); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+
+	evBody := rec.bodies()[0]["Events"].([]any)[0].(map[string]any)["Event"].(map[string]any)
+
+	calSigned := evBody["CalendarEventContent"].([]any)[0].(map[string]any)["Data"].(string)
+	if !strings.Contains(calSigned, "STATUS:TENTATIVE") {
+		t.Errorf("update reset STATUS, calendar-signed card:\n%s", calSigned)
+	}
+	if !strings.Contains(calSigned, "TRANSP:TRANSPARENT") {
+		t.Errorf("update reset TRANSP, calendar-signed card:\n%s", calSigned)
+	}
+
+	sharedEncData := evBody["SharedEventContent"].([]any)[1].(map[string]any)["Data"].(string)
+	sharedPlain, err := pgp.DecryptPart(sharedEncData, raw.SharedKeyPacket, calKR)
+	if err != nil {
+		t.Fatalf("decrypting updated shared card: %v", err)
+	}
+	if !strings.Contains(sharedPlain, "CREATED:20250101T080000Z") {
+		t.Errorf("update rewrote CREATED, shared-encrypted card:\n%s", sharedPlain)
+	}
+	if !strings.Contains(sharedPlain, "SUMMARY:Still busy?") {
+		t.Errorf("updated summary missing:\n%s", sharedPlain)
+	}
+
+	calEncData := evBody["CalendarEventContent"].([]any)[1].(map[string]any)["Data"].(string)
+	calPlain, err := pgp.DecryptPart(calEncData, raw.CalendarKeyPacket, calKR)
+	if err != nil {
+		t.Fatalf("decrypting updated calendar card: %v", err)
+	}
+	if !strings.Contains(calPlain, "COMMENT:keep me") {
+		t.Errorf("update dropped COMMENT, calendar-encrypted card:\n%s", calPlain)
 	}
 }

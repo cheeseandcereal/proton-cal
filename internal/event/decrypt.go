@@ -40,6 +40,7 @@ func Decrypt(raw *caltypes.RawEvent, calKR *crypto.KeyRing) (*Event, error) {
 		EndTimezone:   raw.EndTimezone,
 		AllDay:        raw.IsAllDay(),
 		Status:        "CONFIRMED",
+		Transp:        "OPAQUE",
 		RRule:         raw.RRule,
 		RecurrenceID:  recurrenceID,
 		Exdates:       exdates,
@@ -102,6 +103,15 @@ func mergeParsed(ev *Event, p ical.VEvent) {
 	}
 	if p.Status != nil && *p.Status != "" {
 		ev.Status = *p.Status
+	}
+	if p.Transp != nil && *p.Transp != "" {
+		ev.Transp = *p.Transp
+	}
+	if p.Comment != nil {
+		ev.Comment = *p.Comment
+	}
+	if p.Created != nil {
+		ev.Created = p.Created.UTC()
 	}
 	if p.Start != nil {
 		ev.Start = p.Start.UTC()

@@ -162,19 +162,31 @@ func update(ctx context.Context, client papi.API, access *calendar.Access, event
 	location := strOr(opts.Location, current.Location)
 
 	merged := ical.VEvent{
-		UID:          current.UID,
-		DTStamp:      Now().UTC(),
-		Start:        &start,
-		End:          &end,
-		TZName:       tzEff,
-		AllDay:       current.AllDay,
-		Summary:      &summary,
-		Description:  &description,
-		Location:     &location,
+		UID:         current.UID,
+		DTStamp:     Now().UTC(),
+		Start:       &start,
+		End:         &end,
+		TZName:      tzEff,
+		AllDay:      current.AllDay,
+		Summary:     &summary,
+		Description: &description,
+		Location:    &location,
+		// Preserve fields this tool does not edit: STATUS/TRANSP
+		// (calendar-signed card), COMMENT (calendar-encrypted card) and
+		// the original CREATED. Rebuilding the cards without them would
+		// silently reset web-client-set values (TENTATIVE status,
+		// free/transparent time blocks, ...).
+		Status:       &current.Status,
+		Transp:       &current.Transp,
+		Comment:      &current.Comment,
 		Sequence:     &sequence,
 		RRule:        rrule,
 		Exdates:      exdates,
 		RecurrenceID: recurrenceID,
+	}
+	if !current.Created.IsZero() {
+		created := current.Created
+		merged.Created = &created
 	}
 
 	frags, err := ical.BuildFragments(merged)
