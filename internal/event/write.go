@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/ProtonMail/gopenpgp/v2/crypto"
+
 	"github.com/cheeseandcereal/proton-cal/internal/calendar"
 	"github.com/cheeseandcereal/proton-cal/internal/caltypes"
 	"github.com/cheeseandcereal/proton-cal/internal/ical"
@@ -16,25 +18,63 @@ import (
 
 var jsonNull = json.RawMessage("null")
 
-// newEventBody assembles the common Event body:
-// signed cards carry the plaintext fragment + detached signature, encrypted
-// cards the base64 data packet + a signature over the PLAINTEXT.
-func newEventBody(frags ical.Fragments, sharedSignedSig, sharedEncData, sharedEncSig, calSignedSig, calEncData, calEncSig string) *eventBody {
+// sealCards signs the two plaintext cards and encrypts+signs the two
+// encrypted cards of an event, assembling the sync Event body.
+//
+// With nil session keys (creates) fresh session keys are generated and the
+// body carries their key packets. With the event's existing session keys
+// (updates) no key packets are emitted - the server keeps the originals.
+func sealCards(frags ical.Fragments, addrKR, calKR *crypto.KeyRing, sharedSK, calSK *crypto.SessionKey) (*eventBody, error) {
+	// Sign plaintext parts with the address key.
+	sharedSignedSig, err := pgp.SignDetached(frags.SharedSigned, addrKR)
+	if err != nil {
+		return nil, fmt.Errorf("signing shared part: %w", err)
+	}
+	calSignedSig, err := pgp.SignDetached(frags.CalendarSigned, addrKR)
+	if err != nil {
+		return nil, fmt.Errorf("signing calendar part: %w", err)
+	}
+
+	var sharedKP, sharedData, sharedSig, calKP, calData, calSig string
+	if sharedSK == nil {
+		// Encrypt+sign encrypted parts with fresh session keys encrypted
+		// to the calendar public key.
+		sharedKP, sharedData, sharedSig, err = pgp.EncryptAndSign(frags.SharedEncrypted, calKR, addrKR)
+		if err != nil {
+			return nil, fmt.Errorf("encrypting shared part: %w", err)
+		}
+		calKP, calData, calSig, err = pgp.EncryptAndSign(frags.CalendarEncrypted, calKR, addrKR)
+		if err != nil {
+			return nil, fmt.Errorf("encrypting calendar part: %w", err)
+		}
+	} else {
+		sharedData, sharedSig, err = pgp.EncryptWithSessionKeyAndSign(frags.SharedEncrypted, sharedSK, addrKR)
+		if err != nil {
+			return nil, fmt.Errorf("re-encrypting shared part: %w", err)
+		}
+		calData, calSig, err = pgp.EncryptWithSessionKeyAndSign(frags.CalendarEncrypted, calSK, addrKR)
+		if err != nil {
+			return nil, fmt.Errorf("re-encrypting calendar part: %w", err)
+		}
+	}
+
 	return &eventBody{
-		Permissions: 1,
+		Permissions:       1,
+		SharedKeyPacket:   sharedKP,
+		CalendarKeyPacket: calKP,
 		SharedEventContent: []caltypes.EventPart{
 			{Type: caltypes.CardSigned, Data: frags.SharedSigned, Signature: sharedSignedSig},
-			{Type: caltypes.CardEncryptedAndSigned, Data: sharedEncData, Signature: sharedEncSig},
+			{Type: caltypes.CardEncryptedAndSigned, Data: sharedData, Signature: sharedSig},
 		},
 		CalendarEventContent: []caltypes.EventPart{
 			{Type: caltypes.CardSigned, Data: frags.CalendarSigned, Signature: calSignedSig},
-			{Type: caltypes.CardEncryptedAndSigned, Data: calEncData, Signature: calEncSig},
+			{Type: caltypes.CardEncryptedAndSigned, Data: calData, Signature: calSig},
 		},
 		AttendeesEventContent: []caltypes.EventPart{},
 		Attendees:             []struct{}{},
 		Notifications:         jsonNull,
 		Color:                 jsonNull,
-	}
+	}, nil
 }
 
 // Create encrypts and creates an event via the sync endpoint. Returns the
@@ -62,30 +102,10 @@ func Create(ctx context.Context, client papi.API, access *calendar.Access, opts 
 		return nil, fmt.Errorf("building event fragments: %w", err)
 	}
 
-	// Sign plaintext parts with the address key.
-	sharedSignedSig, err := pgp.SignDetached(frags.SharedSigned, access.AddrKR)
+	body, err := sealCards(frags, access.AddrKR, access.KR, nil, nil)
 	if err != nil {
-		return nil, fmt.Errorf("signing shared part: %w", err)
+		return nil, err
 	}
-	calSignedSig, err := pgp.SignDetached(frags.CalendarSigned, access.AddrKR)
-	if err != nil {
-		return nil, fmt.Errorf("signing calendar part: %w", err)
-	}
-
-	// Encrypt+sign encrypted parts with fresh session keys encrypted to
-	// the calendar public key.
-	sharedKP, sharedData, sharedSig, err := pgp.EncryptAndSign(frags.SharedEncrypted, access.KR, access.AddrKR)
-	if err != nil {
-		return nil, fmt.Errorf("encrypting shared part: %w", err)
-	}
-	calKP, calData, calSig, err := pgp.EncryptAndSign(frags.CalendarEncrypted, access.KR, access.AddrKR)
-	if err != nil {
-		return nil, fmt.Errorf("encrypting calendar part: %w", err)
-	}
-
-	body := newEventBody(frags, sharedSignedSig, sharedData, sharedSig, calSignedSig, calData, calSig)
-	body.SharedKeyPacket = sharedKP
-	body.CalendarKeyPacket = calKP
 
 	isImport := 0
 	overwrite := 0
@@ -104,34 +124,29 @@ func Create(ctx context.Context, client papi.API, access *calendar.Access, opts 
 	return created, nil
 }
 
-// update fetches, merges, re-encrypts (REUSING the event's existing session
-// keys; no new key packets) and PUTs an event. Returns the updated raw
-// event when the server echoes it (may be nil on success).
-func update(ctx context.Context, client papi.API, access *calendar.Access, eventID string, opts UpdateOptions) (*caltypes.RawEvent, error) {
-	raw, err := Get(ctx, client, access.CalendarID, eventID)
-	if err != nil {
-		return nil, err
-	}
-	current, err := Decrypt(raw, access.KR)
-	if err != nil {
-		return nil, err
-	}
-
-	// SEQUENCE semantics (RFC 5546): bump only on date/time or recurrence
-	// changes. Field-only edits keep the sequence - otherwise a master
-	// update would leapfrog its exception rows, which the server rejects.
+// mergeUpdate merges a partial update into the decrypted current state,
+// producing the VEvent the cards are rebuilt from. Pure (no I/O).
+//
+// Semantics:
+//   - SEQUENCE (RFC 5546): bumped only on date/time or recurrence changes.
+//     Field-only edits keep it - otherwise a master update would leapfrog
+//     its exception rows, which the server rejects.
+//   - Times keep their stored zone unless explicitly re-zoned.
+//   - Recurrence and EXDATEs are preserved unless replaced or cleared.
+//   - STATUS/TRANSP/COMMENT/CREATED are preserved verbatim: this tool does
+//     not edit them, and rebuilding the cards without them would silently
+//     reset web-client-set values.
+func mergeUpdate(current *Event, opts UpdateOptions, dtstamp time.Time) ical.VEvent {
 	sequence := current.Sequence
 	if opts.Significant() {
 		sequence++
 	}
 
-	// Times keep their stored zone unless explicitly re-zoned.
 	tzEff := opts.TZName
 	if tzEff == "" {
 		tzEff = icaltime.OrUTC(current.StartTimezone)
 	}
 
-	// Recurrence: preserve unless replaced or cleared.
 	var rrule string
 	var exdates []time.Time
 	if !opts.ClearRRule {
@@ -160,25 +175,23 @@ func update(ctx context.Context, client papi.API, access *calendar.Access, event
 	summary := strOr(opts.Summary, current.Summary)
 	description := strOr(opts.Description, current.Description)
 	location := strOr(opts.Location, current.Location)
+	status := current.Status
+	transp := current.Transp
+	comment := current.Comment
 
 	merged := ical.VEvent{
-		UID:         current.UID,
-		DTStamp:     Now().UTC(),
-		Start:       &start,
-		End:         &end,
-		TZName:      tzEff,
-		AllDay:      current.AllDay,
-		Summary:     &summary,
-		Description: &description,
-		Location:    &location,
-		// Preserve fields this tool does not edit: STATUS/TRANSP
-		// (calendar-signed card), COMMENT (calendar-encrypted card) and
-		// the original CREATED. Rebuilding the cards without them would
-		// silently reset web-client-set values (TENTATIVE status,
-		// free/transparent time blocks, ...).
-		Status:       &current.Status,
-		Transp:       &current.Transp,
-		Comment:      &current.Comment,
+		UID:          current.UID,
+		DTStamp:      dtstamp,
+		Start:        &start,
+		End:          &end,
+		TZName:       tzEff,
+		AllDay:       current.AllDay,
+		Summary:      &summary,
+		Description:  &description,
+		Location:     &location,
+		Status:       &status,
+		Transp:       &transp,
+		Comment:      &comment,
 		Sequence:     &sequence,
 		RRule:        rrule,
 		Exdates:      exdates,
@@ -188,8 +201,23 @@ func update(ctx context.Context, client papi.API, access *calendar.Access, event
 		created := current.Created
 		merged.Created = &created
 	}
+	return merged
+}
 
-	frags, err := ical.BuildFragments(merged)
+// update fetches, merges, re-encrypts (REUSING the event's existing session
+// keys; no new key packets) and PUTs an event. Returns the updated raw
+// event when the server echoes it (may be nil on success).
+func update(ctx context.Context, client papi.API, access *calendar.Access, eventID string, opts UpdateOptions) (*caltypes.RawEvent, error) {
+	raw, err := Get(ctx, client, access.CalendarID, eventID)
+	if err != nil {
+		return nil, err
+	}
+	current, err := Decrypt(raw, access.KR)
+	if err != nil {
+		return nil, err
+	}
+
+	frags, err := ical.BuildFragments(mergeUpdate(current, opts, Now().UTC()))
 	if err != nil {
 		return nil, fmt.Errorf("building event fragments: %w", err)
 	}
@@ -205,24 +233,10 @@ func update(ctx context.Context, client papi.API, access *calendar.Access, event
 		return nil, fmt.Errorf("extracting calendar session key: %w", err)
 	}
 
-	sharedSignedSig, err := pgp.SignDetached(frags.SharedSigned, access.AddrKR)
+	body, err := sealCards(frags, access.AddrKR, nil, sharedSK, calSK)
 	if err != nil {
-		return nil, fmt.Errorf("signing shared part: %w", err)
+		return nil, err
 	}
-	calSignedSig, err := pgp.SignDetached(frags.CalendarSigned, access.AddrKR)
-	if err != nil {
-		return nil, fmt.Errorf("signing calendar part: %w", err)
-	}
-	sharedData, sharedSig, err := pgp.EncryptWithSessionKeyAndSign(frags.SharedEncrypted, sharedSK, access.AddrKR)
-	if err != nil {
-		return nil, fmt.Errorf("re-encrypting shared part: %w", err)
-	}
-	calData, calSig, err := pgp.EncryptWithSessionKeyAndSign(frags.CalendarEncrypted, calSK, access.AddrKR)
-	if err != nil {
-		return nil, fmt.Errorf("re-encrypting calendar part: %w", err)
-	}
-
-	body := newEventBody(frags, sharedSignedSig, sharedData, sharedSig, calSignedSig, calData, calSig)
 
 	resp, err := putSync(ctx, client, access.CalendarID, syncReq{
 		MemberID: access.MemberID,

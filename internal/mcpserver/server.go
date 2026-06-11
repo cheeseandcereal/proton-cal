@@ -111,7 +111,7 @@ func (sess *session) access(ctx context.Context, selector string) (calendar.Info
 	if err != nil {
 		return calendar.Info{}, nil, err
 	}
-	acc, err := sess.keychain.Unlock(ctx, info.ID)
+	acc, err := sess.keychain.Unlock(ctx, info)
 	if err != nil {
 		return calendar.Info{}, nil, fmt.Errorf("unlocking calendar keys: %w", err)
 	}

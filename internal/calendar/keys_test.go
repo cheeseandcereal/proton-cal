@@ -172,7 +172,7 @@ func TestKeychainUnlock(t *testing.T) {
 	client := newTestClient(t, mux)
 
 	kc := NewKeychain(client, f.unlockedAccounts)
-	access, err := kc.Unlock(context.Background(), testCalendarID)
+	access, err := kc.Unlock(context.Background(), Info{ID: testCalendarID})
 	if err != nil {
 		t.Fatalf("Unlock: %v", err)
 	}
@@ -212,7 +212,7 @@ func TestKeychainUnlock(t *testing.T) {
 			t.Errorf("endpoint %s hit %d times before second Unlock, want 1", path, before[path])
 		}
 	}
-	again, err := kc.Unlock(context.Background(), testCalendarID)
+	again, err := kc.Unlock(context.Background(), Info{ID: testCalendarID})
 	if err != nil {
 		t.Fatalf("second Unlock: %v", err)
 	}
@@ -223,6 +223,29 @@ func TestKeychainUnlock(t *testing.T) {
 		if got := mux.hitCount(path); got != n {
 			t.Errorf("endpoint %s hit %d times after cached Unlock, want %d", path, got, n)
 		}
+	}
+}
+
+func TestKeychainUnlockWithResolvedIdentity(t *testing.T) {
+	f := newCalFixtures(t)
+	mux := newCountingMux()
+	f.serveMembers(mux)
+	f.servePassphrase(mux)
+	f.serveKeys(mux)
+	client := newTestClient(t, mux)
+
+	// A List-resolved Info already carries our member identity: Unlock
+	// must use it directly and never hit GET /members.
+	info := Info{ID: testCalendarID, MemberID: testMemberID, AddressID: testAddressID}
+	access, err := NewKeychain(client, f.unlockedAccounts).Unlock(context.Background(), info)
+	if err != nil {
+		t.Fatalf("Unlock: %v", err)
+	}
+	if access.MemberID != testMemberID || access.AddressID != testAddressID {
+		t.Errorf("identity = (%q, %q), want (%q, %q)", access.MemberID, access.AddressID, testMemberID, testAddressID)
+	}
+	if got := mux.hitCount("/calendar/v1/" + testCalendarID + "/members"); got != 0 {
+		t.Errorf("GET /members hit %d times, want 0 (identity was provided)", got)
 	}
 }
 
@@ -247,7 +270,7 @@ func TestKeychainUnlockMemberFallback(t *testing.T) {
 	f.serveKeys(mux)
 	client := newTestClient(t, mux)
 
-	access, err := NewKeychain(client, f.unlockedAccounts).Unlock(context.Background(), testCalendarID)
+	access, err := NewKeychain(client, f.unlockedAccounts).Unlock(context.Background(), Info{ID: testCalendarID})
 	if err != nil {
 		t.Fatalf("Unlock: %v", err)
 	}
@@ -279,7 +302,7 @@ func TestKeychainUnlockNoDecryptableKey(t *testing.T) {
 	f.serveKeys(mux)
 	client := newTestClient(t, mux)
 
-	_, err := NewKeychain(client, f.unlockedAccounts).Unlock(context.Background(), testCalendarID)
+	_, err := NewKeychain(client, f.unlockedAccounts).Unlock(context.Background(), Info{ID: testCalendarID})
 	if err == nil {
 		t.Fatal("Unlock: expected error when no address key can decrypt the passphrase")
 	}
@@ -305,7 +328,7 @@ func TestKeychainUnlockNoKeyUnlocks(t *testing.T) {
 	})
 	client := newTestClient(t, mux)
 
-	_, err := NewKeychain(client, f.unlockedAccounts).Unlock(context.Background(), testCalendarID)
+	_, err := NewKeychain(client, f.unlockedAccounts).Unlock(context.Background(), Info{ID: testCalendarID})
 	if err == nil {
 		t.Fatal("Unlock: expected error when no calendar key unlocks")
 	}
@@ -327,7 +350,7 @@ func TestKeychainUnlockNoMemberPassphrase(t *testing.T) {
 	f.serveKeys(mux)
 	client := newTestClient(t, mux)
 
-	_, err := NewKeychain(client, f.unlockedAccounts).Unlock(context.Background(), testCalendarID)
+	_, err := NewKeychain(client, f.unlockedAccounts).Unlock(context.Background(), Info{ID: testCalendarID})
 	if err == nil {
 		t.Fatal("Unlock: expected error when no member passphrases exist")
 	}

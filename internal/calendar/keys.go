@@ -74,19 +74,31 @@ type keysResponse struct {
 // Unlock returns the calendar's unlocked private keyring plus the member
 // context needed for signing/writing, caching per calendar ID.
 //
-// The unlock chain is:
+// The member identity normally comes straight from the List entry (the
+// list endpoint returns our member); a GET /members round-trip happens
+// only as a fallback when the entry carried none. The unlock chain is:
 // member resolution → passphrase decrypt → calendar key unlock.
-func (k *Keychain) Unlock(ctx context.Context, calendarID string) (*Access, error) {
-	k.mu.Lock()
-	defer k.mu.Unlock()
+//
+// The unlock work runs outside the cache lock so concurrent unlocks of
+// different calendars do not serialize; concurrent unlocks of the SAME
+// calendar may both do the work (idempotent; last write wins).
+func (k *Keychain) Unlock(ctx context.Context, info Info) (*Access, error) {
+	calendarID := info.ID
 
-	if access, ok := k.cache[calendarID]; ok {
+	k.mu.Lock()
+	access, ok := k.cache[calendarID]
+	k.mu.Unlock()
+	if ok {
 		return access, nil
 	}
 
-	memberID, addressID, err := k.resolveMember(ctx, calendarID)
-	if err != nil {
-		return nil, err
+	memberID, addressID := info.MemberID, info.AddressID
+	if memberID == "" {
+		var err error
+		memberID, addressID, err = k.resolveMember(ctx, calendarID)
+		if err != nil {
+			return nil, err
+		}
 	}
 
 	passphrase, err := k.decryptPassphrase(ctx, calendarID, memberID)
@@ -104,14 +116,16 @@ func (k *Keychain) Unlock(ctx context.Context, calendarID string) (*Access, erro
 		return nil, fmt.Errorf("selecting signing key for calendar %s: %w", calendarID, err)
 	}
 
-	access := &Access{
+	access = &Access{
 		CalendarID: calendarID,
 		KR:         calKR,
 		MemberID:   memberID,
 		AddressID:  addressID,
 		AddrKR:     addrKR,
 	}
+	k.mu.Lock()
 	k.cache[calendarID] = access
+	k.mu.Unlock()
 	return access, nil
 }
 

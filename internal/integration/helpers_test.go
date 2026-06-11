@@ -173,7 +173,7 @@ func initSuite() {
 // accessFor unlocks one calendar's keys (cached by the keychain).
 func (s *suite) accessFor(t *testing.T, info calendar.Info) *calendar.Access {
 	t.Helper()
-	access, err := s.keychain.Unlock(context.Background(), info.ID)
+	access, err := s.keychain.Unlock(context.Background(), info)
 	if err != nil {
 		t.Fatalf("unlocking calendar %q (%s): %v", info.Name, info.ID, err)
 	}

@@ -62,7 +62,7 @@ func (a *app) resolveAccess(ctx context.Context, calSelector string) (calendar.I
 	if calSelector == "" {
 		fmt.Fprintf(os.Stderr, "Using calendar: %s\n", info.Name)
 	}
-	access, err := calendar.NewKeychain(a.client, unlocked).Unlock(ctx, info.ID)
+	access, err := calendar.NewKeychain(a.client, unlocked).Unlock(ctx, info)
 	if err != nil {
 		return calendar.Info{}, nil, fmt.Errorf("unlocking calendar keys: %w", err)
 	}
