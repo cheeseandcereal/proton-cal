@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/cheeseandcereal/proton-cal-go/internal/event"
+	"github.com/cheeseandcereal/proton-cal/internal/event"
 )
 
 // eventJSON is the machine-readable shape of one listed occurrence.

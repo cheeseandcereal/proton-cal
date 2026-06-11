@@ -6,11 +6,11 @@ import (
 
 	"github.com/ProtonMail/gopenpgp/v2/crypto"
 
-	"github.com/cheeseandcereal/proton-cal-go/internal/caltypes"
-	"github.com/cheeseandcereal/proton-cal-go/internal/ical"
-	"github.com/cheeseandcereal/proton-cal-go/internal/papi"
-	"github.com/cheeseandcereal/proton-cal-go/internal/pgp"
-	"github.com/cheeseandcereal/proton-cal-go/internal/recurrence"
+	"github.com/cheeseandcereal/proton-cal/internal/caltypes"
+	"github.com/cheeseandcereal/proton-cal/internal/ical"
+	"github.com/cheeseandcereal/proton-cal/internal/papi"
+	"github.com/cheeseandcereal/proton-cal/internal/pgp"
+	"github.com/cheeseandcereal/proton-cal/internal/recurrence"
 )
 
 // decryptImpl decrypts a raw event row's cards into an Event.

@@ -8,8 +8,8 @@ import (
 	proton "github.com/ProtonMail/go-proton-api"
 	"github.com/ProtonMail/gopenpgp/v2/crypto"
 
-	"github.com/cheeseandcereal/proton-cal-go/internal/config"
-	"github.com/cheeseandcereal/proton-cal-go/internal/papi"
+	"github.com/cheeseandcereal/proton-cal/internal/config"
+	"github.com/cheeseandcereal/proton-cal/internal/papi"
 )
 
 // Unlocked holds unlocked key material for a session.

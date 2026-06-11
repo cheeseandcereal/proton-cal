@@ -13,8 +13,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/cheeseandcereal/proton-cal-go/internal/caltypes"
-	"github.com/cheeseandcereal/proton-cal-go/internal/papi"
+	"github.com/cheeseandcereal/proton-cal/internal/caltypes"
+	"github.com/cheeseandcereal/proton-cal/internal/papi"
 )
 
 // Info is a calendar with its display metadata resolved (from the per-user

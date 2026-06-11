@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cheeseandcereal/proton-cal-go/internal/caltypes"
+	"github.com/cheeseandcereal/proton-cal/internal/caltypes"
 )
 
 const (

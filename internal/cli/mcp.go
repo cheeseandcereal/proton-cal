@@ -3,7 +3,7 @@ package cli
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/cheeseandcereal/proton-cal-go/internal/mcpserver"
+	"github.com/cheeseandcereal/proton-cal/internal/mcpserver"
 )
 
 // newMCPCmd registers the MCP server command, wired to internal/mcpserver.

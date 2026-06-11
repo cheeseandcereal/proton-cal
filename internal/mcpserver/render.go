@@ -5,8 +5,8 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cheeseandcereal/proton-cal-go/internal/calendar"
-	"github.com/cheeseandcereal/proton-cal-go/internal/event"
+	"github.com/cheeseandcereal/proton-cal/internal/calendar"
+	"github.com/cheeseandcereal/proton-cal/internal/event"
 )
 
 // calTypeString maps a calendar type to its display name.

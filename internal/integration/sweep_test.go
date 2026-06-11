@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cheeseandcereal/proton-cal-go/internal/event"
+	"github.com/cheeseandcereal/proton-cal/internal/event"
 )
 
 // TestZSweep runs last (test files compile alphabetically and tests run in

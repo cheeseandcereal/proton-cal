@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/cheeseandcereal/proton-cal-go/internal/recurrence"
+	"github.com/cheeseandcereal/proton-cal/internal/recurrence"
 )
 
 // TimeFormatHint describes the accepted input formats in user messages.

@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cheeseandcereal/proton-cal-go/internal/config"
-	"github.com/cheeseandcereal/proton-cal-go/internal/front"
+	"github.com/cheeseandcereal/proton-cal/internal/config"
+	"github.com/cheeseandcereal/proton-cal/internal/front"
 )
 
 // stubServer returns a server whose bootstrap yields a session with the

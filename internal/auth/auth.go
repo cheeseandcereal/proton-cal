@@ -32,8 +32,8 @@ import (
 	proton "github.com/ProtonMail/go-proton-api"
 	srp "github.com/ProtonMail/go-srp"
 
-	"github.com/cheeseandcereal/proton-cal-go/internal/config"
-	"github.com/cheeseandcereal/proton-cal-go/internal/papi"
+	"github.com/cheeseandcereal/proton-cal/internal/config"
+	"github.com/cheeseandcereal/proton-cal/internal/papi"
 )
 
 // codeInsufficientScope is the Proton error code returned when the access

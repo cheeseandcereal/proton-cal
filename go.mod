@@ -1,4 +1,4 @@
-module github.com/cheeseandcereal/proton-cal-go
+module github.com/cheeseandcereal/proton-cal
 
 go 1.26.4
 

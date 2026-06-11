@@ -21,10 +21,10 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/cheeseandcereal/proton-cal-go/internal/auth"
-	"github.com/cheeseandcereal/proton-cal-go/internal/calendar"
-	"github.com/cheeseandcereal/proton-cal-go/internal/config"
-	"github.com/cheeseandcereal/proton-cal-go/internal/papi"
+	"github.com/cheeseandcereal/proton-cal/internal/auth"
+	"github.com/cheeseandcereal/proton-cal/internal/calendar"
+	"github.com/cheeseandcereal/proton-cal/internal/config"
+	"github.com/cheeseandcereal/proton-cal/internal/papi"
 )
 
 // session bundles the lazily initialised authenticated state shared by all

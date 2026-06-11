@@ -38,7 +38,7 @@ make integration
 
 - The suite **creates, updates and deletes real events** on the configured
   calendars, scheduled ~30 days in the future.
-- Every event it creates carries a `proton-cal-go-test <hex>` summary tag;
+- Every event it creates carries a `proton-cal-test <hex>` summary tag;
   the suite only ever deletes events carrying that tag. Each test cleans up
   after itself, and a final sweep (`TestZSweep`) scans the now+25d..now+40d
   window for leftovers from crashed runs.

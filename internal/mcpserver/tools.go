@@ -9,8 +9,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/cheeseandcereal/proton-cal-go/internal/event"
-	"github.com/cheeseandcereal/proton-cal-go/internal/front"
+	"github.com/cheeseandcereal/proton-cal/internal/event"
+	"github.com/cheeseandcereal/proton-cal/internal/front"
 )
 
 // textResult wraps a string as a successful text tool result.

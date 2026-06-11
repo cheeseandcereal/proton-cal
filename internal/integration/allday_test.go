@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cheeseandcereal/proton-cal-go/internal/event"
+	"github.com/cheeseandcereal/proton-cal/internal/event"
 )
 
 // TestAllDayLifecycle exercises the all-day event lifecycle: create a

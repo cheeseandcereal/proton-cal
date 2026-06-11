@@ -5,7 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/cheeseandcereal/proton-cal-go/internal/auth"
+	"github.com/cheeseandcereal/proton-cal/internal/auth"
 )
 
 func newLoginCmd() *cobra.Command {

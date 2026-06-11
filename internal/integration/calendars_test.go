@@ -5,7 +5,7 @@ package integration
 import (
 	"testing"
 
-	"github.com/cheeseandcereal/proton-cal-go/internal/calendar"
+	"github.com/cheeseandcereal/proton-cal/internal/calendar"
 )
 
 // TestCalendars asserts calendar listing and that every configured selector

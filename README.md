@@ -34,8 +34,8 @@ Requires Go 1.26+. Because `go-proton-api` needs a `replace` directive for
 Proton's resty fork, `go install` does not work - build from a clone:
 
 ```bash
-git clone https://github.com/cheeseandcereal/proton-cal-go.git
-cd proton-cal-go
+git clone https://github.com/cheeseandcereal/proton-cal.git
+cd proton-cal
 make build        # produces ./proton-cal
 ```
 

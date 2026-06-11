@@ -8,8 +8,8 @@ import (
 	"sort"
 	"strconv"
 
-	"github.com/cheeseandcereal/proton-cal-go/internal/caltypes"
-	"github.com/cheeseandcereal/proton-cal-go/internal/papi"
+	"github.com/cheeseandcereal/proton-cal/internal/caltypes"
+	"github.com/cheeseandcereal/proton-cal/internal/papi"
 )
 
 const pageSize = 100

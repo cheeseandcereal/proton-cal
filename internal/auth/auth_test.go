@@ -9,8 +9,8 @@ import (
 
 	"github.com/ProtonMail/go-proton-api/server"
 
-	"github.com/cheeseandcereal/proton-cal-go/internal/config"
-	"github.com/cheeseandcereal/proton-cal-go/internal/papi"
+	"github.com/cheeseandcereal/proton-cal/internal/config"
+	"github.com/cheeseandcereal/proton-cal/internal/papi"
 )
 
 // The in-memory go-proton-api test server implements neither the "locked"

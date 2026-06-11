@@ -9,7 +9,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/cheeseandcereal/proton-cal-go/internal/config"
+	"github.com/cheeseandcereal/proton-cal/internal/config"
 )
 
 // connectTestClient wires the given server to an MCP client over the

@@ -8,10 +8,10 @@ import (
 	"io"
 	"os"
 
-	"github.com/cheeseandcereal/proton-cal-go/internal/auth"
-	"github.com/cheeseandcereal/proton-cal-go/internal/calendar"
-	"github.com/cheeseandcereal/proton-cal-go/internal/config"
-	"github.com/cheeseandcereal/proton-cal-go/internal/papi"
+	"github.com/cheeseandcereal/proton-cal/internal/auth"
+	"github.com/cheeseandcereal/proton-cal/internal/calendar"
+	"github.com/cheeseandcereal/proton-cal/internal/config"
+	"github.com/cheeseandcereal/proton-cal/internal/papi"
 )
 
 // app bundles the dependencies shared by authenticated commands: the loaded

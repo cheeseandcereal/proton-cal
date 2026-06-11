@@ -9,8 +9,8 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/cheeseandcereal/proton-cal-go/internal/config"
-	"github.com/cheeseandcereal/proton-cal-go/internal/papi"
+	"github.com/cheeseandcereal/proton-cal/internal/config"
+	"github.com/cheeseandcereal/proton-cal/internal/papi"
 )
 
 // newTestClient builds a papi.Client backed by an httptest server running

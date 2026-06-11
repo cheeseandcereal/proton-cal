@@ -6,11 +6,11 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/cheeseandcereal/proton-cal-go/internal/calendar"
-	"github.com/cheeseandcereal/proton-cal-go/internal/caltypes"
-	"github.com/cheeseandcereal/proton-cal-go/internal/ical"
-	"github.com/cheeseandcereal/proton-cal-go/internal/papi"
-	"github.com/cheeseandcereal/proton-cal-go/internal/pgp"
+	"github.com/cheeseandcereal/proton-cal/internal/calendar"
+	"github.com/cheeseandcereal/proton-cal/internal/caltypes"
+	"github.com/cheeseandcereal/proton-cal/internal/ical"
+	"github.com/cheeseandcereal/proton-cal/internal/papi"
+	"github.com/cheeseandcereal/proton-cal/internal/pgp"
 )
 
 var jsonNull = json.RawMessage("null")

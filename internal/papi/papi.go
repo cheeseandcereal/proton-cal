@@ -25,7 +25,7 @@ import (
 
 	proton "github.com/ProtonMail/go-proton-api"
 
-	"github.com/cheeseandcereal/proton-cal-go/internal/config"
+	"github.com/cheeseandcereal/proton-cal/internal/config"
 )
 
 const (
@@ -33,7 +33,7 @@ const (
 	// API; see RESEARCH.md).
 	AppVersion = "Other"
 	// UserAgent is sent on raw requests.
-	UserAgent = "proton-cal-go/0.1"
+	UserAgent = "proton-cal/0.1"
 
 	maxRateLimitRetries = 3
 	maxRetryAfter       = 60 * time.Second

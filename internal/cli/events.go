@@ -8,8 +8,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/cheeseandcereal/proton-cal-go/internal/event"
-	"github.com/cheeseandcereal/proton-cal-go/internal/front"
+	"github.com/cheeseandcereal/proton-cal/internal/event"
+	"github.com/cheeseandcereal/proton-cal/internal/front"
 )
 
 func newEventsCmd() *cobra.Command {

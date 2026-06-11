@@ -8,9 +8,9 @@ import (
 
 	"github.com/ProtonMail/gopenpgp/v2/crypto"
 
-	"github.com/cheeseandcereal/proton-cal-go/internal/auth"
-	"github.com/cheeseandcereal/proton-cal-go/internal/caltypes"
-	"github.com/cheeseandcereal/proton-cal-go/internal/papi"
+	"github.com/cheeseandcereal/proton-cal/internal/auth"
+	"github.com/cheeseandcereal/proton-cal/internal/caltypes"
+	"github.com/cheeseandcereal/proton-cal/internal/papi"
 )
 
 // Access is everything event code needs for one calendar.

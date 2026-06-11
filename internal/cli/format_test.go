@@ -6,9 +6,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cheeseandcereal/proton-cal-go/internal/caltypes"
-	"github.com/cheeseandcereal/proton-cal-go/internal/event"
-	"github.com/cheeseandcereal/proton-cal-go/internal/recurrence"
+	"github.com/cheeseandcereal/proton-cal/internal/caltypes"
+	"github.com/cheeseandcereal/proton-cal/internal/event"
+	"github.com/cheeseandcereal/proton-cal/internal/recurrence"
 )
 
 // ts returns the unix timestamp of a UTC wall time.

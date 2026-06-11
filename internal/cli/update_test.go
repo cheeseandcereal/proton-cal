@@ -3,7 +3,7 @@ package cli
 import (
 	"testing"
 
-	"github.com/cheeseandcereal/proton-cal-go/internal/front"
+	"github.com/cheeseandcereal/proton-cal/internal/front"
 )
 
 func TestValidateUpdateFlags(t *testing.T) {

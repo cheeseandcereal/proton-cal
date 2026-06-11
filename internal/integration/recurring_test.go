@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cheeseandcereal/proton-cal-go/internal/event"
-	"github.com/cheeseandcereal/proton-cal-go/internal/recurrence"
+	"github.com/cheeseandcereal/proton-cal/internal/event"
+	"github.com/cheeseandcereal/proton-cal/internal/recurrence"
 )
 
 // TestRecurringLifecycle exercises the recurrence orchestration against the

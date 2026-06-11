@@ -6,7 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/cheeseandcereal/proton-cal-go/internal/calendar"
+	"github.com/cheeseandcereal/proton-cal/internal/calendar"
 )
 
 // calendarJSON is the machine-readable shape of one calendar.

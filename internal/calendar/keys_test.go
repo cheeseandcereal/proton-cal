@@ -8,7 +8,7 @@ import (
 	proton "github.com/ProtonMail/go-proton-api"
 	"github.com/ProtonMail/gopenpgp/v2/crypto"
 
-	"github.com/cheeseandcereal/proton-cal-go/internal/auth"
+	"github.com/cheeseandcereal/proton-cal/internal/auth"
 )
 
 const (

@@ -16,18 +16,18 @@ import (
 
 	"github.com/BurntSushi/toml"
 
-	"github.com/cheeseandcereal/proton-cal-go/internal/auth"
-	"github.com/cheeseandcereal/proton-cal-go/internal/calendar"
-	"github.com/cheeseandcereal/proton-cal-go/internal/config"
-	"github.com/cheeseandcereal/proton-cal-go/internal/event"
-	"github.com/cheeseandcereal/proton-cal-go/internal/papi"
+	"github.com/cheeseandcereal/proton-cal/internal/auth"
+	"github.com/cheeseandcereal/proton-cal/internal/calendar"
+	"github.com/cheeseandcereal/proton-cal/internal/config"
+	"github.com/cheeseandcereal/proton-cal/internal/event"
+	"github.com/cheeseandcereal/proton-cal/internal/papi"
 )
 
 const (
 	// summaryPrefix tags every event the suite creates. The sweep test
 	// (TestZSweep) deletes any leftover event whose decrypted summary
 	// contains it; nothing without the tag is ever touched.
-	summaryPrefix = "proton-cal-go-test"
+	summaryPrefix = "proton-cal-test"
 
 	// eventOffsetDays is how far in the future test events live.
 	eventOffsetDays = 30
@@ -190,7 +190,7 @@ func newAccess(t *testing.T) (*papi.Client, *calendar.Access) {
 }
 
 // uniqueSummary builds a tagged, per-call-unique event summary, e.g.
-// "proton-cal-go-test 1a2b3c4d lifecycle".
+// "proton-cal-test 1a2b3c4d lifecycle".
 func uniqueSummary(label string) string {
 	return fmt.Sprintf("%s %s %s", summaryPrefix, randomHex(4), label)
 }

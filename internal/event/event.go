@@ -16,10 +16,10 @@ import (
 
 	"github.com/ProtonMail/gopenpgp/v2/crypto"
 
-	"github.com/cheeseandcereal/proton-cal-go/internal/calendar"
-	"github.com/cheeseandcereal/proton-cal-go/internal/caltypes"
-	"github.com/cheeseandcereal/proton-cal-go/internal/papi"
-	"github.com/cheeseandcereal/proton-cal-go/internal/recurrence"
+	"github.com/cheeseandcereal/proton-cal/internal/calendar"
+	"github.com/cheeseandcereal/proton-cal/internal/caltypes"
+	"github.com/cheeseandcereal/proton-cal/internal/papi"
+	"github.com/cheeseandcereal/proton-cal/internal/recurrence"
 )
 
 // Now returns the current time; a package variable so tests can pin it

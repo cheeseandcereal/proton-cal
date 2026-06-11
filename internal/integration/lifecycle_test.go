@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/cheeseandcereal/proton-cal-go/internal/event"
+	"github.com/cheeseandcereal/proton-cal/internal/event"
 )
 
 // TestEventLifecycle exercises the full timed-event lifecycle against the
@@ -23,7 +23,7 @@ func TestEventLifecycle(t *testing.T) {
 	// Comma, semicolon and newline prove the RFC 5545 TEXT escaping
 	// round-trips through the real server, not just our own parser.
 	summary := uniqueSummary("lifecycle") + " with, comma; semicolon\nand newline"
-	description := "Created by the proton-cal-go integration suite."
+	description := "Created by the proton-cal integration suite."
 	location := "Integration Test Lab"
 
 	// 1. Create.

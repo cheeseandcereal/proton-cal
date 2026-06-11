@@ -3,7 +3,7 @@ package cli
 import (
 	"testing"
 
-	"github.com/cheeseandcereal/proton-cal-go/internal/calendar"
+	"github.com/cheeseandcereal/proton-cal/internal/calendar"
 )
 
 func TestCalTypeString(t *testing.T) {

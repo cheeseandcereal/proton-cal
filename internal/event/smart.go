@@ -7,10 +7,10 @@ import (
 	"sort"
 	"time"
 
-	"github.com/cheeseandcereal/proton-cal-go/internal/calendar"
-	"github.com/cheeseandcereal/proton-cal-go/internal/caltypes"
-	"github.com/cheeseandcereal/proton-cal-go/internal/papi"
-	"github.com/cheeseandcereal/proton-cal-go/internal/recurrence"
+	"github.com/cheeseandcereal/proton-cal/internal/calendar"
+	"github.com/cheeseandcereal/proton-cal/internal/caltypes"
+	"github.com/cheeseandcereal/proton-cal/internal/papi"
+	"github.com/cheeseandcereal/proton-cal/internal/recurrence"
 )
 
 func resolveSeriesImpl(ctx context.Context, client *papi.Client, calendarID, eventID string) (*caltypes.RawEvent, []*caltypes.RawEvent, error) {

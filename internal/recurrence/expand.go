@@ -5,7 +5,7 @@ import (
 	"sort"
 	"time"
 
-	"github.com/cheeseandcereal/proton-cal-go/internal/caltypes"
+	"github.com/cheeseandcereal/proton-cal/internal/caltypes"
 	"github.com/teambition/rrule-go"
 )
 
