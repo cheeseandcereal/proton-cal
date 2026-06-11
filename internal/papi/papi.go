@@ -44,8 +44,17 @@ func NewManager(baseURL string) *proton.Manager {
 	return proton.New(
 		proton.WithHostURL(baseURL),
 		proton.WithAppVersion(AppVersion),
+		proton.WithLogger(quietLogger{}),
 	)
 }
+
+// quietLogger silences resty's internal retry/error logging (errors still
+// surface as returned errors; the retry warnings only confuse users).
+type quietLogger struct{}
+
+func (quietLogger) Errorf(string, ...any) {}
+func (quietLogger) Warnf(string, ...any)  {}
+func (quietLogger) Debugf(string, ...any) {}
 
 // Client couples a go-proton-api client with the session store and a raw
 // HTTP path for endpoints go-proton-api lacks.
