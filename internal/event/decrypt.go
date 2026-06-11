@@ -17,7 +17,8 @@ import (
 // Decrypt decrypts a raw event row's cards into an Event. Lenient:
 // signature verification is skipped and any part that fails to decrypt or
 // parse is skipped; the event is still returned with whatever could be
-// extracted. It errors only on a nil raw event.
+// extracted (failures set Event.DecryptFailed). It errors only on a nil
+// raw event.
 func Decrypt(raw *caltypes.RawEvent, calKR *crypto.KeyRing) (*Event, error) {
 	if raw == nil {
 		return nil, errors.New("event: nil raw event")
@@ -67,11 +68,16 @@ func mergeParts(ev *Event, parts []caltypes.EventPart, keyPacketB64 string, calK
 			}
 		case part.IsEncrypted():
 			if calKR == nil {
+				ev.DecryptFailed = true
 				continue
 			}
 			plain, err := pgp.DecryptPart(part.Data, keyPacketB64, calKR)
 			if err != nil {
-				continue // lenient: one bad card never kills the event
+				// Lenient: one bad card never kills the event, but the
+				// degradation is recorded - write paths must not merge
+				// from a half-decrypted event.
+				ev.DecryptFailed = true
+				continue
 			}
 			data = plain
 		default:
@@ -82,6 +88,7 @@ func mergeParts(ev *Event, parts []caltypes.EventPart, keyPacketB64 string, calK
 		}
 		parsed, err := ical.ParseFragment(data)
 		if err != nil {
+			ev.DecryptFailed = true
 			continue
 		}
 		if shared && signed && parsed.Sequence != nil {

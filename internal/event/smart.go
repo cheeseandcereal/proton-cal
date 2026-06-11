@@ -203,6 +203,9 @@ func updateOccurrence(ctx context.Context, client papi.API, access *calendar.Acc
 	if err != nil {
 		return nil, err
 	}
+	if cur.DecryptFailed {
+		return nil, fmt.Errorf("editing occurrence of event %s: %w", master.ID, ErrDecryptDegraded)
+	}
 	created, err := Create(ctx, client, access, seedExceptionRow(cur, opts, occurrenceTS))
 	if err != nil {
 		return nil, err

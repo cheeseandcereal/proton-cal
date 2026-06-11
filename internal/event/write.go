@@ -216,6 +216,9 @@ func update(ctx context.Context, client papi.API, access *calendar.Access, event
 	if err != nil {
 		return nil, err
 	}
+	if current.DecryptFailed {
+		return nil, fmt.Errorf("updating event %s: %w", eventID, ErrDecryptDegraded)
+	}
 
 	frags, err := ical.BuildFragments(mergeUpdate(current, opts, Now().UTC()))
 	if err != nil {

@@ -11,6 +11,7 @@ package event
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"errors"
 	"time"
 
 	"github.com/cheeseandcereal/proton-cal/internal/caltypes"
@@ -30,6 +31,13 @@ var NewUID = func() string {
 	}
 	return hex.EncodeToString(b[:])
 }
+
+// ErrDecryptDegraded marks operations refused because the event's cards
+// could not all be decrypted/parsed (wrong or stale calendar keys, or
+// corrupt data). Callers holding cached key material should refresh it and
+// retry; merging an update from a half-decrypted event would silently blank
+// the unreadable fields.
+var ErrDecryptDegraded = errors.New("event could not be fully decrypted")
 
 // Event is a decrypted calendar event. Times are absolute instants;
 // rendering (including any unix-timestamp encoding) is a frontend concern.
@@ -59,6 +67,11 @@ type Event struct {
 	// diagnostics; SEQUENCE is parsed into Sequence).
 	RawSharedSigned string
 	Sequence        int
+
+	// DecryptFailed reports that at least one card failed to decrypt or
+	// parse (the rest of the event is still populated). Read paths render
+	// what they can; write paths refuse to merge from such an event.
+	DecryptFailed bool
 }
 
 // IsRecurring reports whether the event is a recurring series master.

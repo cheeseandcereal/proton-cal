@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -304,6 +305,28 @@ func TestDecryptLenientOnBadCard(t *testing.T) {
 	}
 	if ev.Status != "CONFIRMED" {
 		t.Errorf("calendar-signed part should still parse, status = %q", ev.Status)
+	}
+	if !ev.DecryptFailed {
+		t.Error("DecryptFailed should be set when a card fails to decrypt")
+	}
+}
+
+func TestUpdateRefusesDegradedMaster(t *testing.T) {
+	raw := fabricateRaw(t, "ev1", "uid1", 1000, 2000, "UTC", "", 0, nil, "Good", 0)
+	raw.SharedEvents[1].Data = base64.StdEncoding.EncodeToString([]byte("garbage"))
+
+	rec := newSyncRecorder()
+	serveExisting(rec, raw)
+	client := newTestClient(t, rec)
+	access := testAccess(t)
+
+	summary := "New title"
+	_, err := update(context.Background(), client, access, "ev1", UpdateOptions{Summary: &summary})
+	if !errors.Is(err, ErrDecryptDegraded) {
+		t.Fatalf("update of half-decrypted event must refuse with ErrDecryptDegraded, got %v", err)
+	}
+	if n := len(rec.bodies()); n != 0 {
+		t.Fatalf("no sync write may happen on a degraded master, got %d", n)
 	}
 }
 
