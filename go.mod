@@ -6,7 +6,8 @@ require (
 	github.com/BurntSushi/toml v1.6.0
 	github.com/ProtonMail/go-proton-api v0.4.1-0.20260608154204-c913195ec724
 	github.com/spf13/cobra v1.10.2
-	golang.org/x/sys v0.45.0
+	github.com/teambition/rrule-go v1.8.2
+	golang.org/x/sys v0.46.0
 )
 
 require (
