@@ -206,4 +206,4 @@ stored session it skips.
 
 ## License
 
-Public domain under [the Unlicense](LICENSE).
+Public domain under [the Unlicense](UNLICENSE).
