@@ -16,8 +16,8 @@ import (
 
 	"github.com/ProtonMail/gopenpgp/v2/crypto"
 
-	"github.com/cheeseandcereal/proton-cal-go/internal/caltypes"
 	"github.com/cheeseandcereal/proton-cal-go/internal/calendar"
+	"github.com/cheeseandcereal/proton-cal-go/internal/caltypes"
 	"github.com/cheeseandcereal/proton-cal-go/internal/papi"
 	"github.com/cheeseandcereal/proton-cal-go/internal/recurrence"
 )
@@ -71,7 +71,7 @@ func (e *Event) IsRecurring() bool { return e.RRule != "" }
 // fields rather than failing the whole event (a hard error is returned only
 // when nothing useful could be extracted... see implementation).
 func Decrypt(raw *caltypes.RawEvent, calKR *crypto.KeyRing) (*Event, error) {
-	panic("not implemented")
+	return decryptImpl(raw, calKR)
 }
 
 // Query fetches raw events for a calendar with full pagination and
@@ -79,18 +79,18 @@ func Decrypt(raw *caltypes.RawEvent, calKR *crypto.KeyRing) (*Event, error) {
 // Recurring masters always survive the filter (they are expanded later).
 // Sorted by StartTime.
 func Query(ctx context.Context, client *papi.Client, calendarID string, start, end int64, tzName string) ([]*caltypes.RawEvent, error) {
-	panic("not implemented")
+	return queryImpl(ctx, client, calendarID, start, end, tzName)
 }
 
 // Get fetches a single raw event.
 func Get(ctx context.Context, client *papi.Client, calendarID, eventID string) (*caltypes.RawEvent, error) {
-	panic("not implemented")
+	return getImpl(ctx, client, calendarID, eventID)
 }
 
 // GetByUID fetches all raw rows sharing an iCal UID (master + exceptions);
 // the UID query param filters server-side (verified live).
 func GetByUID(ctx context.Context, client *papi.Client, calendarID, uid string) ([]*caltypes.RawEvent, error) {
-	panic("not implemented")
+	return getByUIDImpl(ctx, client, calendarID, uid)
 }
 
 // Listed is one expanded occurrence with its decrypted event (or the
@@ -104,7 +104,7 @@ type Listed struct {
 // ListWindow queries, expands and decrypts all occurrences overlapping
 // [start, end), deduplicating decryption per event row.
 func ListWindow(ctx context.Context, client *papi.Client, calKR *crypto.KeyRing, calendarID string, start, end int64, tzName string) ([]Listed, error) {
-	panic("not implemented")
+	return listWindowImpl(ctx, client, calKR, calendarID, start, end, tzName)
 }
 
 // CreateOptions describes a new event. For all-day events Start/End are
@@ -131,7 +131,7 @@ type CreateOptions struct {
 // Create encrypts and creates an event via the sync endpoint. Returns the
 // created raw event row echoed by the server.
 func Create(ctx context.Context, client *papi.Client, access *calendar.CalendarAccess, opts CreateOptions) (*caltypes.RawEvent, error) {
-	panic("not implemented")
+	return createImpl(ctx, client, access, opts)
 }
 
 // UpdateOptions describes a partial update; nil pointers mean "keep
@@ -159,25 +159,25 @@ func (o UpdateOptions) Significant() bool {
 // keys; no new key packets) and PUTs an event. Returns the updated raw
 // event when the server echoes it (may be nil on success).
 func Update(ctx context.Context, client *papi.Client, access *calendar.CalendarAccess, eventID string, opts UpdateOptions) (*caltypes.RawEvent, error) {
-	panic("not implemented")
+	return updateImpl(ctx, client, access, eventID, opts)
 }
 
 // Delete deletes raw event rows by ID in a single sync call.
 func Delete(ctx context.Context, client *papi.Client, calendarID string, eventIDs []string, memberID string) error {
-	panic("not implemented")
+	return deleteImpl(ctx, client, calendarID, eventIDs, memberID)
 }
 
 // ResolveSeries resolves a recurring series from any of its rows: returns
 // the master and all same-UID rows. Errors when the event is not recurring.
 func ResolveSeries(ctx context.Context, client *papi.Client, calendarID, eventID string) (master *caltypes.RawEvent, related []*caltypes.RawEvent, err error) {
-	panic("not implemented")
+	return resolveSeriesImpl(ctx, client, calendarID, eventID)
 }
 
 // DeleteSeriesExceptions deletes all exception rows of a series except
 // keepEventID (used when a series-level change invalidates single edits).
 // Returns the number of rows deleted.
 func DeleteSeriesExceptions(ctx context.Context, client *papi.Client, calendarID, uid, memberID, keepEventID string) (int, error) {
-	panic("not implemented")
+	return deleteSeriesExceptionsImpl(ctx, client, calendarID, uid, memberID, keepEventID)
 }
 
 // DeleteResult describes what SmartDelete actually deleted.
@@ -195,7 +195,7 @@ type DeleteResult struct {
 //     server orphans exceptions otherwise - verified live).
 //   - plain event: delete the row.
 func SmartDelete(ctx context.Context, client *papi.Client, access *calendar.CalendarAccess, eventID string, occurrenceTS int64) (*DeleteResult, error) {
-	panic("not implemented")
+	return smartDeleteImpl(ctx, client, access, eventID, occurrenceTS)
 }
 
 // UpdateOutcome describes what SmartUpdate did.
@@ -212,5 +212,5 @@ type UpdateOutcome struct {
 //   - otherwise: update the event/series; when a significant change hits a
 //     master, its now-invalid exception rows are deleted afterwards.
 func SmartUpdate(ctx context.Context, client *papi.Client, access *calendar.CalendarAccess, eventID string, opts UpdateOptions, occurrenceTS int64) (*UpdateOutcome, error) {
-	panic("not implemented")
+	return smartUpdateImpl(ctx, client, access, eventID, opts, occurrenceTS)
 }
