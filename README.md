@@ -203,3 +203,7 @@ stored session it skips.
   and paginates everything at 100/page - the CLI paginates and filters
   client-side.
 - **Reverse engineered**: Proton may change their internal API at any time.
+
+## License
+
+Public domain under [the Unlicense](LICENSE).
