@@ -137,7 +137,7 @@ func initSuite() {
 		setupErr = fmt.Errorf("restoring client from session: %w", err)
 		return
 	}
-	unlocked, err := auth.UnlockKeys(ctx, client)
+	unlocked, err := auth.UnlockKeys(ctx, client.Store(), client)
 	if err != nil {
 		setupErr = fmt.Errorf("unlocking keys (is the saved session still valid? re-run `proton-cal login`): %w", err)
 		return

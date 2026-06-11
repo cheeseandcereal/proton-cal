@@ -11,6 +11,7 @@ import (
 	"github.com/cheeseandcereal/proton-cal/internal/calendar"
 	"github.com/cheeseandcereal/proton-cal/internal/caltypes"
 	"github.com/cheeseandcereal/proton-cal/internal/papi"
+	"golang.org/x/sync/errgroup"
 )
 
 const pageSize = 100
@@ -107,13 +108,18 @@ type eventsResponse struct {
 	Total  int                  `json:"Total"`
 }
 
+// maxConcurrentPages bounds the parallel event-page fetches after page 0
+// reveals the total (all to one host over HTTP/2; modest to stay clear of
+// rate limits).
+const maxConcurrentPages = 6
+
 // query fetches raw events for a calendar with full pagination and
 // client-side window filtering (the server ignores Start/End params).
+// Page 0 reveals the total; the remaining pages are fetched concurrently.
 // Recurring masters always survive the filter (they are expanded later).
 // Sorted by StartTime.
 func query(ctx context.Context, client papi.API, calendarID string, start, end int64, tzName string) ([]*caltypes.RawEvent, error) {
-	var all []*caltypes.RawEvent
-	for page := 0; ; page++ {
+	fetch := func(ctx context.Context, page int) (eventsResponse, error) {
 		q := url.Values{}
 		q.Set("Start", strconv.FormatInt(start, 10))
 		q.Set("End", strconv.FormatInt(end, 10))
@@ -125,11 +131,36 @@ func query(ctx context.Context, client papi.API, calendarID string, start, end i
 
 		var resp eventsResponse
 		if err := client.Get(ctx, calendar.APIPath+"/"+calendarID+"/events", q, &resp); err != nil {
-			return nil, fmt.Errorf("calendar %s: listing events: %w", calendarID, err)
+			return resp, fmt.Errorf("calendar %s: listing events: %w", calendarID, err)
 		}
-		all = append(all, resp.Events...)
-		if len(resp.Events) == 0 || len(all) >= resp.Total {
-			break
+		return resp, nil
+	}
+
+	first, err := fetch(ctx, 0)
+	if err != nil {
+		return nil, err
+	}
+	all := first.Events
+
+	if pages := (first.Total + pageSize - 1) / pageSize; pages > 1 {
+		rest := make([][]*caltypes.RawEvent, pages-1)
+		g, gctx := errgroup.WithContext(ctx)
+		g.SetLimit(maxConcurrentPages)
+		for page := 1; page < pages; page++ {
+			g.Go(func() error {
+				resp, err := fetch(gctx, page)
+				if err != nil {
+					return err
+				}
+				rest[page-1] = resp.Events
+				return nil
+			})
+		}
+		if err := g.Wait(); err != nil {
+			return nil, err
+		}
+		for _, events := range rest {
+			all = append(all, events...)
 		}
 	}
 

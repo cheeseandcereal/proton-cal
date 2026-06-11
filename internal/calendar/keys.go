@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/ProtonMail/gopenpgp/v2/crypto"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/cheeseandcereal/proton-cal/internal/auth"
 	"github.com/cheeseandcereal/proton-cal/internal/papi"
@@ -76,8 +77,9 @@ type keysResponse struct {
 //
 // The member identity normally comes straight from the List entry (the
 // list endpoint returns our member); a GET /members round-trip happens
-// only as a fallback when the entry carried none. The unlock chain is:
-// member resolution → passphrase decrypt → calendar key unlock.
+// only as a fallback when the entry carried none. The 2-3 fetches are
+// independent and run concurrently; the unlock chain (member resolution →
+// passphrase decrypt → calendar key unlock) is then pure CPU.
 //
 // The unlock work runs outside the cache lock so concurrent unlocks of
 // different calendars do not serialize; concurrent unlocks of the SAME
@@ -93,20 +95,39 @@ func (k *Keychain) Unlock(ctx context.Context, info Info) (*Access, error) {
 	}
 
 	memberID, addressID := info.MemberID, info.AddressID
-	if memberID == "" {
-		var err error
-		memberID, addressID, err = k.resolveMember(ctx, calendarID)
-		if err != nil {
-			return nil, err
+
+	var passResp passphraseResponse
+	var keysResp keysResponse
+	g, gctx := errgroup.WithContext(ctx)
+	g.Go(func() error {
+		if err := k.client.Get(gctx, APIPath+"/"+calendarID+"/passphrase", nil, &passResp); err != nil {
+			return fmt.Errorf("fetching passphrase for calendar %s: %w", calendarID, err)
 		}
+		return nil
+	})
+	g.Go(func() error {
+		if err := k.client.Get(gctx, APIPath+"/"+calendarID+"/keys", nil, &keysResp); err != nil {
+			return fmt.Errorf("fetching keys for calendar %s: %w", calendarID, err)
+		}
+		return nil
+	})
+	if memberID == "" {
+		g.Go(func() error {
+			var err error
+			memberID, addressID, err = k.resolveMember(gctx, calendarID)
+			return err
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return nil, err
 	}
 
-	passphrase, err := k.decryptPassphrase(ctx, calendarID, memberID)
+	passphrase, err := k.decryptPassphrase(calendarID, memberID, passResp)
 	if err != nil {
 		return nil, err
 	}
 
-	calKR, err := k.unlockCalendarKeys(ctx, calendarID, passphrase)
+	calKR, err := unlockCalendarKeys(calendarID, keysResp, passphrase)
 	if err != nil {
 		return nil, err
 	}
@@ -157,17 +178,12 @@ func (k *Keychain) resolveMember(ctx context.Context, calendarID string) (member
 	return "", "", nil
 }
 
-// decryptPassphrase fetches the calendar passphrase and decrypts our
-// member's entry (falling back to the first entry) by trying every unlocked
-// address keyring - the passphrase may be encrypted to any of them. The
-// detached signature is intentionally not verified (lenient by design;
-// its absence or failure is non-fatal).
-func (k *Keychain) decryptPassphrase(ctx context.Context, calendarID, memberID string) ([]byte, error) {
-	var resp passphraseResponse
-	if err := k.client.Get(ctx, APIPath+"/"+calendarID+"/passphrase", nil, &resp); err != nil {
-		return nil, fmt.Errorf("fetching passphrase for calendar %s: %w", calendarID, err)
-	}
-
+// decryptPassphrase decrypts our member's passphrase entry (falling back
+// to the first entry) by trying every unlocked address keyring - the
+// passphrase may be encrypted to any of them. The detached signature is
+// intentionally not verified (lenient by design; its absence or failure is
+// non-fatal).
+func (k *Keychain) decryptPassphrase(calendarID, memberID string, resp passphraseResponse) ([]byte, error) {
 	entries := resp.Passphrase.MemberPassphrases
 	var mp *memberPassphrase
 	for i := range entries {
@@ -198,15 +214,10 @@ func (k *Keychain) decryptPassphrase(ctx context.Context, calendarID, memberID s
 	return nil, fmt.Errorf("no address key could decrypt the passphrase for calendar %s", calendarID)
 }
 
-// unlockCalendarKeys fetches the calendar's private keys and unlocks each
-// with the decrypted passphrase, collecting all that unlock into one
-// keyring. It errors when none unlock.
-func (k *Keychain) unlockCalendarKeys(ctx context.Context, calendarID string, passphrase []byte) (*crypto.KeyRing, error) {
-	var resp keysResponse
-	if err := k.client.Get(ctx, APIPath+"/"+calendarID+"/keys", nil, &resp); err != nil {
-		return nil, fmt.Errorf("fetching keys for calendar %s: %w", calendarID, err)
-	}
-
+// unlockCalendarKeys unlocks each calendar private key with the decrypted
+// passphrase, collecting all that unlock into one keyring. It errors when
+// none unlock.
+func unlockCalendarKeys(calendarID string, resp keysResponse, passphrase []byte) (*crypto.KeyRing, error) {
 	armored := make([]string, 0, len(resp.Keys))
 	for _, ck := range resp.Keys {
 		armored = append(armored, ck.PrivateKey)

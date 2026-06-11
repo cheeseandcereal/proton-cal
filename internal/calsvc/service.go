@@ -19,6 +19,7 @@ import (
 	"github.com/cheeseandcereal/proton-cal/internal/calendar"
 	"github.com/cheeseandcereal/proton-cal/internal/config"
 	"github.com/cheeseandcereal/proton-cal/internal/papi"
+	"golang.org/x/sync/errgroup"
 )
 
 // Service bundles the authenticated state shared by calendar operations.
@@ -32,8 +33,10 @@ type Service struct {
 	// was picked when no selector was given). Nil = silent.
 	Notify func(msg string)
 
-	mu       sync.Mutex
-	cals     []calendar.Info // cached calendar list (nil until first fetch)
+	calMu sync.Mutex
+	cals  []calendar.Info // cached calendar list (nil until first fetch)
+
+	kcMu     sync.Mutex
 	keychain *calendar.Keychain
 }
 
@@ -95,9 +98,9 @@ func (s *Service) Calendars(ctx context.Context) ([]calendar.Info, error) {
 	if err != nil {
 		return nil, err
 	}
-	s.mu.Lock()
+	s.calMu.Lock()
 	s.cals = cals
-	s.mu.Unlock()
+	s.calMu.Unlock()
 	return cals, nil
 }
 
@@ -106,9 +109,9 @@ func (s *Service) Calendars(ctx context.Context) ([]calendar.Info, error) {
 // calendar list, refreshing the cache once when a cached list does not
 // match (the calendar may have been created or renamed since).
 func (s *Service) resolveCalendar(ctx context.Context, selector string) (calendar.Info, error) {
-	s.mu.Lock()
+	s.calMu.Lock()
 	cals := s.cals
-	s.mu.Unlock()
+	s.calMu.Unlock()
 
 	cached := cals != nil
 	if !cached {
@@ -131,20 +134,31 @@ func (s *Service) resolveCalendar(ctx context.Context, selector string) (calenda
 }
 
 // access resolves the calendar selector and unlocks that calendar's keys,
-// unlocking the account keys on first use.
+// unlocking the account keys on first use. Calendar resolution and the
+// account-key unlock are independent (different endpoints) and run
+// concurrently; the calendar key unlock then needs both.
 func (s *Service) access(ctx context.Context, selector string) (calendar.Info, *calendar.Access, error) {
-	info, err := s.resolveCalendar(ctx, selector)
-	if err != nil {
+	var info calendar.Info
+	var kc *calendar.Keychain
+
+	g, gctx := errgroup.WithContext(ctx)
+	g.Go(func() error {
+		var err error
+		info, err = s.resolveCalendar(gctx, selector)
+		return err
+	})
+	g.Go(func() error {
+		var err error
+		kc, err = s.keychainLazy(gctx)
+		return err
+	})
+	if err := g.Wait(); err != nil {
 		return calendar.Info{}, nil, err
 	}
 	if selector == "" {
 		s.notify("Using calendar: " + info.Name)
 	}
 
-	kc, err := s.keychainLazy(ctx)
-	if err != nil {
-		return calendar.Info{}, nil, err
-	}
 	acc, err := kc.Unlock(ctx, info)
 	if err != nil {
 		return calendar.Info{}, nil, fmt.Errorf("unlocking calendar keys: %w", err)
@@ -155,12 +169,12 @@ func (s *Service) access(ctx context.Context, selector string) (calendar.Info, *
 // keychainLazy unlocks the account keys on first use and returns the
 // session keychain.
 func (s *Service) keychainLazy(ctx context.Context) (*calendar.Keychain, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.kcMu.Lock()
+	defer s.kcMu.Unlock()
 	if s.keychain != nil {
 		return s.keychain, nil
 	}
-	unlocked, err := auth.UnlockKeys(ctx, s.client)
+	unlocked, err := auth.UnlockKeys(ctx, s.client.Store(), s.client)
 	if err != nil {
 		return nil, fmt.Errorf("unlocking keys: %w", err)
 	}

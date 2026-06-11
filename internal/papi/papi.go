@@ -128,6 +128,7 @@ func FromSession(store *config.SessionStore, baseURL string) (*Client, error) {
 	pc := m.NewClient(sess.UID, sess.AccessToken, sess.RefreshToken)
 	c := New(pc, store, baseURL)
 	c.m = m
+	c.setSession(sess) // seed the token cache; saves a locked disk read
 	return c, nil
 }
 

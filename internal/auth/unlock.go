@@ -4,10 +4,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sort"
 
 	proton "github.com/ProtonMail/go-proton-api"
 	"github.com/ProtonMail/gopenpgp/v2/crypto"
+	"golang.org/x/sync/errgroup"
 
+	"github.com/cheeseandcereal/proton-cal/internal/config"
 	"github.com/cheeseandcereal/proton-cal/internal/papi"
 )
 
@@ -24,13 +27,20 @@ type Unlocked struct {
 	AddrKRs map[string]*crypto.KeyRing
 }
 
-// UnlockKeys restores key material using the salted key passphrase stored at
-// login: it fetches the user and addresses via the typed client and unlocks
-// the user/address keyrings with proton.Unlock. A session without a stored
-// salted key passphrase yields an error directing the user to run
+// UsersPath and AddressesPath are the key-material endpoints, fetched via
+// the raw request path (so a caching papi.API decorator can serve them).
+const (
+	UsersPath     = "/core/v4/users"
+	AddressesPath = "/core/v4/addresses"
+)
+
+// UnlockKeys restores key material using the salted key passphrase stored
+// at login: it fetches the user and addresses (concurrently) via api and
+// unlocks the user/address keyrings with proton.Unlock. A session without a
+// stored salted key passphrase yields an error directing the user to run
 // `proton-cal login`.
-func UnlockKeys(ctx context.Context, client *papi.Client) (*Unlocked, error) {
-	sess, err := client.Store().Load()
+func UnlockKeys(ctx context.Context, store *config.SessionStore, api papi.API) (*Unlocked, error) {
+	sess, err := store.Load()
 	if err != nil {
 		return nil, fmt.Errorf("loading session: %w", err)
 	}
@@ -38,15 +48,9 @@ func UnlockKeys(ctx context.Context, client *papi.Client) (*Unlocked, error) {
 		return nil, errors.New("session has no stored key passphrase; run `proton-cal login` to refresh it")
 	}
 
-	pc := client.Proton()
-
-	user, err := pc.GetUser(ctx)
+	user, addrs, err := FetchKeyData(ctx, api)
 	if err != nil {
-		return nil, fmt.Errorf("fetching user: %w", err)
-	}
-	addrs, err := pc.GetAddresses(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("fetching addresses: %w", err)
+		return nil, err
 	}
 
 	userKR, addrKRs, err := proton.Unlock(user, addrs, sess.SaltedKeyPass, nil)
@@ -60,6 +64,38 @@ func UnlockKeys(ctx context.Context, client *papi.Client) (*Unlocked, error) {
 		UserKR:    userKR,
 		AddrKRs:   addrKRs,
 	}, nil
+}
+
+// FetchKeyData fetches the user and addresses concurrently. Addresses are
+// sorted by their Order field (mirroring go-proton-api's GetAddresses).
+func FetchKeyData(ctx context.Context, api papi.API) (proton.User, []proton.Address, error) {
+	var userResp struct {
+		User proton.User `json:"User"`
+	}
+	var addrResp struct {
+		Addresses []proton.Address `json:"Addresses"`
+	}
+
+	g, ctx := errgroup.WithContext(ctx)
+	g.Go(func() error {
+		if err := api.Get(ctx, UsersPath, nil, &userResp); err != nil {
+			return fmt.Errorf("fetching user: %w", err)
+		}
+		return nil
+	})
+	g.Go(func() error {
+		if err := api.Get(ctx, AddressesPath, nil, &addrResp); err != nil {
+			return fmt.Errorf("fetching addresses: %w", err)
+		}
+		return nil
+	})
+	if err := g.Wait(); err != nil {
+		return proton.User{}, nil, err
+	}
+
+	addrs := addrResp.Addresses
+	sort.SliceStable(addrs, func(i, j int) bool { return addrs[i].Order < addrs[j].Order })
+	return userResp.User, addrs, nil
 }
 
 // PrimaryAddrKR returns the unlocked keyring for addressID, falling back to

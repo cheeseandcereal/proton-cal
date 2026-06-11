@@ -377,6 +377,52 @@ func TestQueryPaginationAndFilter(t *testing.T) {
 
 // ---------- Create ----------
 
+func TestQueryParallelPagesComplete(t *testing.T) {
+	const pages = 4
+	const total = pageSize*(pages-1) + 17
+
+	var mu sync.Mutex
+	served := make(map[string]int)
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/calendar/v1/cal1/events", func(w http.ResponseWriter, r *http.Request) {
+		page := r.URL.Query().Get("Page")
+		mu.Lock()
+		served[page]++
+		mu.Unlock()
+		p, _ := strconv.Atoi(page)
+		lo := p * pageSize
+		hi := min(lo+pageSize, total)
+		events := make([]*caltypes.RawEvent, 0, hi-lo)
+		for i := lo; i < hi; i++ {
+			events = append(events, &caltypes.RawEvent{ID: "ev" + itoa(i), StartTime: 100, EndTime: 200})
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(eventsResponse{Events: events, Total: total})
+	})
+	client := newTestClient(t, mux)
+
+	got, err := query(context.Background(), client, "cal1", 0, 1000, "UTC")
+	if err != nil {
+		t.Fatalf("Query: %v", err)
+	}
+	if len(got) != total {
+		t.Fatalf("got %d events, want %d", len(got), total)
+	}
+	seen := make(map[string]bool, total)
+	for _, ev := range got {
+		if seen[ev.ID] {
+			t.Fatalf("duplicate event %s", ev.ID)
+		}
+		seen[ev.ID] = true
+	}
+	for p := range pages {
+		if n := served[itoa(p)]; n != 1 {
+			t.Errorf("page %d fetched %d times, want exactly once", p, n)
+		}
+	}
+}
+
 func TestCreatePayloadShape(t *testing.T) {
 	pinNow(t, time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC))
 	pinUID(t, "fixed-uid-1")

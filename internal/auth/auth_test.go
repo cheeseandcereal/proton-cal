@@ -131,7 +131,7 @@ func TestLoginHappyPathAndUnlockKeys(t *testing.T) {
 	if err != nil {
 		t.Fatalf("papi.FromSession: %v", err)
 	}
-	unlocked, err := UnlockKeys(context.Background(), client)
+	unlocked, err := UnlockKeys(context.Background(), client.Store(), client)
 	if err != nil {
 		t.Fatalf("UnlockKeys: %v", err)
 	}
@@ -198,7 +198,7 @@ func TestUnlockKeysMissingSaltedKeyPass(t *testing.T) {
 		t.Fatalf("papi.FromSession: %v", err)
 	}
 
-	_, err = UnlockKeys(context.Background(), client)
+	_, err = UnlockKeys(context.Background(), client.Store(), client)
 	if err == nil {
 		t.Fatal("UnlockKeys succeeded with missing SaltedKeyPass")
 	}
@@ -245,7 +245,7 @@ func TestPrimaryAddrKR(t *testing.T) {
 	if err != nil {
 		t.Fatalf("papi.FromSession: %v", err)
 	}
-	unlocked, err := UnlockKeys(context.Background(), client)
+	unlocked, err := UnlockKeys(context.Background(), client.Store(), client)
 	if err != nil {
 		t.Fatalf("UnlockKeys: %v", err)
 	}
