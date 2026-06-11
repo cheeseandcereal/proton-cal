@@ -12,6 +12,15 @@ var rootCmd = &cobra.Command{
 	SilenceErrors: true,
 }
 
+// jsonOutput is the global --json flag: machine-readable JSON on stdout,
+// human extras on stderr.
+var jsonOutput bool
+
+func init() {
+	rootCmd.PersistentFlags().BoolVar(&jsonOutput, "json", false,
+		"machine-readable JSON output on stdout (human messages go to stderr)")
+}
+
 // Execute runs the root command.
 func Execute() error {
 	return rootCmd.Execute()
