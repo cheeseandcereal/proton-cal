@@ -16,9 +16,15 @@ var rootCmd = &cobra.Command{
 // human extras on stderr.
 var jsonOutput bool
 
+// noCache is the global --no-cache flag: bypass the on-disk bootstrap
+// cache entirely (neither read nor written).
+var noCache bool
+
 func init() {
 	rootCmd.PersistentFlags().BoolVar(&jsonOutput, "json", false,
 		"machine-readable JSON output on stdout (human messages go to stderr)")
+	rootCmd.PersistentFlags().BoolVar(&noCache, "no-cache", false,
+		"bypass the on-disk bootstrap cache (key material and calendar list)")
 	rootCmd.AddCommand(
 		newLoginCmd(),
 		newLogoutCmd(),

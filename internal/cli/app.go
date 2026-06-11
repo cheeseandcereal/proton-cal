@@ -12,7 +12,7 @@ import (
 // newService restores the authenticated service from the saved session,
 // wiring human notices (e.g. "Using calendar: ...") to stderr.
 func newService() (*calsvc.Service, error) {
-	svc, err := calsvc.New()
+	svc, err := calsvc.New(noCache)
 	if err != nil {
 		return nil, err
 	}

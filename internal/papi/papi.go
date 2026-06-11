@@ -147,6 +147,16 @@ func (c *Client) Proton() *proton.Client { return c.pc }
 // Store exposes the session store the client persists tokens to.
 func (c *Client) Store() *config.SessionStore { return c.store }
 
+// SessionUID returns the session's UID (stable across token refreshes;
+// rotates on re-login). Used to scope per-session caches.
+func (c *Client) SessionUID() (string, error) {
+	sess, err := c.session()
+	if err != nil {
+		return "", err
+	}
+	return sess.UID, nil
+}
+
 // session returns the cached tokens, loading them from the store on first
 // use (the store hits the disk under an advisory lock; the cache avoids
 // paying that on every request - rotations update it via the auth handler).

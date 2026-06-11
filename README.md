@@ -110,6 +110,21 @@ derived salted key passphrase. It can unlock your calendar keys but cannot be
 used to log in to your account; delete it (or run `proton-cal logout`) to
 revoke. Your account password is never stored.
 
+### Bootstrap cache
+
+`cache.json` (same directory, mode 0600) caches the bootstrap responses that
+otherwise cost 5 sequential API round-trips on every invocation: your user and
+address keys (encrypted, 30-day TTL), per-calendar passphrases and keys
+(encrypted, 30-day TTL) and the calendar list (7-day TTL). **Event content is
+never cached** - every command fetches events fresh.
+
+The liberal TTLs are safe because staleness self-heals: wrong key material
+fails cryptographically, which invalidates the cached entries and retries once
+with fresh data; unknown calendar selectors refresh the list automatically,
+and `proton-cal calendars` always fetches fresh. The cache is scoped to the
+session (re-login discards it) and `proton-cal logout` deletes it. Pass
+`--no-cache` to bypass it entirely.
+
 ## MCP server
 
 `proton-cal mcp` speaks MCP over stdio, exposing `list_calendars`,

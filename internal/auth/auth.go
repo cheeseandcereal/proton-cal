@@ -282,6 +282,11 @@ func Logout(ctx context.Context) error {
 	if err := store.Clear(); err != nil {
 		return fmt.Errorf("clearing session: %w", err)
 	}
+	// The bootstrap cache holds (encrypted) key material scoped to the
+	// session that just ended; never leave it behind.
+	if err := config.ClearCache(); err != nil {
+		return fmt.Errorf("clearing cache: %w", err)
+	}
 	return nil
 }
 

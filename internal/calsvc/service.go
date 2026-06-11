@@ -7,6 +7,11 @@
 // datetime/occurrence parsing, recurrence-option validation, and the
 // orchestration of list/create/update/delete operations. Frontends are
 // reduced to argument binding and rendering.
+//
+// Bootstrap responses (key material and the calendar list - never event
+// content) are cached on disk with liberal TTLs; stale entries are
+// self-healing because key material fails cryptographically when wrong
+// (see cacheapi.go).
 package calsvc
 
 import (
@@ -15,11 +20,13 @@ import (
 	"fmt"
 	"sync"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/cheeseandcereal/proton-cal/internal/auth"
 	"github.com/cheeseandcereal/proton-cal/internal/calendar"
 	"github.com/cheeseandcereal/proton-cal/internal/config"
+	"github.com/cheeseandcereal/proton-cal/internal/event"
 	"github.com/cheeseandcereal/proton-cal/internal/papi"
-	"golang.org/x/sync/errgroup"
 )
 
 // Service bundles the authenticated state shared by calendar operations.
@@ -28,6 +35,14 @@ import (
 type Service struct {
 	cfg    config.Config
 	client *papi.Client
+
+	// api is the read path for bootstrap endpoints: the caching decorator
+	// when the cache is enabled, else the raw client. cacheAPI is the
+	// same decorator (nil when caching is disabled); freshAPI bypasses
+	// cache reads but still populates the cache.
+	api      papi.API
+	cacheAPI *cachedAPI
+	freshAPI papi.API
 
 	// Notify receives short human-readable notices (e.g. which calendar
 	// was picked when no selector was given). Nil = silent.
@@ -42,8 +57,9 @@ type Service struct {
 
 // New loads the config and restores an authenticated Service from the
 // persisted session. A missing session yields a friendly "run login" error.
-// Call Close when done.
-func New() (*Service, error) {
+// noCache disables the on-disk bootstrap cache (fetches stay fresh; the
+// cache file is neither read nor written). Call Close when done.
+func New(noCache bool) (*Service, error) {
 	cfg, err := config.Load()
 	if err != nil {
 		return nil, fmt.Errorf("loading config: %w", err)
@@ -58,7 +74,19 @@ func New() (*Service, error) {
 	} else if err != nil {
 		return nil, fmt.Errorf("restoring session: %w", err)
 	}
-	return &Service{cfg: cfg, client: client}, nil
+
+	s := &Service{cfg: cfg, client: client, api: client, freshAPI: client}
+	if !noCache {
+		// A broken cache must never break the app: fall back to uncached.
+		if uid, err := client.SessionUID(); err == nil {
+			if cache, err := config.OpenCache(uid + "|" + cfg.EffectiveBaseURL()); err == nil {
+				s.cacheAPI = newCachedAPI(client, cache, false)
+				s.api = s.cacheAPI
+				s.freshAPI = newCachedAPI(client, cache, true)
+			}
+		}
+	}
+	return s, nil
 }
 
 // NewDetached returns a Service with config only - no session or client.
@@ -90,11 +118,22 @@ func (s *Service) DefaultCalendarSelector() string {
 	return s.cfg.DefaultCalendar
 }
 
-// Calendars fetches the calendar list (always fresh - a long-running MCP
-// server must see calendars created after startup) and updates the cache
-// used by selector resolution.
+// Calendars fetches the calendar list fresh (the user asked for the truth:
+// a long-running MCP server must see calendars created after startup, and
+// `proton-cal calendars` is the natural cache-staleness escape hatch). The
+// result still updates both the in-memory and on-disk caches.
 func (s *Service) Calendars(ctx context.Context) ([]calendar.Info, error) {
-	cals, err := calendar.List(ctx, s.client)
+	return s.fetchCalendars(ctx, s.freshAPI)
+}
+
+// listCalendars returns the calendar list for selector resolution, served
+// from the on-disk cache when fresh enough.
+func (s *Service) listCalendars(ctx context.Context) ([]calendar.Info, error) {
+	return s.fetchCalendars(ctx, s.api)
+}
+
+func (s *Service) fetchCalendars(ctx context.Context, api papi.API) ([]calendar.Info, error) {
+	cals, err := calendar.List(ctx, api)
 	if err != nil {
 		return nil, err
 	}
@@ -106,24 +145,28 @@ func (s *Service) Calendars(ctx context.Context) ([]calendar.Info, error) {
 
 // resolveCalendar resolves a calendar selector (ID or name; "" = the
 // configured default calendar, else the first calendar) against the cached
-// calendar list, refreshing the cache once when a cached list does not
-// match (the calendar may have been created or renamed since).
+// calendar list (in-memory, then disk), falling back to one fresh fetch
+// when a cached list does not match (the calendar may have been created or
+// renamed since).
 func (s *Service) resolveCalendar(ctx context.Context, selector string) (calendar.Info, error) {
 	s.calMu.Lock()
 	cals := s.cals
 	s.calMu.Unlock()
 
-	cached := cals != nil
-	if !cached {
+	fresh := false // whether cals is known to be fresh off the network
+	if cals == nil {
 		var err error
-		cals, err = s.Calendars(ctx)
+		cals, err = s.listCalendars(ctx)
 		if err != nil {
 			return calendar.Info{}, err
 		}
+		fresh = s.cacheAPI == nil || !s.cacheAPI.servedAny(calendar.APIPath)
 	}
 
 	info, err := calendar.Resolve(cals, selector, s.cfg.DefaultCalendar)
-	if err != nil && cached {
+	if err != nil && !fresh {
+		// The list came from memory or disk; it may be stale. One fresh
+		// fetch, then the resolution error is final.
 		cals, ferr := s.Calendars(ctx)
 		if ferr != nil {
 			return calendar.Info{}, ferr
@@ -160,6 +203,13 @@ func (s *Service) access(ctx context.Context, selector string) (calendar.Info, *
 	}
 
 	acc, err := kc.Unlock(ctx, info)
+	if err != nil && s.healCalendarKeys(info.ID) {
+		// The calendar key material came from cache and may be stale
+		// (key rotation): refetch fresh and retry once.
+		if kc, kerr := s.keychainLazy(ctx); kerr == nil {
+			acc, err = kc.Unlock(ctx, info)
+		}
+	}
 	if err != nil {
 		return calendar.Info{}, nil, fmt.Errorf("unlocking calendar keys: %w", err)
 	}
@@ -167,19 +217,101 @@ func (s *Service) access(ctx context.Context, selector string) (calendar.Info, *
 }
 
 // keychainLazy unlocks the account keys on first use and returns the
-// session keychain.
+// session keychain. When the unlock fails and the key material was served
+// from cache, it invalidates and retries once with fresh data (password
+// changes rotate the account keys).
 func (s *Service) keychainLazy(ctx context.Context) (*calendar.Keychain, error) {
 	s.kcMu.Lock()
 	defer s.kcMu.Unlock()
 	if s.keychain != nil {
 		return s.keychain, nil
 	}
-	unlocked, err := auth.UnlockKeys(ctx, s.client.Store(), s.client)
+	unlocked, err := auth.UnlockKeys(ctx, s.client.Store(), s.api)
+	if err != nil && s.cacheAPI != nil && s.cacheAPI.servedAny(accountKeyCacheKeys()...) {
+		s.cacheAPI.invalidate(accountKeyCacheKeys()...)
+		unlocked, err = auth.UnlockKeys(ctx, s.client.Store(), s.api)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("unlocking keys: %w", err)
 	}
-	s.keychain = calendar.NewKeychain(s.client, unlocked)
+	s.keychain = calendar.NewKeychain(s.api, unlocked)
 	return s.keychain, nil
+}
+
+// healCalendarKeys reports whether a failed calendar-key operation is
+// worth retrying because cached key material may be stale; when so it
+// invalidates that material (account + calendar tiers - liberal: at most
+// one extra bootstrap) and drops the keychain so the retry rebuilds it
+// from fresh responses.
+func (s *Service) healCalendarKeys(calendarID string) bool {
+	if s.cacheAPI == nil {
+		return false
+	}
+	keys := append(accountKeyCacheKeys(), calendarKeyCacheKeys(calendarID)...)
+	if !s.cacheAPI.servedAny(keys...) {
+		return false
+	}
+	s.cacheAPI.invalidate(keys...)
+	s.kcMu.Lock()
+	s.keychain = nil
+	s.kcMu.Unlock()
+	return true
+}
+
+// staleCalendarList reports whether err plausibly means the operation hit
+// a calendar that no longer exists while the calendar list was served from
+// cache (deleted and possibly recreated elsewhere); when so it invalidates
+// the cached list so a retry re-resolves freshly.
+func (s *Service) staleCalendarList(err error) bool {
+	if s.cacheAPI == nil || !s.cacheAPI.servedAny(calendar.APIPath) {
+		return false
+	}
+	var pe *papi.Error
+	if !errors.As(err, &pe) || (pe.Status != 404 && pe.Status != 422) {
+		return false
+	}
+	s.cacheAPI.invalidate(calendar.APIPath)
+	s.calMu.Lock()
+	s.cals = nil
+	s.calMu.Unlock()
+	return true
+}
+
+// withAccess runs fn with resolved calendar access, retrying once when the
+// failure is plausibly caused by stale cached bootstrap data:
+//
+//   - fn failed with event.ErrDecryptDegraded and the key material was
+//     cached: refetch keys, rebuild access, retry.
+//   - fn failed with a 404/422 API error and the calendar list was cached:
+//     refresh the list; retry only when the selector now resolves to a
+//     DIFFERENT calendar (deleted + recreated elsewhere), since otherwise
+//     the failure had nothing to do with staleness.
+//
+// Fresh-data failures are final: no retry loops.
+func (s *Service) withAccess(ctx context.Context, selector string, fn func(info calendar.Info, access *calendar.Access) error) error {
+	info, access, err := s.access(ctx, selector)
+	if err != nil {
+		return err
+	}
+	err = fn(info, access)
+	if err == nil {
+		return nil
+	}
+
+	requireNewID := false
+	switch {
+	case errors.Is(err, event.ErrDecryptDegraded) && s.healCalendarKeys(info.ID):
+	case s.staleCalendarList(err):
+		requireNewID = true
+	default:
+		return err
+	}
+
+	info2, access2, err2 := s.access(ctx, selector)
+	if err2 != nil || (requireNewID && info2.ID == info.ID) {
+		return err // the original error stands
+	}
+	return fn(info2, access2)
 }
 
 func (s *Service) notify(msg string) {

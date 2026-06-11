@@ -37,7 +37,7 @@ type server struct {
 }
 
 func newServer() *server {
-	return &server{bootstrap: calsvc.New}
+	return &server{bootstrap: func() (*calsvc.Service, error) { return calsvc.New(false) }}
 }
 
 // service returns the cached service, bootstrapping it on first use.

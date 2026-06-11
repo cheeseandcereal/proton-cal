@@ -51,29 +51,41 @@ func (s *Service) ListEvents(ctx context.Context, in ListEventsInput) (*EventLis
 	}
 	end := start.AddDate(0, 0, days)
 
-	info, access, err := s.access(ctx, in.Calendar)
-	if err != nil {
-		return nil, err
-	}
-	listed, err := event.ListWindow(ctx, s.client, access.KR, info.ID, start.Unix(), end.Unix(), tz)
-	if err != nil {
-		return nil, fmt.Errorf("listing events: %w", err)
-	}
-	sort.SliceStable(listed, func(i, j int) bool {
-		if listed[i].Occurrence.Start != listed[j].Occurrence.Start {
-			return listed[i].Occurrence.Start < listed[j].Occurrence.Start
+	var out *EventList
+	attempt := 0
+	werr := s.withAccess(ctx, in.Calendar, func(info calendar.Info, access *calendar.Access) error {
+		attempt++
+		listed, err := event.ListWindow(ctx, s.client, access.KR, info.ID, start.Unix(), end.Unix(), tz)
+		if err != nil {
+			return fmt.Errorf("listing events: %w", err)
 		}
-		return listed[i].Occurrence.Event.ID < listed[j].Occurrence.Event.ID
+		sort.SliceStable(listed, func(i, j int) bool {
+			if listed[i].Occurrence.Start != listed[j].Occurrence.Start {
+				return listed[i].Occurrence.Start < listed[j].Occurrence.Start
+			}
+			return listed[i].Occurrence.Event.ID < listed[j].Occurrence.Event.ID
+		})
+		out = &EventList{
+			Calendar:  info,
+			Location:  loc,
+			From:      start,
+			FromGiven: in.From != "",
+			Days:      days,
+			Items:     listed,
+		}
+		// Stale cached calendar keys decrypt nothing but fail silently
+		// (the listing renders blank). Surface the degradation once so
+		// withAccess can refetch keys and relist; a second degraded pass
+		// is accepted (lenient rendering of genuinely bad rows).
+		if attempt == 1 && anyDecryptFailed(listed) {
+			return fmt.Errorf("listing events: %w", event.ErrDecryptDegraded)
+		}
+		return nil
 	})
-
-	return &EventList{
-		Calendar:  info,
-		Location:  loc,
-		From:      start,
-		FromGiven: in.From != "",
-		Days:      days,
-		Items:     listed,
-	}, nil
+	if werr != nil && (!errors.Is(werr, event.ErrDecryptDegraded) || out == nil) {
+		return nil, werr
+	}
+	return out, nil
 }
 
 // CreateEventInput describes a new event with user-shaped strings.
@@ -115,33 +127,44 @@ func (s *Service) CreateEvent(ctx context.Context, in CreateEventInput) (*Create
 		return nil, err
 	}
 
-	_, access, err := s.access(ctx, in.Calendar)
-	if err != nil {
-		return nil, err
-	}
-
-	raw, err := event.Create(ctx, s.client, access, event.CreateOptions{
-		Summary:     in.Summary,
-		Description: in.Description,
-		Location:    in.Location,
-		Start:       start,
-		End:         end,
-		TZName:      tz,
-		AllDay:      in.AllDay,
-		RRule:       rrule,
+	var out *CreatedEvent
+	werr := s.withAccess(ctx, in.Calendar, func(_ calendar.Info, access *calendar.Access) error {
+		raw, err := event.Create(ctx, s.client, access, event.CreateOptions{
+			Summary:     in.Summary,
+			Description: in.Description,
+			Location:    in.Location,
+			Start:       start,
+			End:         end,
+			TZName:      tz,
+			AllDay:      in.AllDay,
+			RRule:       rrule,
+		})
+		if err != nil {
+			return fmt.Errorf("creating event: %w", err)
+		}
+		out = &CreatedEvent{Summary: in.Summary, Start: start, End: end, AllDay: in.AllDay, RRule: rrule}
+		if raw != nil {
+			out.ID = raw.ID
+			out.UID = raw.UID
+			out.Start = time.Unix(raw.StartTime, 0).UTC()
+			out.End = time.Unix(raw.EndTime, 0).UTC()
+		}
+		return nil
 	})
-	if err != nil {
-		return nil, fmt.Errorf("creating event: %w", err)
-	}
-
-	out := &CreatedEvent{Summary: in.Summary, Start: start, End: end, AllDay: in.AllDay, RRule: rrule}
-	if raw != nil {
-		out.ID = raw.ID
-		out.UID = raw.UID
-		out.Start = time.Unix(raw.StartTime, 0).UTC()
-		out.End = time.Unix(raw.EndTime, 0).UTC()
+	if werr != nil {
+		return nil, werr
 	}
 	return out, nil
+}
+
+// anyDecryptFailed reports whether any listed event came back degraded.
+func anyDecryptFailed(listed []event.Listed) bool {
+	for _, l := range listed {
+		if l.Event != nil && l.Event.DecryptFailed {
+			return true
+		}
+	}
+	return false
 }
 
 // UpdateEventInput describes a partial update with user-shaped strings.
@@ -226,31 +249,34 @@ func (s *Service) UpdateEvent(ctx context.Context, in UpdateEventInput) (*event.
 		}
 	}
 
-	info, access, err := s.access(ctx, in.Calendar)
-	if err != nil {
-		return nil, err
-	}
+	var outcome *event.UpdateOutcome
+	werr := s.withAccess(ctx, in.Calendar, func(info calendar.Info, access *calendar.Access) error {
+		// Recurrence options need the event's all-day-ness for the UNTIL
+		// form, so fetch the raw row first - only in that case (the
+		// occurrence path never builds an RRULE).
+		if in.Occurrence == "" && !in.Recurrence.Empty() {
+			raw, err := event.Get(ctx, s.client, info.ID, in.EventID)
+			if err != nil {
+				return fmt.Errorf("fetching event: %w", err)
+			}
+			rrule, err := in.Recurrence.buildRRule(tz, raw.IsAllDay())
+			if err != nil {
+				return err
+			}
+			if rrule != "" {
+				opts.RRule = &rrule
+			}
+		}
 
-	// Recurrence options need the event's all-day-ness for the UNTIL form,
-	// so fetch the raw row first - only in that case (the occurrence path
-	// never builds an RRULE).
-	if in.Occurrence == "" && !in.Recurrence.Empty() {
-		raw, err := event.Get(ctx, s.client, info.ID, in.EventID)
+		o, err := event.SmartUpdate(ctx, s.client, access, in.EventID, opts, occurrenceTS)
 		if err != nil {
-			return nil, fmt.Errorf("fetching event: %w", err)
+			return fmt.Errorf("updating event: %w", err)
 		}
-		rrule, err := in.Recurrence.buildRRule(tz, raw.IsAllDay())
-		if err != nil {
-			return nil, err
-		}
-		if rrule != "" {
-			opts.RRule = &rrule
-		}
-	}
-
-	outcome, err := event.SmartUpdate(ctx, s.client, access, in.EventID, opts, occurrenceTS)
-	if err != nil {
-		return nil, fmt.Errorf("updating event: %w", err)
+		outcome = o
+		return nil
+	})
+	if werr != nil {
+		return nil, werr
 	}
 	return outcome, nil
 }
@@ -277,14 +303,20 @@ func (s *Service) DeleteEvent(ctx context.Context, in DeleteEventInput) (*event.
 		}
 	}
 
-	_, access, err := s.access(ctx, in.Calendar)
-	if err != nil {
-		return nil, err
-	}
-
-	res, err := event.SmartDelete(ctx, s.client, access, in.EventID, occurrenceTS)
-	if err != nil {
-		return nil, fmt.Errorf("deleting event: %w", err)
+	var res *event.DeleteResult
+	werr := s.withAccess(ctx, in.Calendar, func(_ calendar.Info, access *calendar.Access) error {
+		r, err := event.SmartDelete(ctx, s.client, access, in.EventID, occurrenceTS)
+		if err != nil {
+			// Occurrence deletion merges an EXDATE into the master and
+			// so needs full decryption; ErrDecryptDegraded retries with
+			// fresh key material via withAccess.
+			return fmt.Errorf("deleting event: %w", err)
+		}
+		res = r
+		return nil
+	})
+	if werr != nil {
+		return nil, werr
 	}
 	return res, nil
 }
