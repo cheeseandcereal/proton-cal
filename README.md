@@ -153,18 +153,20 @@ Or for [opencode](https://opencode.ai) (`opencode.json`):
 
 ```
 cmd/proton-cal        entry point
-internal/cli          cobra commands
-internal/mcpserver    MCP stdio server
+internal/cli          cobra commands (argument binding + rendering)
+internal/mcpserver    MCP stdio server (tool schemas + rendering)
+internal/calsvc       shared service layer: bootstrap, input parsing,
+                      list/create/update/delete orchestration
 internal/auth         login (SRP/2FA/captcha), key unlocking, salted passphrase
 internal/papi         go-proton-api wrapper + raw calls for endpoints it lacks
 internal/calendar     calendar listing, member resolution, calendar key unlock
 internal/event        event CRUD: decrypt, encrypt, sync payloads, recurrence ops
 internal/pgp          PGP primitives (detached sign, session-key encrypt/reuse)
 internal/ical         iCalendar fragment builder/parser (RFC 5545 escaping)
+internal/icaltime     shared iCalendar date/time codec + timezone helpers
 internal/recurrence   RRULE building/validation + occurrence expansion
-internal/caltypes     wire types for the calendar API
-internal/config       config + session store (flock-guarded)
-internal/front        shared CLI/MCP input parsing
+internal/caltypes     event-row wire types shared by recurrence and event
+internal/config       config + session store (flock-guarded, atomic writes)
 internal/integration  opt-in live test suite (build tag `integration`)
 ```
 
