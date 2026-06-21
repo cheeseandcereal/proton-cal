@@ -290,6 +290,100 @@ func TestDecryptRoundTrip(t *testing.T) {
 	}
 }
 
+func TestDecryptEnrichesAttendeesConferenceRowFields(t *testing.T) {
+	calKR, addrKR := testKeys(t)
+	raw := fabricateRaw(t, "ev1", "uid1", 1000, 2000, "UTC", "", 0, nil, "Test Event", 0)
+
+	// Conference ID lives in the shared SIGNED card; URL in the shared
+	// ENCRYPTED card. Append both to the existing fabricated cards.
+	raw.SharedEvents[0].Data = strings.Replace(raw.SharedEvents[0].Data,
+		"\r\nEND:VEVENT", "\r\nX-PM-CONFERENCE-ID;X-PM-PROVIDER=2:MQYTXG4HKC\r\nEND:VEVENT", 1)
+	// Re-sign the modified signed card so nothing downstream trips on it
+	// (Decrypt itself does not verify, but keep the fixture honest).
+	sig, err := pgp.SignDetached(raw.SharedEvents[0].Data, addrKR)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw.SharedEvents[0].Signature = sig
+
+	// Attendees card: encrypted with the shared session key.
+	attCard := strings.Join([]string{
+		"BEGIN:VCALENDAR", "BEGIN:VEVENT",
+		"UID:uid1", "DTSTAMP:20260601T000000Z",
+		"ATTENDEE;X-PM-TOKEN=tok123;RSVP=TRUE;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;CN=adacrowd:mailto:adacrowd@amazon.com",
+		"END:VEVENT", "END:VCALENDAR",
+	}, "\r\n")
+	// Re-encrypt the conference URL into the shared encrypted card by
+	// rebuilding it alongside the existing summary content.
+	sharedEnc := strings.Join([]string{
+		"BEGIN:VCALENDAR", "BEGIN:VEVENT",
+		"UID:uid1", "DTSTAMP:20260601T000000Z",
+		"SUMMARY:Test Event",
+		"X-PM-CONFERENCE-URL;X-PM-HOST=adam@adamcrowder.net:https://meet.proton.me/join/id-MQYTXG4HKC#pwd-secret123",
+		"END:VEVENT", "END:VCALENDAR",
+	}, "\r\n")
+	sharedKP, sharedData, sharedSig, err := pgp.EncryptAndSign(sharedEnc, calKR, addrKR)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw.SharedKeyPacket = sharedKP
+	raw.SharedEvents[1] = caltypes.EventPart{Type: caltypes.CardEncryptedAndSigned, Data: sharedData, Signature: sharedSig}
+
+	// Attendees card is encrypted with the SAME shared session key (the
+	// server keeps one key packet for both cards), so derive it and reuse.
+	sk, err := pgp.DecryptSessionKey(sharedKP, calKR)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attData, attSig, err := pgp.EncryptWithSessionKeyAndSign(attCard, sk, addrKR)
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw.AttendeesEvents = []caltypes.EventPart{
+		{Type: caltypes.CardEncryptedAndSigned, Data: attData, Signature: attSig},
+	}
+
+	// Plaintext row fields.
+	raw.Color = "#EC3E7C"
+	raw.IsOrganizer = 1
+	raw.Notifications = []caltypes.Notification{{Type: 1, Trigger: "-PT1H"}, {Type: 1, Trigger: "-PT15M"}}
+	raw.Attendees = []caltypes.AttendeeToken{{ID: "a1", Token: "tok123", Status: 3}}
+	raw.AttendeesInfo = caltypes.AttendeesInfo{MoreAttendees: 0}
+
+	ev, err := Decrypt(raw, calKR)
+	if err != nil {
+		t.Fatalf("Decrypt: %v", err)
+	}
+	if ev.DecryptFailed {
+		t.Fatalf("unexpected DecryptFailed")
+	}
+	if ev.Color != "#EC3E7C" || !ev.IsOrganizer {
+		t.Errorf("color/isOrganizer = %q/%v", ev.Color, ev.IsOrganizer)
+	}
+	if len(ev.Notifications) != 2 || ev.Notifications[0].Trigger != "-PT1H" {
+		t.Errorf("notifications = %+v", ev.Notifications)
+	}
+	if len(ev.Attendees) != 1 {
+		t.Fatalf("attendees len = %d", len(ev.Attendees))
+	}
+	a := ev.Attendees[0]
+	if a.Email != "adacrowd@amazon.com" || a.CN != "adacrowd" || a.Status != 3 {
+		t.Errorf("attendee = %+v (want email/cn set, Status 3 from row join)", a)
+	}
+	if ev.Conference == nil {
+		t.Fatal("conference = nil")
+	}
+	if ev.Conference.ID != "MQYTXG4HKC" || ev.Conference.Provider != "2" {
+		t.Errorf("conference id/provider = %q/%q", ev.Conference.ID, ev.Conference.Provider)
+	}
+	if ev.Conference.URL != "https://meet.proton.me/join/id-MQYTXG4HKC#pwd-secret123" {
+		t.Errorf("conference url = %q", ev.Conference.URL)
+	}
+	if ev.Conference.Password != "secret123" || ev.Conference.Host != "adam@adamcrowder.net" {
+		t.Errorf("conference pwd/host = %q/%q", ev.Conference.Password, ev.Conference.Host)
+	}
+}
+
 func TestDecryptLenientOnBadCard(t *testing.T) {
 	calKR, _ := testKeys(t)
 	raw := fabricateRaw(t, "ev1", "uid1", 1000, 2000, "UTC", "", 0, nil, "Good", 0)

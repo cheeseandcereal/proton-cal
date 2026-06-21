@@ -3,6 +3,7 @@ package event
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	"github.com/ProtonMail/gopenpgp/v2/crypto"
@@ -45,14 +46,60 @@ func Decrypt(raw *caltypes.RawEvent, calKR *crypto.KeyRing) (*Event, error) {
 		RRule:         raw.RRule,
 		RecurrenceID:  recurrenceID,
 		Exdates:       exdates,
+		Color:         raw.Color,
+		IsOrganizer:   raw.IsOrganizer != 0,
+		MoreAttendees: raw.AttendeesInfo.MoreAttendees != 0,
+		Notifications: raw.Notifications,
 	}
-	// Shared parts: summary/description/location (encrypted) and
-	// times/recurrence (signed). The signed fragment is kept verbatim for
-	// SEQUENCE handling on updates.
+	// Shared parts: summary/description/location + conference URL (encrypted)
+	// and times/recurrence + organizer + conference ID (signed). The signed
+	// fragment is kept verbatim for SEQUENCE handling on updates.
 	mergeParts(ev, raw.SharedEvents, raw.SharedKeyPacket, calKR, true)
 	// Calendar parts: STATUS/TRANSP (signed) and COMMENT (encrypted).
 	mergeParts(ev, raw.CalendarEvents, raw.CalendarKeyPacket, calKR, false)
+	// Attendee identities live in the attendees card, encrypted with the
+	// shared session key (same key packet as the shared encrypted card).
+	mergeParts(ev, raw.AttendeesEvents, raw.SharedKeyPacket, calKR, true)
+
+	enrichAttendeeStatus(ev, raw.Attendees)
+	assembleConference(ev)
 	return ev, nil
+}
+
+// enrichAttendeeStatus joins the live RSVP status from the plaintext row
+// onto the decrypted attendees by their anonymized token. Attendees with no
+// matching row token get Status -1.
+func enrichAttendeeStatus(ev *Event, rows []caltypes.AttendeeToken) {
+	statusByToken := make(map[string]int, len(rows))
+	for _, r := range rows {
+		statusByToken[r.Token] = r.Status
+	}
+	for i := range ev.Attendees {
+		if st, ok := statusByToken[ev.Attendees[i].Token]; ok {
+			ev.Attendees[i].Status = st
+		} else {
+			ev.Attendees[i].Status = -1
+		}
+	}
+}
+
+// assembleConference promotes the conference fields gathered across the
+// shared cards into a Conference, parsing the password from the URL's
+// "#pwd-" fragment. No-op when the event carries no conference data.
+func assembleConference(ev *Event) {
+	if ev.confID == "" && ev.confURL == "" {
+		return
+	}
+	c := &Conference{
+		Provider: ev.confProvider,
+		ID:       ev.confID,
+		URL:      ev.confURL,
+		Host:     ev.confHost,
+	}
+	if i := strings.Index(ev.confURL, "#pwd-"); i >= 0 {
+		c.Password = ev.confURL[i+len("#pwd-"):]
+	}
+	ev.Conference = c
 }
 
 func mergeParts(ev *Event, parts []caltypes.EventPart, keyPacketB64 string, calKR *crypto.KeyRing, shared bool) {
@@ -126,6 +173,39 @@ func mergeParsed(ev *Event, p ical.VEvent) {
 	if p.End != nil {
 		ev.End = p.End.UTC()
 	}
+	if p.Organizer != nil {
+		ev.Organizer = &Person{Email: p.Organizer.Email, CN: p.Organizer.CN}
+	}
+	// Attendees are repeatable and split across cards; append (de-duping by
+	// token, preferring the first sighting which carries the richest params).
+	for _, a := range p.Attendees {
+		if a.Token != "" && attendeeSeen(ev.Attendees, a.Token) {
+			continue
+		}
+		ev.Attendees = append(ev.Attendees, Attendee{
+			Email: a.Email, CN: a.CN, Role: a.Role,
+			PartStat: a.PartStat, RSVP: a.RSVP, Token: a.Token,
+		})
+	}
+	if p.ConferenceID != "" {
+		ev.confID = p.ConferenceID
+		ev.confProvider = p.ConferenceProvider
+	}
+	if p.ConferenceURL != "" {
+		ev.confURL = p.ConferenceURL
+		ev.confHost = p.ConferenceHost
+	}
+}
+
+// attendeeSeen reports whether an attendee with the given non-empty token is
+// already present.
+func attendeeSeen(attendees []Attendee, token string) bool {
+	for _, a := range attendees {
+		if a.Token == token {
+			return true
+		}
+	}
+	return false
 }
 
 // ListWindow queries, expands and decrypts all occurrences overlapping

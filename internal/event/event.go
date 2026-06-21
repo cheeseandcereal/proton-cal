@@ -68,10 +68,61 @@ type Event struct {
 	RawSharedSigned string
 	Sequence        int
 
+	// Enrichment fields (read-only display). Color and Notifications come
+	// from the plaintext row; Organizer/Attendees/Conference are parsed from
+	// the cards. IsOrganizer/MoreAttendees mirror the row flags.
+	Color         string
+	IsOrganizer   bool
+	MoreAttendees bool
+	Notifications []caltypes.Notification
+	Organizer     *Person
+	Attendees     []Attendee
+	Conference    *Conference
+
+	// conf* are scratch accumulators for conference data spread across the
+	// shared signed (ID/provider) and shared encrypted (URL/host) cards;
+	// assembleConference folds them into Conference after all cards merge.
+	confID       string
+	confProvider string
+	confURL      string
+	confHost     string
+
 	// DecryptFailed reports that at least one card failed to decrypt or
 	// parse (the rest of the event is still populated). Read paths render
 	// what they can; write paths refuse to merge from such an event.
 	DecryptFailed bool
+}
+
+// Person is an organizer/attendee identity.
+type Person struct {
+	Email string
+	CN    string
+}
+
+// Attendee is a decrypted attendee with its live RSVP status. Email/CN/Role/
+// PartStat/RSVP come from the encrypted ATTENDEE card; Status is the live
+// API RSVP from the plaintext row (caltypes.AttendeeToken.Status), joined by
+// token. Status is -1 when no matching row token was found.
+type Attendee struct {
+	Email    string
+	CN       string
+	Role     string
+	PartStat string
+	RSVP     string
+	Token    string
+	Status   int
+}
+
+// Conference is the event's video-conferencing data (Proton Meet/Zoom),
+// reassembled from the shared signed (ID/provider) and shared encrypted
+// (URL/host) cards. Provider follows VIDEO_CONFERENCE_PROVIDER (1 = Zoom,
+// 2 = Meet). Password is parsed from the URL "#pwd-" fragment when present.
+type Conference struct {
+	Provider string
+	ID       string
+	URL      string
+	Password string
+	Host     string
 }
 
 // IsRecurring reports whether the event is a recurring series master.
