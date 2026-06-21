@@ -52,6 +52,39 @@ type VEvent struct {
 	RRule        string      // verbatim RRULE value ("" = none)
 	Exdates      []time.Time // deleted occurrence starts
 	RecurrenceID *time.Time  // original occurrence start (exception rows)
+
+	// Read-only enrichment fields (populated by ParseFragment, ignored by
+	// BuildFragments). The write path never emits these.
+	Organizer *Organizer // ORGANIZER
+	Attendees []Attendee // ATTENDEE (repeatable; appended in parse order)
+
+	// Proton Meet/Zoom conferencing, split across the shared cards:
+	// the ID/provider are in the signed card, the URL/host in the encrypted
+	// card. Provider follows VIDEO_CONFERENCE_PROVIDER (1 = Zoom, 2 = Meet).
+	ConferenceID       string // X-PM-CONFERENCE-ID value
+	ConferenceProvider string // X-PM-CONFERENCE-ID's X-PM-PROVIDER param
+	ConferenceURL      string // X-PM-CONFERENCE-URL value
+	ConferenceHost     string // X-PM-CONFERENCE-URL's X-PM-HOST param
+}
+
+// Organizer is a parsed ORGANIZER property: the calendar address and its
+// optional common name.
+type Organizer struct {
+	Email string // CAL-ADDRESS with any "mailto:" scheme stripped
+	CN    string // CN parameter
+}
+
+// Attendee is a parsed ATTENDEE property. Email is the CAL-ADDRESS with any
+// "mailto:" stripped; the parameters carry display name, role, RSVP and
+// participation status, plus Proton's anonymized X-PM-TOKEN (which joins to
+// the plaintext row attendee for live RSVP status).
+type Attendee struct {
+	Email    string // CAL-ADDRESS, "mailto:" stripped
+	CN       string // CN parameter (display name)
+	Role     string // ROLE parameter (REQ-PARTICIPANT, ...)
+	PartStat string // PARTSTAT parameter (NEEDS-ACTION, ACCEPTED, ...)
+	RSVP     string // RSVP parameter (TRUE/FALSE)
+	Token    string // X-PM-TOKEN parameter
 }
 
 // Fragments are the four VCALENDAR-wrapped VEVENT fragments.

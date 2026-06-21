@@ -151,8 +151,41 @@ func applyProperty(ev *VEvent, name string, params map[string]string, value stri
 		}
 		ev.Sequence = &n
 		return true
+	case "ORGANIZER":
+		ev.Organizer = &Organizer{
+			Email: stripMailto(unescapeText(value)),
+			CN:    params["CN"],
+		}
+		return true
+	case "ATTENDEE":
+		ev.Attendees = append(ev.Attendees, Attendee{
+			Email:    stripMailto(unescapeText(value)),
+			CN:       params["CN"],
+			Role:     params["ROLE"],
+			PartStat: params["PARTSTAT"],
+			RSVP:     params["RSVP"],
+			Token:    params["X-PM-TOKEN"],
+		})
+		return true
+	case "X-PM-CONFERENCE-ID":
+		ev.ConferenceID = unescapeText(value)
+		ev.ConferenceProvider = params["X-PM-PROVIDER"]
+		return true
+	case "X-PM-CONFERENCE-URL":
+		ev.ConferenceURL = unescapeText(value)
+		ev.ConferenceHost = params["X-PM-HOST"]
+		return true
 	}
 	return false
+}
+
+// stripMailto removes a leading "mailto:" scheme (case-insensitive) from a
+// calendar address value.
+func stripMailto(v string) string {
+	if len(v) >= 7 && strings.EqualFold(v[:7], "mailto:") {
+		return v[7:]
+	}
+	return v
 }
 
 // splitContentLine splits a content line into upper-cased name, parameter

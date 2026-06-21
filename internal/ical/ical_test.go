@@ -778,6 +778,48 @@ func TestParseFragment(t *testing.T) {
 	}
 }
 
+func TestParseFragmentOrganizerAttendeeConference(t *testing.T) {
+	in := joinCRLF(
+		"BEGIN:VCALENDAR", "BEGIN:VEVENT",
+		"UID:u1",
+		"ORGANIZER;CN=adam@adamcrowder.net:mailto:adam@adamcrowder.net",
+		"ATTENDEE;X-PM-TOKEN=tok123;RSVP=TRUE;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;CN=adacrowd:mailto:adacrowd@amazon.com",
+		"ATTENDEE;ROLE=OPT-PARTICIPANT:mailto:second@example.com",
+		"X-PM-CONFERENCE-ID;X-PM-PROVIDER=2:MQYTXG4HKC",
+		"X-PM-CONFERENCE-URL;X-PM-HOST=adam@adamcrowder.net:https://meet.proton.me/join/id-MQYTXG4HKC#pwd-bCrIJjgPqp0h",
+		"END:VEVENT", "END:VCALENDAR")
+
+	got, err := ParseFragment(in)
+	if err != nil {
+		t.Fatalf("ParseFragment: %v", err)
+	}
+
+	if got.Organizer == nil {
+		t.Fatal("Organizer = nil")
+	}
+	if got.Organizer.Email != "adam@adamcrowder.net" || got.Organizer.CN != "adam@adamcrowder.net" {
+		t.Errorf("Organizer = %+v", *got.Organizer)
+	}
+	if len(got.Attendees) != 2 {
+		t.Fatalf("Attendees len = %d, want 2", len(got.Attendees))
+	}
+	a := got.Attendees[0]
+	if a.Email != "adacrowd@amazon.com" || a.CN != "adacrowd" || a.Role != "REQ-PARTICIPANT" ||
+		a.PartStat != "NEEDS-ACTION" || a.RSVP != "TRUE" || a.Token != "tok123" {
+		t.Errorf("Attendees[0] = %+v", a)
+	}
+	if got.Attendees[1].Email != "second@example.com" || got.Attendees[1].Role != "OPT-PARTICIPANT" {
+		t.Errorf("Attendees[1] = %+v", got.Attendees[1])
+	}
+	if got.ConferenceID != "MQYTXG4HKC" || got.ConferenceProvider != "2" {
+		t.Errorf("Conference ID/provider = %q/%q", got.ConferenceID, got.ConferenceProvider)
+	}
+	if got.ConferenceURL != "https://meet.proton.me/join/id-MQYTXG4HKC#pwd-bCrIJjgPqp0h" ||
+		got.ConferenceHost != "adam@adamcrowder.net" {
+		t.Errorf("Conference URL/host = %q/%q", got.ConferenceURL, got.ConferenceHost)
+	}
+}
+
 func assertParsedEqual(t *testing.T, got, want VEvent) {
 	t.Helper()
 	if got.UID != want.UID {
