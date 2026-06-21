@@ -66,7 +66,7 @@ func deleteSeriesExceptions(ctx context.Context, client papi.API, calendarID, ui
 //   - occurrenceTS == 0 and the row is an exception: delete just that
 //     occurrence (EXDATE + row).
 //   - master row: delete the whole series (master + all same-UID rows; the
-//     server orphans exceptions otherwise - see RESEARCH.md).
+//     server orphans exceptions otherwise - see docs/api.md).
 //   - plain event: delete the row.
 func SmartDelete(ctx context.Context, client papi.API, access *calendar.Access, eventID string, occurrenceTS int64) (*DeleteResult, error) {
 	raw, err := Get(ctx, client, access.CalendarID, eventID)

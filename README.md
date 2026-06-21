@@ -7,7 +7,7 @@ the web client's endpoints and client-side PGP key hierarchy.
 
 Built on Proton's official [`go-proton-api`](https://github.com/ProtonMail/go-proton-api)
 (auth, sessions, key unlocking) with the calendar write path implemented here.
-The reverse-engineered API details are documented in [RESEARCH.md](RESEARCH.md).
+The reverse-engineered API details are documented in [docs/](docs/).
 
 > Unofficial. Not affiliated with or endorsed by Proton AG. Use at your own
 > risk - the API is undocumented and may change.
@@ -203,10 +203,13 @@ internal/config       config + session store (flock-guarded, atomic writes)
 internal/integration  opt-in live test suite (build tag `integration`)
 ```
 
-[RESEARCH.md](RESEARCH.md) documents the reverse-engineered Proton API this
-is built on: auth flow, key hierarchy, event encryption model, sync payload
-semantics, recurrence behavior (all verified live against the API), plus the
-sharp edges of the libraries involved. Other key references:
+The [docs/](docs/) directory documents the reverse-engineered Proton API this
+is built on, split into
+[overview](docs/overview.md) (key hierarchy, sessions/scopes, error codes),
+[crypto](docs/crypto.md) (auth flow, key unlocking, event encryption model),
+[api](docs/api.md) (endpoints, sync payload semantics, reading/pagination,
+recurrence) and [libraries](docs/libraries.md) (the sharp edges of the Go
+libraries involved) - all verified live against the API. Other key references:
 [`go-proton-api`](https://github.com/ProtonMail/go-proton-api),
 [`ProtonMail/WebClients`](https://github.com/ProtonMail/WebClients) (calendar
 crypto in `packages/shared/lib/calendar/`), and

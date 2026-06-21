@@ -18,7 +18,7 @@ import (
 const pageSize = 100
 
 // eventBody is the Event object of a sync payload. Field presence is
-// significant (see RESEARCH.md): the content arrays must serialize as []
+// significant (see docs/api.md): the content arrays must serialize as []
 // (never null). Notifications/Color/Attendees mirror the web client's
 // formatData: on create they are null/null/[]; on update they carry the
 // event's existing values so the sync call does not reset them (sending
@@ -125,7 +125,7 @@ type eventsResponse struct {
 }
 
 // Windowed-query constants. The /events endpoint only honours Start/End when
-// a Type is supplied (see RESEARCH.md "Reading Events and Pagination"); the
+// a Type is supplied (see docs/api.md "Reading events and pagination"); the
 // web client issues one paginated stream per Type, all four in parallel.
 const (
 	// queryTypePartDayInside selects timed events starting inside the window.

@@ -13,8 +13,8 @@
 // (HTTP 403, Proton code 9101). Gaining it requires a full SRP proof to
 // PUT /core/v4/users/unlock, which go-proton-api does not implement; see
 // unlockScope. The scope is dropped again (PUT /core/v4/users/lock) as soon
-// as the salts have been fetched; see RESEARCH.md for the full unlock/lock
-// dance.
+// as the salts have been fetched; see docs/overview.md for the full
+// unlock/lock dance.
 package auth
 
 import (

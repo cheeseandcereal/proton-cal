@@ -31,7 +31,7 @@ import (
 
 const (
 	// AppVersion is sent as x-pm-appversion (verified accepted by the
-	// API; see RESEARCH.md).
+	// API; see docs/crypto.md).
 	AppVersion = "Other"
 	// UserAgent is sent on raw requests.
 	UserAgent = "proton-cal/0.1"
@@ -41,7 +41,7 @@ const (
 )
 
 // Proton API response codes observed on the calendar endpoints (see
-// RESEARCH.md "Error Codes").
+// docs/overview.md "Error codes").
 const (
 	// CodeSuccess is the per-entry and top-level success code.
 	CodeSuccess = 1000

@@ -34,7 +34,7 @@ const (
 
 // DefaultBaseURL is the Proton API endpoint used unless overridden in
 // config.toml. This host is verified to work with app version "Other"
-// (see RESEARCH.md).
+// (see docs/crypto.md).
 const DefaultBaseURL = "https://mail-api.proton.me"
 
 // Config is the user-editable configuration stored in config.toml.
