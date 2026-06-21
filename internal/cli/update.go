@@ -60,7 +60,7 @@ rule and a matching weekday).`,
 				return err
 			}
 
-			if jsonOutput {
+			if outputJSON() {
 				return printJSON(updatedJSON{
 					Updated:           true,
 					EditedOccurrence:  outcome.EditedOccurrence,

@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cheeseandcereal/proton-cal/internal/calendar"
 	"github.com/cheeseandcereal/proton-cal/internal/calsvc"
 	"github.com/cheeseandcereal/proton-cal/internal/caltypes"
 	"github.com/cheeseandcereal/proton-cal/internal/event"
@@ -39,7 +40,7 @@ func listedTimed() event.Listed {
 }
 
 func TestOccurrenceLinesTimed(t *testing.T) {
-	got := occurrenceLines(listedTimed(), time.UTC)
+	got := occurrenceLines(listedTimed(), time.UTC, fieldSet{})
 	want := []string{
 		"  2026-06-12 09:00 - 09:30  Standup  [Zoom]",
 		"      Weekly sync",
@@ -52,7 +53,7 @@ func TestOccurrenceLinesTimed(t *testing.T) {
 
 func TestOccurrenceLinesTimedInZone(t *testing.T) {
 	loc := time.FixedZone("UTC+2", 2*60*60)
-	got := occurrenceLines(listedTimed(), loc)
+	got := occurrenceLines(listedTimed(), loc, fieldSet{})
 	if got[0] != "  2026-06-12 11:00 - 11:30  Standup  [Zoom]" {
 		t.Errorf("head line in UTC+2 = %q", got[0])
 	}
@@ -63,7 +64,7 @@ func TestOccurrenceLinesNoTitleNoExtras(t *testing.T) {
 	l.Event.Summary = ""
 	l.Event.Description = ""
 	l.Event.Location = ""
-	got := occurrenceLines(l, time.UTC)
+	got := occurrenceLines(l, time.UTC, fieldSet{})
 	want := []string{
 		"  2026-06-12 09:00 - 09:30  (no title)",
 		"    ID: evt1",
@@ -79,7 +80,7 @@ func TestOccurrenceLinesAllDay(t *testing.T) {
 	// Render in a negative-offset zone: the all-day date must stay the
 	// UTC-anchored date, not shift to the previous local day.
 	loc := time.FixedZone("UTC-7", -7*60*60)
-	got := occurrenceLines(l, loc)
+	got := occurrenceLines(l, loc, fieldSet{})
 	if got[0] != "  2026-06-12 (all day)  Standup  [Zoom]" {
 		t.Errorf("all-day head line = %q", got[0])
 	}
@@ -89,7 +90,7 @@ func TestOccurrenceLinesRecurringMaster(t *testing.T) {
 	l := listedTimed()
 	l.Occurrence.Event.RRule = "FREQ=DAILY"
 	l.Event.RRule = "FREQ=DAILY"
-	got := occurrenceLines(l, time.UTC)
+	got := occurrenceLines(l, time.UTC, fieldSet{})
 	want := []string{
 		"  2026-06-12 09:00 - 09:30  Standup  (recurring)  [Zoom]",
 		"      Weekly sync",
@@ -107,7 +108,7 @@ func TestOccurrenceLinesRecurringAllDayMaster(t *testing.T) {
 	l.Occurrence.Start = ts(2026, 6, 12, 0, 0)
 	l.Event.AllDay = true
 	loc := time.FixedZone("UTC-7", -7*60*60)
-	got := occurrenceLines(l, loc)
+	got := occurrenceLines(l, loc, fieldSet{})
 	last := got[len(got)-1]
 	if last != "    occurrence start: 2026-06-12" {
 		t.Errorf("all-day occurrence start line = %q", last)
@@ -118,7 +119,7 @@ func TestOccurrenceLinesEditedOccurrence(t *testing.T) {
 	l := listedTimed()
 	l.Occurrence.Event.RecurrenceID = ts(2026, 6, 12, 8, 0)
 	l.Event.RecurrenceID = time.Unix(ts(2026, 6, 12, 8, 0), 0).UTC()
-	got := occurrenceLines(l, time.UTC)
+	got := occurrenceLines(l, time.UTC, fieldSet{})
 	if got[0] != "  2026-06-12 09:00 - 09:30  Standup  (edited occurrence)  [Zoom]" {
 		t.Errorf("edited occurrence head line = %q", got[0])
 	}
@@ -218,21 +219,109 @@ func TestEventDetailRendersEnrichment(t *testing.T) {
 		t.Errorf("notifications = %+v", j.Notifications)
 	}
 
-	// Human lines contain the key facts.
-	lines := eventDetailLines(ev, time.UTC)
+	// Human lines contain the key facts with Title-Case labels.
+	sel, err := selectFields(eventFieldRegistry, nil, true)
+	if err != nil {
+		t.Fatalf("selectFields: %v", err)
+	}
+	lines := eventDetailLines(ev, time.UTC, sel)
 	joined := ""
 	for _, l := range lines {
 		joined += l + "\n"
 	}
 	for _, want := range []string{
-		"Test Event", "organizer: adam <adam@adamcrowder.net>",
-		"attendee: adacrowd <adacrowd@amazon.com> (accepted)",
-		"Proton Meet: https://meet.proton.me/join/id-MQYTXG4HKC#pwd-x",
-		"reminder (notify): -PT1H", "color: #EC3E7C", "ID: evt1",
+		"Summary:", "Test Event",
+		"Organizer:", "adam <adam@adamcrowder.net>",
+		"Attendee:", "adacrowd <adacrowd@amazon.com> (accepted)",
+		"Conference (Proton Meet):", "https://meet.proton.me/join/id-MQYTXG4HKC#pwd-x",
+		"Reminder (notify):", "-PT1H",
+		"Color:", "#EC3E7C",
+		"ID:", "evt1",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("detail lines missing %q\n%s", want, joined)
 		}
+	}
+	// Color swatch is absent when color is disabled (no TTY in tests).
+	if strings.Contains(joined, "\x1b[") {
+		t.Errorf("unexpected ANSI escape in non-TTY output:\n%q", joined)
+	}
+}
+
+func TestSelectFieldsDefaultAllSubsetUnknown(t *testing.T) {
+	// Default: curated set excludes uid/calendar_id/rrule.
+	def, err := selectFields(eventFieldRegistry, nil, false)
+	if err != nil {
+		t.Fatalf("default: %v", err)
+	}
+	if !def.has(fieldSummary) || def.has(fieldUID) || def.has(fieldRRule) || def.has(fieldCalendarID) {
+		t.Errorf("default set = %v", sortedFieldSet(def))
+	}
+	// --all: includes the technical fields.
+	all, err := selectFields(eventFieldRegistry, nil, true)
+	if err != nil {
+		t.Fatalf("all: %v", err)
+	}
+	if !all.has(fieldUID) || !all.has(fieldRRule) || !all.has(fieldCalendarID) {
+		t.Errorf("all set = %v", sortedFieldSet(all))
+	}
+	// Explicit subset (comma-joined) is honored verbatim; --all ignored.
+	sub, err := selectFields(eventFieldRegistry, []string{"summary,location"}, true)
+	if err != nil {
+		t.Fatalf("subset: %v", err)
+	}
+	if got := sortedFieldSet(sub); !reflect.DeepEqual(got, []string{"location", "summary"}) {
+		t.Errorf("subset = %v", got)
+	}
+	// Unknown field errors with the valid list.
+	if _, err := selectFields(eventFieldRegistry, []string{"bogus"}, false); err == nil ||
+		!strings.Contains(err.Error(), "unknown field") || !strings.Contains(err.Error(), "summary") {
+		t.Errorf("unknown field error = %v", err)
+	}
+}
+
+func TestCalendarDetailLines(t *testing.T) {
+	c := calendar.Info{
+		ID: "cal1", Name: "Personal", Description: "My stuff", Color: "#415DF0",
+		Type: 0, MemberID: "mem1", AddressID: "addr1", Email: "me@example.com",
+	}
+	// Curated default hides email/member/address.
+	def, _ := selectFields(calendarFieldRegistry, nil, false)
+	joined := strings.Join(calendarDetailLines(c, true, def), "\n")
+	for _, want := range []string{"Name:", "Personal", "Type:", "normal", "Color:", "#415DF0", "ID:", "cal1", "Default:"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("default calendar detail missing %q\n%s", want, joined)
+		}
+	}
+	for _, unwanted := range []string{"Email:", "Member ID:", "Address ID:"} {
+		if strings.Contains(joined, unwanted) {
+			t.Errorf("default calendar detail should hide %q\n%s", unwanted, joined)
+		}
+	}
+	// --all reveals them.
+	all, _ := selectFields(calendarFieldRegistry, nil, true)
+	joinedAll := strings.Join(calendarDetailLines(c, false, all), "\n")
+	for _, want := range []string{"Email:", "me@example.com", "Member ID:", "mem1", "Address ID:", "addr1"} {
+		if !strings.Contains(joinedAll, want) {
+			t.Errorf("--all calendar detail missing %q\n%s", want, joinedAll)
+		}
+	}
+	// Not-default calendar omits the Default row.
+	if strings.Contains(joinedAll, "Default:") {
+		t.Errorf("non-default calendar should omit Default row\n%s", joinedAll)
+	}
+}
+
+func TestParseHexColor(t *testing.T) {
+	r, g, b, ok := parseHexColor("#EC3E7C")
+	if !ok || r != 0xEC || g != 0x3E || b != 0x7C {
+		t.Errorf("parseHexColor(#EC3E7C) = %d,%d,%d,%v", r, g, b, ok)
+	}
+	if _, _, _, ok := parseHexColor("nope"); ok {
+		t.Error("parseHexColor(nope) ok = true, want false")
+	}
+	if _, _, _, ok := parseHexColor("#FFF"); ok {
+		t.Error("parseHexColor(#FFF) ok = true, want false (only 6-digit supported)")
 	}
 }
 

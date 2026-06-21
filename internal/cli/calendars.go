@@ -28,7 +28,7 @@ func newCalendarsCmd() *cobra.Command {
 			}
 			defaultSel := svc.DefaultCalendarSelector()
 
-			if jsonOutput {
+			if outputJSON() {
 				return printJSON(calendarsJSON(cals, defaultSel))
 			}
 			renderCalendars(humanOut(), cals, defaultSel)
@@ -45,19 +45,29 @@ type calendarJSON struct {
 	Color       string `json:"color"`
 	Type        int    `json:"type"`
 	IsDefault   bool   `json:"is_default"`
+	Email       string `json:"email,omitempty"`
+	MemberID    string `json:"member_id,omitempty"`
+	AddressID   string `json:"address_id,omitempty"`
+}
+
+func calendarJSONOf(c calendar.Info, isDefault bool) calendarJSON {
+	return calendarJSON{
+		ID:          c.ID,
+		Name:        c.Name,
+		Description: c.Description,
+		Color:       c.Color,
+		Type:        c.Type,
+		IsDefault:   isDefault,
+		Email:       c.Email,
+		MemberID:    c.MemberID,
+		AddressID:   c.AddressID,
+	}
 }
 
 func calendarsJSON(cals []calendar.Info, defaultSel string) []calendarJSON {
 	rows := make([]calendarJSON, 0, len(cals))
 	for _, c := range cals {
-		rows = append(rows, calendarJSON{
-			ID:          c.ID,
-			Name:        c.Name,
-			Description: c.Description,
-			Color:       c.Color,
-			Type:        c.Type,
-			IsDefault:   c.Matches(defaultSel),
-		})
+		rows = append(rows, calendarJSONOf(c, c.Matches(defaultSel)))
 	}
 	return rows
 }
@@ -74,7 +84,7 @@ func renderCalendars(w io.Writer, cals []calendar.Info, defaultSel string) {
 		}
 		fmt.Fprintf(w, "%s (%s)%s\n", c.Name, c.TypeString(), marker)
 		fmt.Fprintf(w, "  ID: %s\n", c.ID)
-		fmt.Fprintf(w, "  Color: %s\n", c.Color)
+		fmt.Fprintf(w, "  Color: %s%s\n", swatch(c.Color), c.Color)
 		if c.Description != "" {
 			fmt.Fprintf(w, "  Description: %s\n", c.Description)
 		}

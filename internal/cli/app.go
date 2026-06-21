@@ -6,6 +6,8 @@ import (
 	"io"
 	"os"
 
+	"golang.org/x/term"
+
 	"github.com/cheeseandcereal/proton-cal/internal/calsvc"
 )
 
@@ -20,13 +22,27 @@ func newService() (*calsvc.Service, error) {
 	return svc, nil
 }
 
-// humanOut returns the stream for human-readable output: stderr when --json
-// is active (stdout is reserved for the JSON document), stdout otherwise.
+// outputJSON reports whether the global --output flag selected JSON.
+func outputJSON() bool { return outputFormat == "json" }
+
+// humanOut returns the stream for human-readable output: stderr when JSON
+// output is active (stdout is reserved for the JSON document), stdout
+// otherwise.
 func humanOut() io.Writer {
-	if jsonOutput {
+	if outputJSON() {
 		return os.Stderr
 	}
 	return os.Stdout
+}
+
+// colorEnabled reports whether ANSI color should be emitted: only for the
+// human text view on a real terminal, with NO_COLOR unset and --no-color
+// not given. JSON and ICS output is never colorized.
+func colorEnabled() bool {
+	if noColor || outputJSON() || os.Getenv("NO_COLOR") != "" {
+		return false
+	}
+	return term.IsTerminal(int(os.Stdout.Fd()))
 }
 
 // printJSON writes v as indented JSON to stdout.

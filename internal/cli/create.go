@@ -41,7 +41,7 @@ func newCreateCmd() *cobra.Command {
 				return err
 			}
 
-			if jsonOutput {
+			if outputJSON() {
 				return printJSON(createdJSON{
 					ID:      created.ID,
 					UID:     created.UID,

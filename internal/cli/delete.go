@@ -35,7 +35,7 @@ occurrence's own ID deletes just that occurrence.`,
 				return err
 			}
 
-			if jsonOutput {
+			if outputJSON() {
 				return printJSON(res)
 			}
 

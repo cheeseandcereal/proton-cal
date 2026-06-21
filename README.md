@@ -24,8 +24,12 @@ The reverse-engineered API details are documented in [RESEARCH.md](RESEARCH.md).
 - **Recurring events**: daily/weekly/monthly/yearly rules (or raw `--rrule`),
   client-side occurrence expansion, single-occurrence edit/delete (EXDATE +
   exception rows), series-wide changes with stale-exception cleanup
-- **All-day events**, multi-address signing
-- **`--json`** output on every read/write command
+ - **All-day events**, multi-address signing
+- **`get event` / `get calendar`**: full single-resource detail, with
+  `--fields`/`--all` to control which fields show and color swatches in the
+  terminal
+- **`-o/--output json`** on every read/write command (machine-readable JSON
+  on stdout; human messages on stderr)
 - **MCP server**: stdio server exposing the same operations as 5 tools
 
 ## Install
@@ -87,8 +91,20 @@ proton-cal delete <event-id> --occurrence "2026-06-02 09:00"
 # Delete (recurring events: whole series incl. edited occurrences)
 proton-cal delete <event-id>
 
-# Machine-readable output
-proton-cal events --days 7 --json
+# Inspect one resource in full detail (labeled fields; color swatch in a terminal)
+proton-cal get event <event-id>
+proton-cal get event <event-id> --fields summary,location,attendees
+proton-cal get event <event-id> --all            # also uid, calendar_id, raw rrule
+proton-cal get event <event-id> --ics            # export the raw iCalendar document
+proton-cal get calendar                          # the default calendar
+proton-cal get calendar Work --all               # also email, member/address IDs
+
+# Machine-readable output (any command; JSON on stdout, messages on stderr)
+proton-cal events --days 7 -o json
+proton-cal get event <event-id> -o json
+
+# Disable color (also auto-disabled when piped or when NO_COLOR is set)
+proton-cal get calendar --no-color
 ```
 
 All time-based commands accept `--tz` (default: the `timezone` saved in

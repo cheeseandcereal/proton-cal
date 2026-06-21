@@ -224,6 +224,25 @@ func (s *Service) GetEvent(ctx context.Context, in GetEventInput) (*GotEvent, er
 	return out, nil
 }
 
+// GotCalendar is a single resolved calendar with a flag for whether it is
+// the configured default.
+type GotCalendar struct {
+	Info      calendar.Info
+	IsDefault bool
+}
+
+// GetCalendar resolves a single calendar by selector (ID or name; "" = the
+// configured default, else first) and reports whether it is the configured
+// default. It reuses the cached calendar list and adds no network calls
+// beyond the existing list fetch resolveCalendar already performs.
+func (s *Service) GetCalendar(ctx context.Context, selector string) (*GotCalendar, error) {
+	info, err := s.resolveCalendar(ctx, selector)
+	if err != nil {
+		return nil, err
+	}
+	return &GotCalendar{Info: info, IsDefault: info.Matches(s.cfg.DefaultCalendar)}, nil
+}
+
 // anyDecryptFailed reports whether any listed event came back degraded.
 func anyDecryptFailed(listed []event.Listed) bool {
 	for _, l := range listed {
