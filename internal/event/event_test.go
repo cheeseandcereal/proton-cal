@@ -315,10 +315,16 @@ func TestDecryptEnrichesAttendeesConferenceRowFields(t *testing.T) {
 	}, "\r\n")
 	// Re-encrypt the conference URL into the shared encrypted card by
 	// rebuilding it alongside the existing summary content.
+	// DESCRIPTION carries the user's text plus Proton's embedded
+	// conference block (separator-bracketed), exactly as Proton stores it.
+	const sep = "~-~-~-~-~-~-~%~!~%~!~%~!~%~!~%~!~%~!~%~!~%~!~%~!~%~!~%~!~%~!~%~!~-~-~-~-~-~-~"
+	desc := "Some Test description\\n" + sep +
+		"\\nJoin Proton Meet: https://meet.proton.me/join/id-MQYTXG4HKC#pwd-secret123\\n" + sep
 	sharedEnc := strings.Join([]string{
 		"BEGIN:VCALENDAR", "BEGIN:VEVENT",
 		"UID:uid1", "DTSTAMP:20260601T000000Z",
 		"SUMMARY:Test Event",
+		"DESCRIPTION:" + desc,
 		"X-PM-CONFERENCE-URL;X-PM-HOST=adam@adamcrowder.net:https://meet.proton.me/join/id-MQYTXG4HKC#pwd-secret123",
 		"END:VEVENT", "END:VCALENDAR",
 	}, "\r\n")
@@ -359,6 +365,11 @@ func TestDecryptEnrichesAttendeesConferenceRowFields(t *testing.T) {
 	}
 	if ev.Color != "#EC3E7C" || !ev.IsOrganizer {
 		t.Errorf("color/isOrganizer = %q/%v", ev.Color, ev.IsOrganizer)
+	}
+	// The embedded conference block must be stripped from the displayed
+	// description (it is surfaced as a structured Conference field instead).
+	if ev.Description != "Some Test description" {
+		t.Errorf("description not cleaned: %q", ev.Description)
 	}
 	if len(ev.Notifications) != 2 || ev.Notifications[0].Trigger != "-PT1H" {
 		t.Errorf("notifications = %+v", ev.Notifications)

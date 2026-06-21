@@ -63,6 +63,13 @@ func Decrypt(raw *caltypes.RawEvent, calKR *crypto.KeyRing) (*Event, error) {
 
 	enrichAttendeeStatus(ev, raw.Attendees)
 	assembleConference(ev)
+	// Proton embeds the conference join block into DESCRIPTION for client
+	// portability; surface a clean description (the conference is exposed as
+	// a structured field). The raw cards used by BuildICS are untouched, so
+	// the ICS export keeps the embedded block.
+	if ev.Conference != nil {
+		ev.Description = ical.StripConferenceBlock(ev.Description)
+	}
 	return ev, nil
 }
 

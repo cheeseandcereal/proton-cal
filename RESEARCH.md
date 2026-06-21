@@ -276,6 +276,21 @@ A conference is stored as two custom properties split across the shared cards:
 
 Reassembling the full conference therefore needs both cards.
 
+Proton **also embeds** a human-readable join block into the `DESCRIPTION`
+itself (so non-Proton clients show a link), bracketed by a fixed separator
+constant `SEPARATOR_PROTON_EVENTS`:
+
+```
+~-~-~-~-~-~-~%~!~%~!~%~!~%~!~%~!~%~!~%~!~%~!~%~!~%~!~%~!~%~!~%~!~-~-~-~-~-~-~
+```
+
+The web/mobile clients strip the region matching
+`\n?<SEPARATOR>[\s\S]*?<SEPARATOR>` from the description for display
+(`removeVideoConfInfoFromDescription`), showing the conference as a separate
+field. We do the same for structured/detail output (`ical.StripConferenceBlock`,
+applied only when the event has conference data), but keep `DESCRIPTION`
+verbatim in the ICS export so the portability fallback survives.
+
 ### Fragment format
 
 - Each card is a full `BEGIN:VCALENDAR` / `BEGIN:VEVENT` wrapper with

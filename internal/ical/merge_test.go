@@ -100,6 +100,38 @@ func TestMergeFragmentsExdateUnion(t *testing.T) {
 	}
 }
 
+func TestStripConferenceBlock(t *testing.T) {
+	const sep = "~-~-~-~-~-~-~%~!~%~!~%~!~%~!~%~!~%~!~%~!~%~!~%~!~%~!~%~!~%~!~%~!~-~-~-~-~-~-~"
+	tests := []struct {
+		name string
+		in   string
+		want string
+	}{
+		{
+			name: "strips embedded block, keeps user text",
+			in:   "Some Test description\n" + sep + "\nJoin Proton Meet: https://meet.proton.me/join/id-X#pwd-y\n" + sep,
+			want: "Some Test description",
+		},
+		{
+			name: "no block is a no-op",
+			in:   "Just a normal description",
+			want: "Just a normal description",
+		},
+		{
+			name: "block-only description becomes empty",
+			in:   sep + "\nJoin Proton Meet: https://meet.proton.me/join/id-X#pwd-y\n" + sep,
+			want: "",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := StripConferenceBlock(tt.in); got != tt.want {
+				t.Errorf("StripConferenceBlock() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestMergeFragmentsPreservesValarm(t *testing.T) {
 	withAlarm := joinCRLF("BEGIN:VEVENT", "UID:u1",
 		"BEGIN:VALARM", "ACTION:DISPLAY", "TRIGGER:-PT10M", "DESCRIPTION:x", "END:VALARM",
