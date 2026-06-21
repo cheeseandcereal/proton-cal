@@ -144,17 +144,8 @@ func eventDetailRows(ev *event.Event, sel fieldSet, set calendar.Settings, cal c
 func occurrenceLines(l event.Listed, loc *time.Location, sel fieldSet, set calendar.Settings, cal calendar.Info) []string {
 	raw := l.Occurrence.Event
 	ev := l.Event
-	summary := ev.Summary
-	if summary == "" {
-		summary = "(no title)"
-	}
 	recurring := raw.IsMaster()
-	switch {
-	case recurring:
-		summary += "  (recurring)"
-	case raw.IsException():
-		summary += "  (edited occurrence)"
-	}
+	summary := eventview.SummaryOr(ev) + eventview.RecurrenceSuffix(raw)
 
 	start := time.Unix(l.Occurrence.Start, 0)
 	end := time.Unix(l.Occurrence.End, 0)
@@ -249,11 +240,7 @@ func eventDetailLines(ev *event.Event, loc *time.Location, sel fieldSet, set cal
 		}
 	}
 
-	summary := ev.Summary
-	if summary == "" {
-		summary = "(no title)"
-	}
-	add(fieldSummary, "Summary", summary)
+	add(fieldSummary, "Summary", eventview.SummaryOr(ev))
 	if ev.AllDay {
 		add(fieldStart, "Date", ev.Start.UTC().Format("2006-01-02")+" (all day)")
 		add(fieldEnd, "End", ev.End.UTC().Format("2006-01-02"))

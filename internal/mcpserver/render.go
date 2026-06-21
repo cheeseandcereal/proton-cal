@@ -37,10 +37,7 @@ func renderCalendars(cals []calendar.Info, defaultSelector string) string {
 func renderOccurrence(l event.Listed, loc *time.Location, set calendar.Settings, cal calendar.Info) string {
 	raw := l.Occurrence.Event
 	ev := l.Event
-	summary := ev.Summary
-	if summary == "" {
-		summary = "(no title)"
-	}
+	summary := eventview.SummaryOr(ev)
 
 	start := time.Unix(l.Occurrence.Start, 0)
 	end := time.Unix(l.Occurrence.End, 0)
@@ -53,12 +50,7 @@ func renderOccurrence(l event.Listed, loc *time.Location, set calendar.Settings,
 
 	line := fmt.Sprintf("- %s  %s", timeStr, summary)
 	recurring := raw.IsMaster()
-	switch {
-	case recurring:
-		line += "  (recurring)"
-	case raw.IsException():
-		line += "  (edited occurrence)"
-	}
+	line += eventview.RecurrenceSuffix(raw)
 	if ev.Location != "" {
 		line += fmt.Sprintf("  [%s]", ev.Location)
 	}
@@ -79,7 +71,7 @@ func renderOccurrence(l event.Listed, loc *time.Location, set calendar.Settings,
 // conferencing, reminders) shared by list_events and get_event, with the
 // effective reminders resolved from the calendar defaults. Returns "" when
 // the event has none. Each line is indented two spaces.
-func renderEventExtras(ev *event.Event, set calendar.Settings, _ calendar.Info) string {
+func renderEventExtras(ev *event.Event, set calendar.Settings, cal calendar.Info) string {
 	var lines []string
 	if ev.Organizer != nil {
 		lines = append(lines, "  organizer: "+eventview.PersonOf(ev.Organizer))
@@ -93,15 +85,15 @@ func renderEventExtras(ev *event.Event, set calendar.Settings, _ calendar.Info) 
 	for _, n := range eventview.EffectiveReminders(ev, set) {
 		lines = append(lines, "  reminder ("+eventview.ReminderKind(n.Type)+"): "+n.Trigger)
 	}
+	if c := eventview.EffectiveColor(ev, cal); c != "" {
+		lines = append(lines, "  color: "+c)
+	}
 	return strings.Join(lines, "\n")
 }
 
 // renderEventDetail renders the get_event reply for a single fetched event.
 func renderEventDetail(ev *event.Event, loc *time.Location, set calendar.Settings, cal calendar.Info) string {
-	summary := ev.Summary
-	if summary == "" {
-		summary = "(no title)"
-	}
+	summary := eventview.SummaryOr(ev)
 	var when string
 	if ev.AllDay {
 		when = ev.Start.UTC().Format("Mon 02 Jan") + " (all day)"
@@ -120,9 +112,6 @@ func renderEventDetail(ev *event.Event, loc *time.Location, set calendar.Setting
 	}
 	if detail := renderEventExtras(ev, set, cal); detail != "" {
 		line += "\n" + detail
-	}
-	if c := eventview.EffectiveColor(ev, cal); c != "" {
-		line += "\n  color: " + c
 	}
 	line += "\n  ID: " + ev.EventID
 	return line

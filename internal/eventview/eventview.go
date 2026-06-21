@@ -70,6 +70,28 @@ func AttendeeString(a event.Attendee) string {
 	return who
 }
 
+// SummaryOr returns the event's summary, or "(no title)" when it is empty.
+func SummaryOr(ev *event.Event) string {
+	if ev.Summary == "" {
+		return "(no title)"
+	}
+	return ev.Summary
+}
+
+// RecurrenceSuffix returns a parenthesized recurrence marker for a row -
+// "  (recurring)" for a master, "  (edited occurrence)" for an exception, or
+// "" otherwise. The leading two spaces let callers append it directly.
+func RecurrenceSuffix(raw *caltypes.RawEvent) string {
+	switch {
+	case raw.IsMaster():
+		return "  (recurring)"
+	case raw.IsException():
+		return "  (edited occurrence)"
+	default:
+		return ""
+	}
+}
+
 // ReminderKind maps a notification Type to a label (0 = email, else notify).
 func ReminderKind(typ int) string {
 	if typ == 0 {
