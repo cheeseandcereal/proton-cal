@@ -64,10 +64,108 @@ func renderOccurrence(l event.Listed, loc *time.Location) string {
 	if ev.Description != "" {
 		line += "\n  " + ev.Description
 	}
+	if detail := renderEventExtras(ev); detail != "" {
+		line += "\n" + detail
+	}
 	line += "\n  ID: " + ev.EventID
 	if recurring {
 		line += "\n  occurrence start: " + calsvc.FormatOccurrenceStart(l.Occurrence.Start, ev.AllDay, loc)
 	}
+	return line
+}
+
+// attendeeStatusName maps the ATTENDEE_STATUS_API code to a label.
+func attendeeStatusName(status int) string {
+	switch status {
+	case 0:
+		return "needs-action"
+	case 1:
+		return "tentative"
+	case 2:
+		return "declined"
+	case 3:
+		return "accepted"
+	default:
+		return ""
+	}
+}
+
+// conferenceProviderName maps the VIDEO_CONFERENCE_PROVIDER code to a label.
+func conferenceProviderName(provider string) string {
+	switch provider {
+	case "1":
+		return "Zoom"
+	case "2":
+		return "Proton Meet"
+	default:
+		return provider
+	}
+}
+
+// renderEventExtras renders the enrichment lines (organizer, attendees,
+// conferencing, reminders) shared by list_events and get_event. Returns ""
+// when the event has none. Each line is indented two spaces.
+func renderEventExtras(ev *event.Event) string {
+	var lines []string
+	if ev.Organizer != nil {
+		who := ev.Organizer.Email
+		if ev.Organizer.CN != "" && ev.Organizer.CN != who {
+			who = fmt.Sprintf("%s <%s>", ev.Organizer.CN, ev.Organizer.Email)
+		}
+		lines = append(lines, "  organizer: "+who)
+	}
+	for _, a := range ev.Attendees {
+		who := a.Email
+		if a.CN != "" && a.CN != who {
+			who = fmt.Sprintf("%s <%s>", a.CN, a.Email)
+		}
+		if st := attendeeStatusName(a.Status); st != "" {
+			who += " (" + st + ")"
+		}
+		lines = append(lines, "  attendee: "+who)
+	}
+	if c := ev.Conference; c != nil && c.URL != "" {
+		lines = append(lines, "  "+conferenceProviderName(c.Provider)+": "+c.URL)
+	}
+	for _, n := range ev.Notifications {
+		kind := "notify"
+		if n.Type == 0 {
+			kind = "email"
+		}
+		lines = append(lines, "  reminder ("+kind+"): "+n.Trigger)
+	}
+	return strings.Join(lines, "\n")
+}
+
+// renderEventDetail renders the get_event reply for a single fetched event.
+func renderEventDetail(ev *event.Event, loc *time.Location) string {
+	summary := ev.Summary
+	if summary == "" {
+		summary = "(no title)"
+	}
+	var when string
+	if ev.AllDay {
+		when = ev.Start.UTC().Format("Mon 02 Jan") + " (all day)"
+	} else {
+		when = ev.Start.In(loc).Format("Mon 02 Jan 15:04") + " - " + ev.End.In(loc).Format("15:04")
+	}
+	line := fmt.Sprintf("%s\n  %s", summary, when)
+	if ev.IsRecurring() {
+		line += "  (recurring)"
+	}
+	if ev.Location != "" {
+		line += "\n  location: " + ev.Location
+	}
+	if ev.Description != "" {
+		line += "\n  description: " + ev.Description
+	}
+	if detail := renderEventExtras(ev); detail != "" {
+		line += "\n" + detail
+	}
+	if ev.Color != "" {
+		line += "\n  color: " + ev.Color
+	}
+	line += "\n  ID: " + ev.EventID
 	return line
 }
 

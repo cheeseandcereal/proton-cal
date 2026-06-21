@@ -30,6 +30,14 @@ func (s *server) register(srv *mcp.Server) {
 	}, s.listEvents)
 
 	mcp.AddTool(srv, &mcp.Tool{
+		Name: "get_event",
+		Description: "Get a single calendar event in full detail by its ID: " +
+			"summary, times, location, description, organizer, attendees with their " +
+			"RSVP status, video conferencing (Proton Meet/Zoom) link, color and reminders. " +
+			"Set format to \"ics\" to instead return the event as a raw iCalendar (.ics) document.",
+	}, s.getEvent)
+
+	mcp.AddTool(srv, &mcp.Tool{
 		Name: "create_event",
 		Description: "Create a calendar event. " +
 			"Timed events need start and end (\"YYYY-MM-DD HH:MM\" in the configured default timezone, or tz); " +
@@ -93,6 +101,39 @@ func (s *server) listEvents(ctx context.Context, _ *mcp.CallToolRequest, args li
 		return nil, nil, err
 	}
 	return textResult(renderEvents(list.Items, list.Days, list.Location)), nil, nil
+}
+
+// ---------------------------------------------------------------- get_event
+
+type getEventArgs struct {
+	EventID  string `json:"event_id" jsonschema:"The event ID (get from list_events)"`
+	Calendar string `json:"calendar,omitempty" jsonschema:"Calendar ID or name the event lives in (optional; default: the configured default calendar, else the first calendar)"`
+	TZ       string `json:"tz,omitempty" jsonschema:"IANA timezone for display (optional; default: the configured timezone)"`
+	Format   string `json:"format,omitempty" jsonschema:"Output format: \"detail\" (default, human-readable) or \"ics\" (raw iCalendar document)"`
+}
+
+func (s *server) getEvent(ctx context.Context, _ *mcp.CallToolRequest, args getEventArgs) (*mcp.CallToolResult, any, error) {
+	svc, err := s.service()
+	if err != nil {
+		return nil, nil, err
+	}
+	ics := args.Format == "ics"
+	got, err := svc.GetEvent(ctx, calsvc.GetEventInput{
+		EventID:  args.EventID,
+		Calendar: args.Calendar,
+		TZ:       args.TZ,
+		WithICS:  ics,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	if ics {
+		if got.ICS == "" {
+			return nil, nil, fmt.Errorf("event could not be decrypted into iCalendar")
+		}
+		return textResult(got.ICS), nil, nil
+	}
+	return textResult(renderEventDetail(got.Event, got.Location)), nil, nil
 }
 
 // ---------------------------------------------------------------- create_event

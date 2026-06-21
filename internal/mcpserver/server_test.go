@@ -48,7 +48,7 @@ func TestServerExposesAllTools(t *testing.T) {
 		names = append(names, tool.Name)
 	}
 	sort.Strings(names)
-	want := []string{"create_event", "delete_event", "list_calendars", "list_events", "update_event"}
+	want := []string{"create_event", "delete_event", "get_event", "list_calendars", "list_events", "update_event"}
 	if len(names) != len(want) {
 		t.Fatalf("tools = %v, want %v", names, want)
 	}
