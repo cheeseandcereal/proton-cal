@@ -332,79 +332,164 @@ func TestUpdateRefusesDegradedMaster(t *testing.T) {
 
 // ---------- Query ----------
 
-func TestQueryPaginationAndFilter(t *testing.T) {
-	page0 := make([]*caltypes.RawEvent, pageSize)
-	for i := range page0 {
-		page0[i] = &caltypes.RawEvent{ID: "fill" + itoa(i), StartTime: 50, EndTime: 60}
-	}
-	page1 := []*caltypes.RawEvent{
-		{ID: "in-window", StartTime: 150, EndTime: 250},
-		{ID: "outside", StartTime: 5000, EndTime: 6000},
-		{ID: "master", StartTime: 5, EndTime: 10, RRule: "FREQ=DAILY"},
-	}
-	total := len(page0) + len(page1)
+// fakeEventsServer serves the windowed /events endpoint: it partitions the
+// given rows across the four Type buckets and the More-paginated pages, and
+// only returns a row when the requested [Start,End] window overlaps the row's
+// [StartTime,EndTime]. It records the (Type,Page) keys it served. A nil
+// bucketOf assigns every row to queryTypePartDayInside.
+type fakeEventsServer struct {
+	rows     []*caltypes.RawEvent
+	bucketOf func(*caltypes.RawEvent) int
 
+	mu     sync.Mutex
+	served map[string]int // "type:page" -> count
+}
+
+func newFakeEventsServer(t *testing.T, rows []*caltypes.RawEvent, bucketOf func(*caltypes.RawEvent) int) (*fakeEventsServer, papi.API) {
+	t.Helper()
+	f := &fakeEventsServer{rows: rows, bucketOf: bucketOf, served: map[string]int{}}
 	mux := http.NewServeMux()
-	mux.HandleFunc("/calendar/v1/cal1/events", func(w http.ResponseWriter, r *http.Request) {
-		page := r.URL.Query().Get("Page")
-		w.Header().Set("Content-Type", "application/json")
-		switch page {
-		case "0":
-			_ = json.NewEncoder(w).Encode(eventsResponse{Events: page0, Total: total})
-		case "1":
-			_ = json.NewEncoder(w).Encode(eventsResponse{Events: page1, Total: total})
-		default:
-			t.Errorf("unexpected page %s", page)
-			_ = json.NewEncoder(w).Encode(eventsResponse{Total: total})
+	mux.HandleFunc("/calendar/v1/cal1/events", f.handle)
+	return f, newTestClient(t, mux)
+}
+
+func (f *fakeEventsServer) handle(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	typ, _ := strconv.Atoi(q.Get("Type"))
+	page, _ := strconv.Atoi(q.Get("Page"))
+	start, _ := strconv.ParseInt(q.Get("Start"), 10, 64)
+	end, _ := strconv.ParseInt(q.Get("End"), 10, 64)
+
+	f.mu.Lock()
+	f.served[itoa(typ)+":"+itoa(page)]++
+	f.mu.Unlock()
+
+	// Collect this Type's rows that overlap the requested window.
+	var matched []*caltypes.RawEvent
+	for _, ev := range f.rows {
+		b := queryTypePartDayInside
+		if f.bucketOf != nil {
+			b = f.bucketOf(ev)
 		}
-	})
-	client := newTestClient(t, mux)
+		if b != typ {
+			continue
+		}
+		if ev.StartTime < end && ev.EndTime > start {
+			matched = append(matched, ev)
+		}
+	}
+
+	lo := page * pageSize
+	hi := min(lo+pageSize, len(matched))
+	if lo > len(matched) {
+		lo = len(matched)
+	}
+	resp := eventsResponse{Events: matched[lo:hi]}
+	if hi < len(matched) {
+		resp.More = 1
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func (f *fakeEventsServer) count(typ, page int) int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.served[itoa(typ)+":"+itoa(page)]
+}
+
+func TestQueryWindowAndDedup(t *testing.T) {
+	rows := []*caltypes.RawEvent{
+		{ID: "in-window", StartTime: 150, EndTime: 250},
+		{ID: "outside", StartTime: 5_000_000, EndTime: 6_000_000},
+		// Recurring master starting before the window, served under the
+		// FullDayBefore bucket - must survive even though it does not overlap
+		// [100,1000) by its own times.
+		{ID: "master", StartTime: 5, EndTime: 10, RRule: "FREQ=DAILY", FullDay: 1},
+	}
+	bucket := func(ev *caltypes.RawEvent) int {
+		if ev.ID == "master" {
+			return queryTypeFullDayBefore
+		}
+		return queryTypePartDayInside
+	}
+	_, client := newFakeEventsServer(t, rows, bucket)
 
 	got, err := query(context.Background(), client, "cal1", 100, 1000, "UTC")
 	if err != nil {
-		t.Fatalf("Query: %v", err)
+		t.Fatalf("query: %v", err)
 	}
 	var ids []string
 	for _, ev := range got {
 		ids = append(ids, ev.ID)
 	}
-	// Window [100,1000): fillers (50-60) dropped, outside dropped, in-window
-	// kept, master always kept. Sorted by StartTime: master(5) first.
+	// "outside" never overlaps any padded window; "in-window" and "master"
+	// do (master via the before-window bucket). Sorted by StartTime:
+	// master(5) first.
 	if len(ids) != 2 || ids[0] != "master" || ids[1] != "in-window" {
-		t.Errorf("ids = %v", ids)
+		t.Errorf("ids = %v, want [master in-window]", ids)
+	}
+}
+
+func TestQueryAllTypesQueried(t *testing.T) {
+	f, client := newFakeEventsServer(t, []*caltypes.RawEvent{
+		{ID: "a", StartTime: 150, EndTime: 250},
+	}, nil)
+
+	if _, err := query(context.Background(), client, "cal1", 100, 1000, "UTC"); err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	for _, typ := range queryTypes {
+		if n := f.count(typ, 0); n != 1 {
+			t.Errorf("Type %d page 0 queried %d times, want exactly 1", typ, n)
+		}
+	}
+}
+
+func TestQueryChunksWideWindow(t *testing.T) {
+	f, client := newFakeEventsServer(t, nil, nil)
+	// A window far wider than maxWindowSeconds must be split into chunks the
+	// server accepts; with padding the span is end-start+2*pad.
+	start := int64(0)
+	end := int64(3 * maxWindowSeconds)
+	if _, err := query(context.Background(), client, "cal1", start, end, "UTC"); err != nil {
+		t.Fatalf("query: %v", err)
+	}
+	// padded span = end + pad - max(0,start-pad) = 3*max + pad + pad = 3*max + 2*pad
+	// chunks = ceil(span / max)
+	span := (end + windowPadSeconds) - 0
+	wantChunks := int((span + maxWindowSeconds - 1) / maxWindowSeconds)
+	// Each chunk issues one page-0 request per Type.
+	gotPage0 := 0
+	f.mu.Lock()
+	for k, n := range f.served {
+		if strings.HasSuffix(k, ":0") {
+			gotPage0 += n
+		}
+	}
+	f.mu.Unlock()
+	if want := wantChunks * len(queryTypes); gotPage0 != want {
+		t.Errorf("page-0 requests = %d, want %d (%d chunks x %d types)", gotPage0, want, wantChunks, len(queryTypes))
 	}
 }
 
 // ---------- Create ----------
 
-func TestQueryParallelPagesComplete(t *testing.T) {
+func TestQueryPaginatesViaMoreCursor(t *testing.T) {
 	const pages = 4
 	const total = pageSize*(pages-1) + 17
 
-	var mu sync.Mutex
-	served := make(map[string]int)
-
-	mux := http.NewServeMux()
-	mux.HandleFunc("/calendar/v1/cal1/events", func(w http.ResponseWriter, r *http.Request) {
-		page := r.URL.Query().Get("Page")
-		mu.Lock()
-		served[page]++
-		mu.Unlock()
-		p, _ := strconv.Atoi(page)
-		lo := p * pageSize
-		hi := min(lo+pageSize, total)
-		events := make([]*caltypes.RawEvent, 0, hi-lo)
-		for i := lo; i < hi; i++ {
-			events = append(events, &caltypes.RawEvent{ID: "ev" + itoa(i), StartTime: 100, EndTime: 200})
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(eventsResponse{Events: events, Total: total})
-	})
-	client := newTestClient(t, mux)
+	rows := make([]*caltypes.RawEvent, total)
+	for i := range rows {
+		rows[i] = &caltypes.RawEvent{ID: "ev" + itoa(i), StartTime: 100, EndTime: 200}
+	}
+	// All rows in one Type bucket and one chunk, so this exercises the
+	// More-cursor page loop fully.
+	f, client := newFakeEventsServer(t, rows, nil)
 
 	got, err := query(context.Background(), client, "cal1", 0, 1000, "UTC")
 	if err != nil {
-		t.Fatalf("Query: %v", err)
+		t.Fatalf("query: %v", err)
 	}
 	if len(got) != total {
 		t.Fatalf("got %d events, want %d", len(got), total)
@@ -417,8 +502,8 @@ func TestQueryParallelPagesComplete(t *testing.T) {
 		seen[ev.ID] = true
 	}
 	for p := range pages {
-		if n := served[itoa(p)]; n != 1 {
-			t.Errorf("page %d fetched %d times, want exactly once", p, n)
+		if n := f.count(queryTypePartDayInside, p); n != 1 {
+			t.Errorf("PartDayInside page %d fetched %d times, want exactly once", p, n)
 		}
 	}
 }

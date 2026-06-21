@@ -105,76 +105,145 @@ func putSync(ctx context.Context, client papi.API, calendarID string, payload sy
 
 type eventsResponse struct {
 	Events []*caltypes.RawEvent `json:"Events"`
-	Total  int                  `json:"Total"`
+	// More is the cursor flag on windowed (Type-scoped) queries: 1 means
+	// another page follows, 0 means this is the last. Total is set only on
+	// the legacy unscoped query and is unused here.
+	More  int `json:"More"`
+	Total int `json:"Total"`
 }
 
-// maxConcurrentPages bounds the parallel event-page fetches after page 0
-// reveals the total (all to one host over HTTP/2; modest to stay clear of
-// rate limits).
-const maxConcurrentPages = 6
+// Windowed-query constants. The /events endpoint only honours Start/End when
+// a Type is supplied (see RESEARCH.md "Reading Events and Pagination"); the
+// web client issues one paginated stream per Type, all four in parallel.
+const (
+	// queryTypePartDayInside selects timed events starting inside the window.
+	queryTypePartDayInside = 0
+	// queryTypePartDayBefore selects timed events starting before the window
+	// but extending/recurring into it.
+	queryTypePartDayBefore = 1
+	// queryTypeFullDayInside selects all-day events starting inside the window.
+	queryTypeFullDayInside = 2
+	// queryTypeFullDayBefore selects all-day events starting before the window
+	// but extending/recurring into it. This is what surfaces recurring masters
+	// whose first occurrence predates the window (live-verified against a
+	// Birthdays calendar of past-dated FREQ=YEARLY masters).
+	queryTypeFullDayBefore = 3
 
-// query fetches raw events for a calendar with full pagination and
-// client-side window filtering (the server ignores Start/End params).
-// Page 0 reveals the total; the remaining pages are fetched concurrently.
-// Recurring masters always survive the filter (they are expanded later).
-// Sorted by StartTime.
+	// maxWindowSeconds is the largest Start..End span the server accepts;
+	// wider spans are rejected with code 2000 "Time window is too big"
+	// (live-probed cap: exactly 93 days = 93*86400; 8035201s is rejected).
+	maxWindowSeconds = 93 * 86400
+
+	// windowPadSeconds widens each end of the requested window by a day
+	// before querying. The server buckets events by timezone-local
+	// start/end, so a day of slack avoids missing all-day or boundary rows
+	// near the edges (mirrors the web client's +/-1 day search padding).
+	windowPadSeconds = 86400
+)
+
+// queryTypes is the full set the server partitions events across; all must be
+// queried to see every row overlapping the window.
+var queryTypes = [...]int{
+	queryTypePartDayInside,
+	queryTypePartDayBefore,
+	queryTypeFullDayInside,
+	queryTypeFullDayBefore,
+}
+
+// maxConcurrentChunks bounds the parallel per-chunk-per-Type page streams
+// (all to one host over HTTP/2; modest to stay clear of rate limits).
+const maxConcurrentChunks = 6
+
+// query fetches the raw event rows a calendar exposes for the window
+// [start, end). The endpoint ignores Start/End unless a Type is supplied, so
+// this issues one paginated stream per Type (queryTypes), splitting windows
+// wider than maxWindowSeconds into chunks the server will accept, and runs
+// the streams concurrently. The window is padded by windowPadSeconds at each
+// end for timezone slack. Rows are deduplicated by ID (a row can match in
+// several chunks/Types) and returned sorted by StartTime. The precise
+// occurrence-level filtering (and recurring-master expansion) happens later;
+// recurring masters always survive here.
 func query(ctx context.Context, client papi.API, calendarID string, start, end int64, tzName string) ([]*caltypes.RawEvent, error) {
-	fetch := func(ctx context.Context, page int) (eventsResponse, error) {
+	if end <= start {
+		return nil, nil
+	}
+	qStart := start - windowPadSeconds
+	if qStart < 0 {
+		qStart = 0
+	}
+	qEnd := end + windowPadSeconds
+
+	// One unit of work = (chunk, Type). Each is an independent More-cursor
+	// page stream.
+	type unit struct {
+		start, end int64
+		typ        int
+	}
+	var units []unit
+	for s := qStart; s < qEnd; s += maxWindowSeconds {
+		e := min(s+maxWindowSeconds, qEnd)
+		for _, typ := range queryTypes {
+			units = append(units, unit{start: s, end: e, typ: typ})
+		}
+	}
+
+	results := make([][]*caltypes.RawEvent, len(units))
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(maxConcurrentChunks)
+	for i, u := range units {
+		g.Go(func() error {
+			rows, err := queryStream(gctx, client, calendarID, u.start, u.end, tzName, u.typ)
+			if err != nil {
+				return err
+			}
+			results[i] = rows
+			return nil
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+
+	// Deduplicate by ID across chunks/Types, preserving the first sighting.
+	seen := make(map[string]struct{})
+	out := make([]*caltypes.RawEvent, 0)
+	for _, rows := range results {
+		for _, ev := range rows {
+			if _, dup := seen[ev.ID]; dup {
+				continue
+			}
+			seen[ev.ID] = struct{}{}
+			out = append(out, ev)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].StartTime < out[j].StartTime })
+	return out, nil
+}
+
+// queryStream pages one (window, Type) slice via the More cursor and returns
+// every row across its pages.
+func queryStream(ctx context.Context, client papi.API, calendarID string, start, end int64, tzName string, typ int) ([]*caltypes.RawEvent, error) {
+	var all []*caltypes.RawEvent
+	for page := 0; ; page++ {
 		q := url.Values{}
 		q.Set("Start", strconv.FormatInt(start, 10))
 		q.Set("End", strconv.FormatInt(end, 10))
 		if tzName != "" {
 			q.Set("Timezone", tzName)
 		}
+		q.Set("Type", strconv.Itoa(typ))
 		q.Set("Page", strconv.Itoa(page))
 		q.Set("PageSize", strconv.Itoa(pageSize))
 
 		var resp eventsResponse
 		if err := client.Get(ctx, calendar.APIPath+"/"+calendarID+"/events", q, &resp); err != nil {
-			return resp, fmt.Errorf("calendar %s: listing events: %w", calendarID, err)
+			return nil, fmt.Errorf("calendar %s: listing events: %w", calendarID, err)
 		}
-		return resp, nil
-	}
-
-	first, err := fetch(ctx, 0)
-	if err != nil {
-		return nil, err
-	}
-	all := first.Events
-
-	if pages := (first.Total + pageSize - 1) / pageSize; pages > 1 {
-		rest := make([][]*caltypes.RawEvent, pages-1)
-		g, gctx := errgroup.WithContext(ctx)
-		g.SetLimit(maxConcurrentPages)
-		for page := 1; page < pages; page++ {
-			g.Go(func() error {
-				resp, err := fetch(gctx, page)
-				if err != nil {
-					return err
-				}
-				rest[page-1] = resp.Events
-				return nil
-			})
-		}
-		if err := g.Wait(); err != nil {
-			return nil, err
-		}
-		for _, events := range rest {
-			all = append(all, events...)
+		all = append(all, resp.Events...)
+		if resp.More != 1 {
+			return all, nil
 		}
 	}
-
-	// Client-side filter: keep rows overlapping [start, end). Recurring
-	// masters always survive (their times describe only the first
-	// occurrence; expansion does the precise filtering).
-	filtered := all[:0]
-	for _, ev := range all {
-		if ev.RRule != "" || (ev.StartTime < end && ev.EndTime > start) {
-			filtered = append(filtered, ev)
-		}
-	}
-	sort.SliceStable(filtered, func(i, j int) bool { return filtered[i].StartTime < filtered[j].StartTime })
-	return filtered, nil
 }
 
 // Get fetches a single raw event.

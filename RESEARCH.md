@@ -203,7 +203,7 @@ values: `0` = normal, `1` = subscribed (read-only ICS), `2` = holidays.
 
 | Method | Endpoint                                        | Purpose |
 |--------|--------------------------------------------------|---------|
-| GET    | `/calendar/v1/{calID}/events`                    | List raw event rows (paginated) |
+| GET    | `/calendar/v1/{calID}/events`                    | List raw event rows (windowed via `Type`+`Start`/`End`, `More`-paginated; see below) |
 | GET    | `/calendar/v1/{calID}/events?UID=<uid>`          | Rows sharing an iCal UID (server-side filter, verified live) |
 | GET    | `/calendar/v1/{calID}/events/{eventID}`          | Single event (`{"Event": {...}}` envelope) |
 | PUT    | `/calendar/v1/{calID}/events/sync`               | **Create/update/delete (batch) - the only write path** |
@@ -358,17 +358,52 @@ producing fresh data packets only.
 ## Reading Events and Pagination
 
 `GET /calendar/v1/{calID}/events` accepts `Start`, `End`, `Timezone`,
-`Page`, `PageSize` - but **ignores `Start`/`End`** (verified live): every
-row in the calendar comes back regardless of the requested window. Behavior:
+`Type`, `Page`, `PageSize` (and `MetaDataOnly`). The decisive parameter is
+**`Type`**: the server only window-filters by `Start`/`End` when a `Type` is
+supplied. With no `Type` it returns *every* row in the calendar paginated
+100-at-a-time (this is the trap the earlier implementation fell into - it
+made every list scale with total calendar size). With a `Type` it returns
+just the rows in the window. All live-verified.
 
-- Pagination is capped at 100 rows per page; responses carry `Total`.
-  Iterate `Page` until `len(Events)` accumulates to `Total` (or a page comes
-  back empty).
-- Time-window filtering must happen client-side. Recurring masters must
-  never be window-filtered by their own `StartTime`/`EndTime` (those
-  describe only the first occurrence).
-- `?UID=<ical-uid>` *does* filter server-side - the cheap way to fetch a
-  recurring series (master + exception rows) without scanning everything.
+### Windowed query (the way the web client does it, and now us)
+
+`Type` is the `CalendarEventsQueryType` enum. There are four buckets and you
+must query **all four** to see everything overlapping a window (the web
+client fires all four in parallel):
+
+| `Type` | meaning |
+|--------|---------|
+| `0` PartDayInsideWindow | timed event whose start is inside the window |
+| `1` PartDayBeforeWindow | timed event whose start is before the window but extends/recurs into it |
+| `2` FullDayInsideWindow | all-day event whose start is inside the window |
+| `3` FullDayBeforeWindow | all-day event whose start is before the window but extends/recurs into it |
+
+- **Pagination is by `More` (cursor), not `Total`.** A `Type`-scoped
+  response carries `More` (`0`/`1`), not `Total`; iterate `Page` from 0
+  while `More == 1`. (The legacy unscoped query is the one that carries
+  `Total`.) `PageSize` is capped at 100 (`PageSize > 100` -> `400 code 2021`).
+- **Maximum window span is 93 days** = `93 * 86400` = `8035200s`. A wider
+  `End - Start` is rejected with `code 2000 "Time window is too big"` (the
+  cap is exact: `8035201s` is rejected). Split wider requests into
+  <=93-day chunks and union the results.
+- **Recurring masters that started before the window come back under the
+  `*BeforeWindow` types** (`1`/`3`), keyed by their *master* row - the
+  server does not expand occurrences. Live-verified against a Birthdays
+  calendar of `FREQ=YEARLY` full-day masters all dated years in the past: a
+  future window returned exactly the relevant masters under `Type=3`. The
+  client still expands occurrences and does the final overlap filtering
+  (recurring masters must never be window-filtered by their own
+  `StartTime`/`EndTime`, which describe only the first occurrence).
+- **Pad the window by ~1 day each side** before querying (the server buckets
+  by timezone-local start/end; a day of slack avoids missing all-day or
+  boundary rows). Mirrors the web client's +/-1 day search padding.
+- A row can be returned by more than one `(chunk, Type)` slice, so
+  **deduplicate by `ID`** when unioning.
+- `MetaDataOnly=1` is accepted but was observed to have **no effect** on the
+  payload (full encrypted blobs still returned); not a useful lever.
+- `?UID=<ical-uid>` filters server-side (independent of `Type`) - the cheap
+  way to fetch a single recurring series (master + exception rows) without
+  scanning, used by `GetByUID`.
 
 The single-event endpoint wraps the row as `{"Event": {...}}`.
 
