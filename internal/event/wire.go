@@ -17,9 +17,11 @@ import (
 const pageSize = 100
 
 // eventBody is the Event object of a sync payload. Field presence is
-// significant (see RESEARCH.md): the content/
-// attendee arrays must serialize as [] (never null) and Notifications/Color
-// as explicit null.
+// significant (see RESEARCH.md): the content arrays must serialize as []
+// (never null). Notifications/Color/Attendees mirror the web client's
+// formatData: on create they are null/null/[]; on update they carry the
+// event's existing values so the sync call does not reset them (sending
+// null/[] would clear reminders and attendee RSVP rows).
 type eventBody struct {
 	Permissions           int                  `json:"Permissions"`
 	SharedKeyPacket       string               `json:"SharedKeyPacket,omitempty"`
@@ -27,9 +29,18 @@ type eventBody struct {
 	SharedEventContent    []caltypes.EventPart `json:"SharedEventContent"`
 	CalendarEventContent  []caltypes.EventPart `json:"CalendarEventContent"`
 	AttendeesEventContent []caltypes.EventPart `json:"AttendeesEventContent"`
-	Attendees             []struct{}           `json:"Attendees"`
+	Attendees             json.RawMessage      `json:"Attendees"`
 	Notifications         json.RawMessage      `json:"Notifications"`
 	Color                 json.RawMessage      `json:"Color"`
+}
+
+// attendeeClear is one entry of the clear Attendees array on an update body
+// (token + live RSVP status), mirroring the web client's formatData. Comment
+// is preserved verbatim as raw JSON (null when absent).
+type attendeeClear struct {
+	Token   string          `json:"Token"`
+	Status  int             `json:"Status"`
+	Comment json.RawMessage `json:"Comment"`
 }
 
 // syncEventReq is one entry of the sync Events array: create (Overwrite +

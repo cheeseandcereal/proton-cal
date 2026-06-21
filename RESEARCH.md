@@ -409,19 +409,49 @@ Operation shapes inside `Events[]`:
 
 Field-presence rules (the server is picky):
 
-- The content/attendee arrays must serialize as `[]`, never `null`.
-- `Notifications` and `Color` must be present as explicit `null` (omitting
-  them changes behavior: `Notifications` falls back differently).
+- The content arrays must serialize as `[]`, never `null`.
+- On **create** `Notifications`/`Color` are explicit `null` and `Attendees`
+  is `[]` (no reminders/attendees yet).
 - `Permissions: 1` is accepted for self-owned events; `IsOrganizer` is
   optional.
+
+### The sync body fully replaces the event (updates must re-send everything)
+
+A sync `update` is a whole-object replace, not a patch: any field omitted (or
+sent as `null`/`[]`) is reset on the server. This is easy to get wrong and
+silently destroys data. Two failure modes we hit and fixed:
+
+- **Card content.** Rebuilding the cards from a fixed set of known fields
+  (summary/description/location/times/recurrence) drops everything else the
+  event carried - conferencing (`X-PM-CONFERENCE-*`), `ORGANIZER`, the
+  attendees card, third-party `X-` properties. The correct approach is to
+  decrypt the existing cards and **patch only the edited properties in
+  place**, preserving every other line verbatim (then re-sign/re-encrypt).
+- **Row-level personal data.** `Notifications`, `Color` and the clear
+  `Attendees` rows live outside the cards. The web client's `formatData`
+  re-sends them on every update (`Notifications: notificationsPart || null`,
+  `Color: colorPart || null`, `Attendees: [{Token, Status, Comment}]`).
+  Sending `null`/`[]` instead **wipes the reminders and attendee RSVP rows**.
+  We mirror `formatData`: re-send the event's existing `Notifications`,
+  `Color` and clear `Attendees` (token + live `Status`) on update.
+
+Note: reminders may also be stored in a member-specific personal card
+(`PersonalEvents`), but the server denormalizes them into the plaintext
+`Notifications` row field, and re-sending that field on the sync update is
+sufficient to preserve them (live-verified on an event with no
+`PersonalEvents` card).
 
 ### Updates reuse session keys
 
 Update bodies carry **no key packets**; the server keeps the originals. The
 client must therefore decrypt the event's existing session keys from the
 stored `SharedKeyPacket`/`CalendarKeyPacket` (using the calendar private
-key) and re-encrypt the new card plaintexts with those same session keys,
-producing fresh data packets only.
+key) and re-encrypt the (patched) card plaintexts with those same session
+keys, producing fresh data packets only. Events created by the Proton web
+app may have **no encrypted calendar card** (and thus no
+`CalendarKeyPacket`); the update must not attempt to decrypt a calendar
+session key in that case, and must not emit an encrypted calendar card with
+no key packet.
 
 ### Response envelope
 

@@ -816,6 +816,165 @@ func TestUpdateStartBumpsSequenceAndClearRRule(t *testing.T) {
 	}
 }
 
+// TestUpdatePreservesUnknownProperties is the regression guard for the
+// data-loss bug: updating one field must not drop conferencing, organizer,
+// attendees or any third-party property the writer doesn't model. The update
+// patches existing cards in place rather than rebuilding from a fixed field
+// set.
+func TestUpdatePreservesUnknownProperties(t *testing.T) {
+	pinNow(t, time.Date(2026, 6, 2, 12, 0, 0, 0, time.UTC))
+	calKR, addrKR := testKeys(t)
+	uid := "uid1"
+
+	// Shared encrypted card with user text PLUS conferencing/organizer and a
+	// third-party property the writer knows nothing about.
+	sharedEnc := strings.Join([]string{
+		"BEGIN:VCALENDAR", "BEGIN:VEVENT",
+		"UID:" + uid, "DTSTAMP:20260601T000000Z", "CREATED:20250101T080000Z",
+		"SUMMARY:Test Event",
+		"DESCRIPTION:keep me",
+		"LOCATION:old location",
+		"ORGANIZER;CN=Me:mailto:me@example.com",
+		"X-PM-CONFERENCE-URL;X-PM-HOST=me@example.com:https://meet.proton.me/join/id-ABC#pwd-xyz",
+		"X-WR-SOMETHING:third-party-value",
+		"END:VEVENT", "END:VCALENDAR",
+	}, "\r\n")
+	sharedSigned := strings.Join([]string{
+		"BEGIN:VCALENDAR", "BEGIN:VEVENT",
+		"UID:" + uid, "DTSTAMP:20260601T000000Z",
+		"DTSTART;TZID=Europe/Berlin:20260615T090000",
+		"DTEND;TZID=Europe/Berlin:20260615T093000",
+		"X-PM-CONFERENCE-ID;X-PM-PROVIDER=2:ABC",
+		"SEQUENCE:2",
+		"END:VEVENT", "END:VCALENDAR",
+	}, "\r\n")
+	attCard := strings.Join([]string{
+		"BEGIN:VCALENDAR", "BEGIN:VEVENT",
+		"UID:" + uid, "DTSTAMP:20260601T000000Z",
+		"ATTENDEE;CN=Bob;ROLE=REQ-PARTICIPANT;X-PM-TOKEN=tok1:mailto:bob@example.com",
+		"END:VEVENT", "END:VCALENDAR",
+	}, "\r\n")
+
+	sharedKP, sharedData, sharedSig, err := pgp.EncryptAndSign(sharedEnc, calKR, addrKR)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sharedSignedSig, err := pgp.SignDetached(sharedSigned, addrKR)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sk, err := pgp.DecryptSessionKey(sharedKP, calKR)
+	if err != nil {
+		t.Fatal(err)
+	}
+	attData, attSig, err := pgp.EncryptWithSessionKeyAndSign(attCard, sk, addrKR)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	start := time.Date(2026, 6, 15, 7, 0, 0, 0, time.UTC).Unix()
+	raw := &caltypes.RawEvent{
+		ID: "ev1", UID: uid, CalendarID: "cal1",
+		StartTime: start, EndTime: start + 1800,
+		StartTimezone: "Europe/Berlin", EndTimezone: "Europe/Berlin",
+		// No CalendarKeyPacket: this event (like a web-app event) has only a
+		// signed calendar card, exercising the empty-calendar-key path too.
+		SharedKeyPacket: sharedKP,
+		Color:           "#EC3E7C",
+		Notifications:   []caltypes.Notification{{Type: 1, Trigger: "-PT1H"}, {Type: 0, Trigger: "-PT15M"}},
+		Attendees:       []caltypes.AttendeeToken{{ID: "a1", Token: "tok1", Status: 3}},
+		SharedEvents: []caltypes.EventPart{
+			{Type: caltypes.CardSigned, Data: sharedSigned, Signature: sharedSignedSig},
+			{Type: caltypes.CardEncryptedAndSigned, Data: sharedData, Signature: sharedSig},
+		},
+		AttendeesEvents: []caltypes.EventPart{
+			{Type: caltypes.CardEncryptedAndSigned, Data: attData, Signature: attSig},
+		},
+	}
+
+	rec := newSyncRecorder()
+	serveExisting(rec, raw)
+	client := newTestClient(t, rec)
+	access := testAccess(t)
+
+	newLoc := "new location"
+	if _, err := update(context.Background(), client, access, "ev1", UpdateOptions{Location: &newLoc}); err != nil {
+		t.Fatalf("update: %v", err)
+	}
+
+	evBody := rec.bodies()[0]["Events"].([]any)[0].(map[string]any)["Event"].(map[string]any)
+	// No key packets on an update.
+	for _, k := range []string{"SharedKeyPacket", "CalendarKeyPacket"} {
+		if _, ok := evBody[k]; ok {
+			t.Errorf("update must omit %s", k)
+		}
+	}
+	// Row-level personal data must be re-sent (not null/[]) so the sync call
+	// does not wipe reminders, color or attendee RSVP rows.
+	notifs, ok := evBody["Notifications"].([]any)
+	if !ok || len(notifs) != 2 {
+		t.Fatalf("Notifications must carry the 2 existing reminders, got %#v", evBody["Notifications"])
+	}
+	if n0 := notifs[0].(map[string]any); n0["Trigger"] != "-PT1H" || n0["Type"] != float64(1) {
+		t.Errorf("notification[0] = %#v", n0)
+	}
+	if evBody["Color"] != "#EC3E7C" {
+		t.Errorf("Color must be preserved, got %v", evBody["Color"])
+	}
+	atts, ok := evBody["Attendees"].([]any)
+	if !ok || len(atts) != 1 {
+		t.Fatalf("Attendees clear rows must be re-sent, got %#v", evBody["Attendees"])
+	}
+	if a0 := atts[0].(map[string]any); a0["Token"] != "tok1" || a0["Status"] != float64(3) {
+		t.Errorf("attendee clear row = %#v", a0)
+	}
+	// unfold reverses RFC 5545 line folding so substring checks see logical
+	// lines (long properties are folded at 75 octets on output).
+	unfold := func(s string) string { return strings.ReplaceAll(s, "\r\n ", "") }
+
+	shared := evBody["SharedEventContent"].([]any)
+	signedFrag := unfold(shared[0].(map[string]any)["Data"].(string))
+	encRaw, err := pgp.DecryptPart(shared[1].(map[string]any)["Data"].(string), sharedKP, calKR)
+	if err != nil {
+		t.Fatalf("decrypting updated shared enc: %v", err)
+	}
+	encFrag := unfold(encRaw)
+
+	// The edit applied.
+	if !strings.Contains(encFrag, "LOCATION:new location") {
+		t.Errorf("location not updated:\n%s", encFrag)
+	}
+	// Everything else preserved verbatim.
+	for _, want := range []string{
+		"DESCRIPTION:keep me",
+		"SUMMARY:Test Event",
+		"ORGANIZER;CN=Me:mailto:me@example.com",
+		"X-PM-CONFERENCE-URL;X-PM-HOST=me@example.com:https://meet.proton.me/join/id-ABC#pwd-xyz",
+		"X-WR-SOMETHING:third-party-value",
+	} {
+		if !strings.Contains(encFrag, want) {
+			t.Errorf("shared-encrypted lost %q:\n%s", want, encFrag)
+		}
+	}
+	for _, want := range []string{"X-PM-CONFERENCE-ID;X-PM-PROVIDER=2:ABC", "SEQUENCE:2"} {
+		if !strings.Contains(signedFrag, want) {
+			t.Errorf("shared-signed lost %q:\n%s", want, signedFrag)
+		}
+	}
+	// Attendees card must survive and still decrypt.
+	att := evBody["AttendeesEventContent"].([]any)
+	if len(att) != 1 {
+		t.Fatalf("attendees card dropped, got %d parts", len(att))
+	}
+	attPlain, err := pgp.DecryptPart(att[0].(map[string]any)["Data"].(string), sharedKP, calKR)
+	if err != nil {
+		t.Fatalf("decrypting attendees: %v", err)
+	}
+	if !strings.Contains(attPlain, "ATTENDEE;CN=Bob") {
+		t.Errorf("attendee lost:\n%s", attPlain)
+	}
+}
+
 // ---------- SmartDelete ----------
 
 func TestSmartDeletePlainEvent(t *testing.T) {
