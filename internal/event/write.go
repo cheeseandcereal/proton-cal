@@ -190,9 +190,12 @@ func buildUpdateBody(raw *caltypes.RawEvent, current *Event, opts UpdateOptions,
 
 	// Preserve the event's existing personal/row data exactly as the web
 	// client does on update (formatData): re-send Notifications, Color and
-	// the clear Attendees rows. Sending null/[] here would reset the
-	// reminders and drop attendee RSVP rows.
-	notifications, err := marshalOrNull(raw.Notifications)
+	// the clear Attendees rows. Notifications must keep their tri-state -
+	// null (inherit the calendar default), [] (explicitly none) or the
+	// custom array - so an update neither wipes reminders nor silently
+	// re-enables the calendar default on an event whose reminders were
+	// removed.
+	notifications, err := marshalNotifications(raw.Notifications, raw.NotificationsSet)
 	if err != nil {
 		return nil, fmt.Errorf("encoding notifications: %w", err)
 	}
@@ -218,12 +221,15 @@ func buildUpdateBody(raw *caltypes.RawEvent, current *Event, opts UpdateOptions,
 	}, nil
 }
 
-// marshalOrNull marshals a non-empty notification slice; an empty/absent
-// slice serializes as JSON null (matching the web client, which sends null
-// when the event has no custom reminders).
-func marshalOrNull(ns []caltypes.Notification) (json.RawMessage, error) {
-	if len(ns) == 0 {
+// marshalNotifications preserves the event's notification tri-state on the
+// wire: null when the event inherits the calendar default (!set), [] when
+// reminders are explicitly none (set, empty), or the custom array.
+func marshalNotifications(ns []caltypes.Notification, set bool) (json.RawMessage, error) {
+	if !set {
 		return jsonNull, nil
+	}
+	if len(ns) == 0 {
+		return jsonEmptyArray, nil
 	}
 	return json.Marshal(ns)
 }

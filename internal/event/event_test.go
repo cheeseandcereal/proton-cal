@@ -435,6 +435,27 @@ func TestUpdateRefusesDegradedMaster(t *testing.T) {
 	}
 }
 
+func TestMarshalNotificationsTriState(t *testing.T) {
+	// Inherit (!set) -> null, so the server keeps applying the calendar
+	// default and an update does not freeze a copy onto the event.
+	if got, _ := marshalNotifications(nil, false); string(got) != "null" {
+		t.Errorf("inherit -> %s, want null", got)
+	}
+	// Explicit none (set, empty) -> [] so the calendar default does NOT get
+	// silently re-enabled on an event whose reminders were removed.
+	if got, _ := marshalNotifications(nil, true); string(got) != "[]" {
+		t.Errorf("explicit-none -> %s, want []", got)
+	}
+	if got, _ := marshalNotifications([]caltypes.Notification{}, true); string(got) != "[]" {
+		t.Errorf("explicit-none (empty slice) -> %s, want []", got)
+	}
+	// Custom -> the array.
+	got, _ := marshalNotifications([]caltypes.Notification{{Type: 1, Trigger: "-PT15M"}}, true)
+	if string(got) != `[{"Type":1,"Trigger":"-PT15M"}]` {
+		t.Errorf("custom -> %s", got)
+	}
+}
+
 // ---------- Query ----------
 
 // fakeEventsServer serves the windowed /events endpoint: it partitions the
