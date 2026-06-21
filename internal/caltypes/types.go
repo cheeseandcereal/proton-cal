@@ -60,6 +60,23 @@ type RawEvent struct {
 	Author      string `json:"Author,omitempty"`
 	Permissions int    `json:"Permissions,omitempty"`
 
+	// Color is the per-event color override (CSS hex, e.g. "#EC3E7C"), or
+	// empty when the event uses the calendar's color. Plaintext row field,
+	// not an iCal property.
+	Color string `json:"Color,omitempty"`
+	// IsOrganizer is 1 when this account organizes the event.
+	IsOrganizer int `json:"IsOrganizer,omitempty"`
+
+	// Notifications are the event's reminders/alarms. Plaintext row field
+	// (the server denormalizes VALARM components here); see Notification.
+	Notifications []Notification `json:"Notifications,omitempty"`
+
+	// Attendees carries the per-attendee anonymized token and live RSVP
+	// status. Attendee identities (email/name) live encrypted in the
+	// AttendeesEvents card and join to these rows by Token.
+	Attendees     []AttendeeToken `json:"Attendees,omitempty"`
+	AttendeesInfo AttendeesInfo   `json:"AttendeesInfo,omitempty"`
+
 	SharedKeyPacket   string `json:"SharedKeyPacket,omitempty"`
 	CalendarKeyPacket string `json:"CalendarKeyPacket,omitempty"`
 
@@ -67,6 +84,31 @@ type RawEvent struct {
 	CalendarEvents  []EventPart `json:"CalendarEvents,omitempty"`
 	AttendeesEvents []EventPart `json:"AttendeesEvents,omitempty"`
 	PersonalEvents  []EventPart `json:"PersonalEvents,omitempty"`
+}
+
+// Notification is one reminder/alarm on an event. Type is the API alarm
+// kind (0 = email, 1 = device/display); Trigger is an iCal duration offset
+// relative to the event start (e.g. "-PT1H", "-PT15M").
+type Notification struct {
+	Type    int    `json:"Type"`
+	Trigger string `json:"Trigger"`
+}
+
+// AttendeeToken is the plaintext per-attendee row: an opaque token (matching
+// the encrypted ATTENDEE card's X-PM-TOKEN) and the live RSVP Status.
+// Status is ATTENDEE_STATUS_API: 0 = needs-action, 1 = tentative,
+// 2 = declined, 3 = accepted.
+type AttendeeToken struct {
+	ID         string `json:"ID"`
+	Token      string `json:"Token"`
+	Status     int    `json:"Status"`
+	UpdateTime *int64 `json:"UpdateTime"`
+}
+
+// AttendeesInfo wraps the attendee list with the MoreAttendees flag
+// (1 = the server truncated the list).
+type AttendeesInfo struct {
+	MoreAttendees int `json:"MoreAttendees"`
 }
 
 // IsAllDay reports whether this is a full-day (date) event.
