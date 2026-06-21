@@ -314,6 +314,39 @@ func (s *Service) withAccess(ctx context.Context, selector string, fn func(info 
 	return fn(info2, access2)
 }
 
+// withAccessResult runs fn with resolved calendar access and returns its
+// result, plumbing the common "out pointer + retry" boilerplate. fn returns
+// the result value plus a degraded flag: when degraded is true on the first
+// attempt, the result is provisionally kept but ErrDecryptDegraded is raised
+// so withAccess heals stale keys and retries; a still-degraded second pass is
+// accepted and its (best-effort) result returned. Non-degrade errors are
+// final.
+func withAccessResult[T any](
+	ctx context.Context,
+	s *Service,
+	selector string,
+	fn func(info calendar.Info, access *calendar.Access) (*T, bool, error),
+) (*T, error) {
+	var out *T
+	attempt := 0
+	werr := s.withAccess(ctx, selector, func(info calendar.Info, access *calendar.Access) error {
+		attempt++
+		res, degraded, err := fn(info, access)
+		if err != nil {
+			return err
+		}
+		out = res
+		if attempt == 1 && degraded {
+			return event.ErrDecryptDegraded
+		}
+		return nil
+	})
+	if werr != nil && (!errors.Is(werr, event.ErrDecryptDegraded) || out == nil) {
+		return nil, werr
+	}
+	return out, nil
+}
+
 func (s *Service) notify(msg string) {
 	if s.Notify != nil {
 		s.Notify(msg)

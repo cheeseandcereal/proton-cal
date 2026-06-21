@@ -22,11 +22,19 @@ type ListEventsInput struct {
 	Days     int    // days to look ahead; <= 0 = 7
 }
 
+// resolved is the calendar context shared by every read result: the resolved
+// calendar, its default settings (for reminder/color inheritance) and the
+// display zone the read was resolved in. It is embedded so callers can reach
+// the fields directly (e.g. list.Calendar, got.Settings).
+type resolved struct {
+	Calendar calendar.Info
+	Settings calendar.Settings // calendar default reminders (for inheritance)
+	Location *time.Location    // display zone the read was resolved in
+}
+
 // EventList is a resolved, expanded, decrypted listing window.
 type EventList struct {
-	Calendar  calendar.Info
-	Settings  calendar.Settings // calendar default reminders (for inheritance)
-	Location  *time.Location    // display zone the listing was resolved in
+	resolved
 	From      time.Time
 	FromGiven bool // false when the window starts "now"
 	Days      int
@@ -54,13 +62,14 @@ func (s *Service) ListEvents(ctx context.Context, in ListEventsInput) (*EventLis
 	}
 	end := start.AddDate(0, 0, days)
 
-	var out *EventList
-	attempt := 0
-	werr := s.withAccess(ctx, in.Calendar, func(info calendar.Info, access *calendar.Access) error {
-		attempt++
+	// Stale cached calendar keys decrypt nothing but fail silently (the
+	// listing renders blank); the degraded flag makes withAccessResult refetch
+	// keys and relist once, then accept a still-degraded pass (lenient
+	// rendering of genuinely bad rows).
+	return withAccessResult(ctx, s, in.Calendar, func(info calendar.Info, access *calendar.Access) (*EventList, bool, error) {
 		listed, err := event.ListWindow(ctx, s.client, access.KR, info.ID, start.Unix(), end.Unix(), tz)
 		if err != nil {
-			return fmt.Errorf("listing events: %w", err)
+			return nil, false, fmt.Errorf("listing events: %w", err)
 		}
 		slices.SortStableFunc(listed, func(a, b event.Listed) int {
 			return cmp.Or(
@@ -68,28 +77,14 @@ func (s *Service) ListEvents(ctx context.Context, in ListEventsInput) (*EventLis
 				cmp.Compare(a.Occurrence.Event.ID, b.Occurrence.Event.ID),
 			)
 		})
-		out = &EventList{
-			Calendar:  info,
-			Settings:  access.Settings,
-			Location:  loc,
+		return &EventList{
+			resolved:  resolved{Calendar: info, Settings: access.Settings, Location: loc},
 			From:      start,
 			FromGiven: in.From != "",
 			Days:      days,
 			Items:     listed,
-		}
-		// Stale cached calendar keys decrypt nothing but fail silently
-		// (the listing renders blank). Surface the degradation once so
-		// withAccess can refetch keys and relist; a second degraded pass
-		// is accepted (lenient rendering of genuinely bad rows).
-		if attempt == 1 && anyDecryptFailed(listed) {
-			return fmt.Errorf("listing events: %w", event.ErrDecryptDegraded)
-		}
-		return nil
+		}, anyDecryptFailed(listed), nil
 	})
-	if werr != nil && (!errors.Is(werr, event.ErrDecryptDegraded) || out == nil) {
-		return nil, werr
-	}
-	return out, nil
 }
 
 // CreateEventInput describes a new event with user-shaped strings.
@@ -131,8 +126,7 @@ func (s *Service) CreateEvent(ctx context.Context, in CreateEventInput) (*Create
 		return nil, err
 	}
 
-	var out *CreatedEvent
-	werr := s.withAccess(ctx, in.Calendar, func(_ calendar.Info, access *calendar.Access) error {
+	return withAccessResult(ctx, s, in.Calendar, func(_ calendar.Info, access *calendar.Access) (*CreatedEvent, bool, error) {
 		raw, err := event.Create(ctx, s.client, access, event.CreateOptions{
 			Summary:     in.Summary,
 			Description: in.Description,
@@ -144,21 +138,17 @@ func (s *Service) CreateEvent(ctx context.Context, in CreateEventInput) (*Create
 			RRule:       rrule,
 		})
 		if err != nil {
-			return fmt.Errorf("creating event: %w", err)
+			return nil, false, fmt.Errorf("creating event: %w", err)
 		}
-		out = &CreatedEvent{Summary: in.Summary, Start: start, End: end, AllDay: in.AllDay, RRule: rrule}
+		out := &CreatedEvent{Summary: in.Summary, Start: start, End: end, AllDay: in.AllDay, RRule: rrule}
 		if raw != nil {
 			out.ID = raw.ID
 			out.UID = raw.UID
 			out.Start = time.Unix(raw.StartTime, 0).UTC()
 			out.End = time.Unix(raw.EndTime, 0).UTC()
 		}
-		return nil
+		return out, false, nil
 	})
-	if werr != nil {
-		return nil, werr
-	}
-	return out, nil
 }
 
 // GetEventInput addresses a single event for detailed retrieval.
@@ -172,12 +162,10 @@ type GetEventInput struct {
 // GotEvent is a single decrypted event with its raw row, the resolved
 // calendar, the display zone, and (when requested) the reconstructed ICS.
 type GotEvent struct {
-	Calendar calendar.Info
-	Settings calendar.Settings // calendar default reminders (for inheritance)
-	Location *time.Location
-	Event    *event.Event
-	Raw      *caltypes.RawEvent
-	ICS      string // populated only when GetEventInput.WithICS
+	resolved
+	Event *event.Event
+	Raw   *caltypes.RawEvent
+	ICS   string // populated only when GetEventInput.WithICS
 }
 
 // GetEvent fetches, decrypts and (optionally) reconstructs the ICS of a
@@ -194,38 +182,27 @@ func (s *Service) GetEvent(ctx context.Context, in GetEventInput) (*GotEvent, er
 		return nil, err
 	}
 
-	var out *GotEvent
-	attempt := 0
-	werr := s.withAccess(ctx, in.Calendar, func(info calendar.Info, access *calendar.Access) error {
-		attempt++
+	// Stale cached calendar keys decrypt nothing; the degraded flag makes
+	// withAccessResult refresh keys and retry once.
+	return withAccessResult(ctx, s, in.Calendar, func(info calendar.Info, access *calendar.Access) (*GotEvent, bool, error) {
 		raw, err := event.Get(ctx, s.client, info.ID, in.EventID)
 		if err != nil {
-			return fmt.Errorf("fetching event: %w", err)
+			return nil, false, fmt.Errorf("fetching event: %w", err)
 		}
 		ev, err := event.Decrypt(raw, access.KR)
 		if err != nil {
-			return fmt.Errorf("decrypting event: %w", err)
+			return nil, false, fmt.Errorf("decrypting event: %w", err)
 		}
-		got := &GotEvent{Calendar: info, Settings: access.Settings, Location: loc, Event: ev, Raw: raw}
+		got := &GotEvent{resolved: resolved{Calendar: info, Settings: access.Settings, Location: loc}, Event: ev, Raw: raw}
 		if in.WithICS {
 			ics, ierr := event.BuildICS(raw, access.KR)
 			if ierr != nil && !errors.Is(ierr, event.ErrDecryptDegraded) {
-				return fmt.Errorf("building ICS: %w", ierr)
+				return nil, false, fmt.Errorf("building ICS: %w", ierr)
 			}
 			got.ICS = ics
 		}
-		out = got
-		// Stale cached calendar keys decrypt nothing; surface the
-		// degradation once so withAccess refreshes keys and retries.
-		if attempt == 1 && ev.DecryptFailed {
-			return fmt.Errorf("decrypting event: %w", event.ErrDecryptDegraded)
-		}
-		return nil
+		return got, ev.DecryptFailed, nil
 	})
-	if werr != nil && (!errors.Is(werr, event.ErrDecryptDegraded) || out == nil) {
-		return nil, werr
-	}
-	return out, nil
 }
 
 // GotCalendar is a single resolved calendar with its default settings and a
@@ -241,19 +218,13 @@ type GotCalendar struct {
 // (reminders/duration), and reports whether it is the configured default.
 // The bootstrap fetch is cached, so repeat calls add no network round-trips.
 func (s *Service) GetCalendar(ctx context.Context, selector string) (*GotCalendar, error) {
-	var out *GotCalendar
-	err := s.withAccess(ctx, selector, func(info calendar.Info, access *calendar.Access) error {
-		out = &GotCalendar{
+	return withAccessResult(ctx, s, selector, func(info calendar.Info, access *calendar.Access) (*GotCalendar, bool, error) {
+		return &GotCalendar{
 			Info:      info,
 			Settings:  access.Settings,
 			IsDefault: info.Matches(s.cfg.DefaultCalendar),
-		}
-		return nil
+		}, false, nil
 	})
-	if err != nil {
-		return nil, err
-	}
-	return out, nil
 }
 
 // anyDecryptFailed reports whether any listed event came back degraded.
@@ -345,19 +316,18 @@ func (s *Service) UpdateEvent(ctx context.Context, in UpdateEventInput) (*event.
 		}
 	}
 
-	var outcome *event.UpdateOutcome
-	werr := s.withAccess(ctx, in.Calendar, func(info calendar.Info, access *calendar.Access) error {
+	return withAccessResult(ctx, s, in.Calendar, func(info calendar.Info, access *calendar.Access) (*event.UpdateOutcome, bool, error) {
 		// Recurrence options need the event's all-day-ness for the UNTIL
 		// form, so fetch the raw row first - only in that case (the
 		// occurrence path never builds an RRULE).
 		if in.Occurrence == "" && !in.Recurrence.Empty() {
 			raw, err := event.Get(ctx, s.client, info.ID, in.EventID)
 			if err != nil {
-				return fmt.Errorf("fetching event: %w", err)
+				return nil, false, fmt.Errorf("fetching event: %w", err)
 			}
 			rrule, err := in.Recurrence.buildRRule(tz, raw.IsAllDay())
 			if err != nil {
-				return err
+				return nil, false, err
 			}
 			if rrule != "" {
 				opts.RRule = &rrule
@@ -366,15 +336,10 @@ func (s *Service) UpdateEvent(ctx context.Context, in UpdateEventInput) (*event.
 
 		o, err := event.SmartUpdate(ctx, s.client, access, in.EventID, opts, occurrenceTS)
 		if err != nil {
-			return fmt.Errorf("updating event: %w", err)
+			return nil, false, fmt.Errorf("updating event: %w", err)
 		}
-		outcome = o
-		return nil
+		return o, false, nil
 	})
-	if werr != nil {
-		return nil, werr
-	}
-	return outcome, nil
 }
 
 // DeleteEventInput addresses a deletion with user-shaped strings.
@@ -399,20 +364,14 @@ func (s *Service) DeleteEvent(ctx context.Context, in DeleteEventInput) (*event.
 		}
 	}
 
-	var res *event.DeleteResult
-	werr := s.withAccess(ctx, in.Calendar, func(_ calendar.Info, access *calendar.Access) error {
+	return withAccessResult(ctx, s, in.Calendar, func(_ calendar.Info, access *calendar.Access) (*event.DeleteResult, bool, error) {
 		r, err := event.SmartDelete(ctx, s.client, access, in.EventID, occurrenceTS)
 		if err != nil {
 			// Occurrence deletion merges an EXDATE into the master and
 			// so needs full decryption; ErrDecryptDegraded retries with
 			// fresh key material via withAccess.
-			return fmt.Errorf("deleting event: %w", err)
+			return nil, false, fmt.Errorf("deleting event: %w", err)
 		}
-		res = r
-		return nil
+		return r, false, nil
 	})
-	if werr != nil {
-		return nil, werr
-	}
-	return res, nil
 }
