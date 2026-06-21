@@ -122,23 +122,19 @@ func newCalFixtures(t *testing.T) *calFixtures {
 	}
 }
 
-// serveMembers registers the /members endpoint: an unrelated sharing member
-// first, then ours (mixed-case email exercises case-insensitive matching).
-func (f *calFixtures) serveMembers(mux *countingMux) {
-	mux.handleJSON("/calendar/v1/"+testCalendarID+"/members", map[string]any{
+// bootstrap is a tweakable GET /calendar/v2/{id}/bootstrap body. The zero
+// value is the happy path: an unrelated sharing member then ours (mixed-case
+// email exercises case-insensitive matching); the other member's passphrase
+// first (encrypted to a key we don't hold) then ours; a malformed key first
+// (must be skipped) then the real locked calendar key; plus settings.
+func (f *calFixtures) bootstrap() map[string]any {
+	return map[string]any{
 		"Members": []map[string]any{
 			{"ID": "other-member", "AddressID": "other-addr", "CalendarID": testCalendarID,
 				"Email": "someone-else@example.com"},
 			{"ID": testMemberID, "AddressID": testAddressID, "CalendarID": testCalendarID,
 				"Email": "ME@EXAMPLE.COM", "Permissions": 112},
 		},
-	})
-}
-
-// servePassphrase registers the /passphrase endpoint: the other member's
-// entry first (encrypted to a key we don't hold), ours second.
-func (f *calFixtures) servePassphrase(mux *countingMux) {
-	mux.handleJSON("/calendar/v1/"+testCalendarID+"/passphrase", map[string]any{
 		"Passphrase": map[string]any{
 			"ID":    "pp1",
 			"Flags": 0,
@@ -147,28 +143,29 @@ func (f *calFixtures) servePassphrase(mux *countingMux) {
 				{"MemberID": testMemberID, "Passphrase": f.encPassphrase, "Signature": ""},
 			},
 		},
-	})
-}
-
-// serveKeys registers the /keys endpoint: a malformed entry first (must be
-// skipped), then the real locked calendar key.
-func (f *calFixtures) serveKeys(mux *countingMux) {
-	mux.handleJSON("/calendar/v1/"+testCalendarID+"/keys", map[string]any{
 		"Keys": []map[string]any{
 			{"ID": "k0", "CalendarID": testCalendarID, "PassphraseID": "pp1",
 				"PrivateKey": "not an armored key", "Flags": 0},
 			{"ID": "k1", "CalendarID": testCalendarID, "PassphraseID": "pp1",
 				"PrivateKey": f.calPrivateArmor, "Flags": 3},
 		},
-	})
+		"CalendarSettings": map[string]any{
+			"DefaultEventDuration":        30,
+			"DefaultPartDayNotifications": []map[string]any{{"Type": 1, "Trigger": "-PT15M"}},
+			"DefaultFullDayNotifications": []map[string]any{{"Type": 1, "Trigger": "-PT16H"}},
+		},
+	}
+}
+
+// serveBootstrap registers the single bootstrap endpoint with the given body.
+func (f *calFixtures) serveBootstrap(mux *countingMux, body map[string]any) {
+	mux.handleJSON(BootstrapPath(testCalendarID), body)
 }
 
 func TestKeychainUnlock(t *testing.T) {
 	f := newCalFixtures(t)
 	mux := newCountingMux()
-	f.serveMembers(mux)
-	f.servePassphrase(mux)
-	f.serveKeys(mux)
+	f.serveBootstrap(mux, f.bootstrap())
 	client := newTestClient(t, mux)
 
 	kc := NewKeychain(client, f.unlockedAccounts)
@@ -189,6 +186,12 @@ func TestKeychainUnlock(t *testing.T) {
 	if access.AddrKR != f.addrKR {
 		t.Error("AddrKR is not the unlocked address keyring")
 	}
+	// Settings come back on the same bootstrap call.
+	if access.Settings.DefaultEventDuration != 30 ||
+		len(access.Settings.DefaultPartDayNotifications) != 1 ||
+		access.Settings.DefaultPartDayNotifications[0].Trigger != "-PT15M" {
+		t.Errorf("Settings = %+v, want part-day -PT15M / duration 30", access.Settings)
+	}
 
 	// The returned keyring must decrypt data encrypted to the calendar key.
 	enc, err := f.calPublicKR.Encrypt(crypto.NewPlainMessageFromString("hello calendar"), nil)
@@ -203,14 +206,10 @@ func TestKeychainUnlock(t *testing.T) {
 		t.Errorf("decrypted probe = %q, want %q", got, "hello calendar")
 	}
 
-	// Second Unlock must come from the cache: same access, no new API hits.
-	before := map[string]int{}
-	for _, p := range []string{"members", "passphrase", "keys"} {
-		path := "/calendar/v1/" + testCalendarID + "/" + p
-		before[path] = mux.hitCount(path)
-		if before[path] != 1 {
-			t.Errorf("endpoint %s hit %d times before second Unlock, want 1", path, before[path])
-		}
+	// Second Unlock must come from the cache: same access, no new API hit.
+	path := BootstrapPath(testCalendarID)
+	if got := mux.hitCount(path); got != 1 {
+		t.Errorf("bootstrap hit %d times before second Unlock, want 1", got)
 	}
 	again, err := kc.Unlock(context.Background(), Info{ID: testCalendarID})
 	if err != nil {
@@ -219,23 +218,19 @@ func TestKeychainUnlock(t *testing.T) {
 	if again != access {
 		t.Error("second Unlock did not return the cached access")
 	}
-	for path, n := range before {
-		if got := mux.hitCount(path); got != n {
-			t.Errorf("endpoint %s hit %d times after cached Unlock, want %d", path, got, n)
-		}
+	if got := mux.hitCount(path); got != 1 {
+		t.Errorf("bootstrap hit %d times after cached Unlock, want 1", got)
 	}
 }
 
 func TestKeychainUnlockWithResolvedIdentity(t *testing.T) {
 	f := newCalFixtures(t)
 	mux := newCountingMux()
-	f.serveMembers(mux)
-	f.servePassphrase(mux)
-	f.serveKeys(mux)
+	f.serveBootstrap(mux, f.bootstrap())
 	client := newTestClient(t, mux)
 
-	// A List-resolved Info already carries our member identity: Unlock
-	// must use it directly and never hit GET /members.
+	// A List-resolved Info already carries our member identity: Unlock must
+	// use it directly rather than re-resolving from the bootstrap members.
 	info := Info{ID: testCalendarID, MemberID: testMemberID, AddressID: testAddressID}
 	access, err := NewKeychain(client, f.unlockedAccounts).Unlock(context.Background(), info)
 	if err != nil {
@@ -244,30 +239,24 @@ func TestKeychainUnlockWithResolvedIdentity(t *testing.T) {
 	if access.MemberID != testMemberID || access.AddressID != testAddressID {
 		t.Errorf("identity = (%q, %q), want (%q, %q)", access.MemberID, access.AddressID, testMemberID, testAddressID)
 	}
-	if got := mux.hitCount("/calendar/v1/" + testCalendarID + "/members"); got != 0 {
-		t.Errorf("GET /members hit %d times, want 0 (identity was provided)", got)
-	}
 }
 
 func TestKeychainUnlockMemberFallback(t *testing.T) {
 	f := newCalFixtures(t)
 	mux := newCountingMux()
 	// No member email matches ours: fall back to the first member.
-	mux.handleJSON("/calendar/v1/"+testCalendarID+"/members", map[string]any{
-		"Members": []map[string]any{
-			{"ID": "other-member", "AddressID": "other-addr", "CalendarID": testCalendarID,
-				"Email": "someone-else@example.com"},
+	body := f.bootstrap()
+	body["Members"] = []map[string]any{
+		{"ID": "other-member", "AddressID": "other-addr", "CalendarID": testCalendarID,
+			"Email": "someone-else@example.com"},
+	}
+	body["Passphrase"] = map[string]any{
+		"ID": "pp1",
+		"MemberPassphrases": []map[string]any{
+			{"MemberID": "other-member", "Passphrase": f.encPassphrase, "Signature": ""},
 		},
-	})
-	mux.handleJSON("/calendar/v1/"+testCalendarID+"/passphrase", map[string]any{
-		"Passphrase": map[string]any{
-			"ID": "pp1",
-			"MemberPassphrases": []map[string]any{
-				{"MemberID": "other-member", "Passphrase": f.encPassphrase, "Signature": ""},
-			},
-		},
-	})
-	f.serveKeys(mux)
+	}
+	f.serveBootstrap(mux, body)
 	client := newTestClient(t, mux)
 
 	access, err := NewKeychain(client, f.unlockedAccounts).Unlock(context.Background(), Info{ID: testCalendarID})
@@ -289,17 +278,15 @@ func TestKeychainUnlockMemberFallback(t *testing.T) {
 func TestKeychainUnlockNoDecryptableKey(t *testing.T) {
 	f := newCalFixtures(t)
 	mux := newCountingMux()
-	f.serveMembers(mux)
 	// Our member's passphrase is encrypted to a key we do not hold.
-	mux.handleJSON("/calendar/v1/"+testCalendarID+"/passphrase", map[string]any{
-		"Passphrase": map[string]any{
-			"ID": "pp1",
-			"MemberPassphrases": []map[string]any{
-				{"MemberID": testMemberID, "Passphrase": f.decoyEncrypted, "Signature": ""},
-			},
+	body := f.bootstrap()
+	body["Passphrase"] = map[string]any{
+		"ID": "pp1",
+		"MemberPassphrases": []map[string]any{
+			{"MemberID": testMemberID, "Passphrase": f.decoyEncrypted, "Signature": ""},
 		},
-	})
-	f.serveKeys(mux)
+	}
+	f.serveBootstrap(mux, body)
 	client := newTestClient(t, mux)
 
 	_, err := NewKeychain(client, f.unlockedAccounts).Unlock(context.Background(), Info{ID: testCalendarID})
@@ -317,15 +304,13 @@ func TestKeychainUnlockNoDecryptableKey(t *testing.T) {
 func TestKeychainUnlockNoKeyUnlocks(t *testing.T) {
 	f := newCalFixtures(t)
 	mux := newCountingMux()
-	f.serveMembers(mux)
-	f.servePassphrase(mux)
 	// The served calendar key is locked with a different passphrase.
-	mux.handleJSON("/calendar/v1/"+testCalendarID+"/keys", map[string]any{
-		"Keys": []map[string]any{
-			{"ID": "k1", "CalendarID": testCalendarID, "PassphraseID": "pp1",
-				"PrivateKey": f.wrongPassKeyArm, "Flags": 3},
-		},
-	})
+	body := f.bootstrap()
+	body["Keys"] = []map[string]any{
+		{"ID": "k1", "CalendarID": testCalendarID, "PassphraseID": "pp1",
+			"PrivateKey": f.wrongPassKeyArm, "Flags": 3},
+	}
+	f.serveBootstrap(mux, body)
 	client := newTestClient(t, mux)
 
 	_, err := NewKeychain(client, f.unlockedAccounts).Unlock(context.Background(), Info{ID: testCalendarID})
@@ -343,11 +328,9 @@ func TestKeychainUnlockNoKeyUnlocks(t *testing.T) {
 func TestKeychainUnlockNoMemberPassphrase(t *testing.T) {
 	f := newCalFixtures(t)
 	mux := newCountingMux()
-	f.serveMembers(mux)
-	mux.handleJSON("/calendar/v1/"+testCalendarID+"/passphrase", map[string]any{
-		"Passphrase": map[string]any{"ID": "pp1", "MemberPassphrases": []map[string]any{}},
-	})
-	f.serveKeys(mux)
+	body := f.bootstrap()
+	body["Passphrase"] = map[string]any{"ID": "pp1", "MemberPassphrases": []map[string]any{}}
+	f.serveBootstrap(mux, body)
 	client := newTestClient(t, mux)
 
 	_, err := NewKeychain(client, f.unlockedAccounts).Unlock(context.Background(), Info{ID: testCalendarID})

@@ -6,6 +6,8 @@
 // types are stale (verified live against the API).
 package caltypes
 
+import "encoding/json"
+
 // CardType is a calendar card type (CALENDAR_CARD_TYPE in the web client).
 type CardType int
 
@@ -67,9 +69,18 @@ type RawEvent struct {
 	// IsOrganizer is 1 when this account organizes the event.
 	IsOrganizer int `json:"IsOrganizer,omitempty"`
 
-	// Notifications are the event's reminders/alarms. Plaintext row field
-	// (the server denormalizes VALARM components here); see Notification.
+	// Notifications are the event's own reminders/alarms (plaintext row
+	// field). The API distinguishes three states, which NotificationsSet
+	// captures (set by UnmarshalJSON):
+	//   - null/absent  -> NotificationsSet false: inherit the calendar's
+	//     default reminders (DefaultPart/FullDayNotifications).
+	//   - []           -> NotificationsSet true,  len 0: explicitly none.
+	//   - [{...}]       -> NotificationsSet true, len>0: custom reminders.
+	// The web client's getHasDefaultNotifications is exactly !Notifications.
 	Notifications []Notification `json:"Notifications,omitempty"`
+	// NotificationsSet reports whether Notifications was present and non-null
+	// on the wire (distinguishing explicit-none [] from inherit null).
+	NotificationsSet bool `json:"-"`
 
 	// Attendees carries the per-attendee anonymized token and live RSVP
 	// status. Attendee identities (email/name) live encrypted in the
@@ -84,6 +95,29 @@ type RawEvent struct {
 	CalendarEvents  []EventPart `json:"CalendarEvents,omitempty"`
 	AttendeesEvents []EventPart `json:"AttendeesEvents,omitempty"`
 	PersonalEvents  []EventPart `json:"PersonalEvents,omitempty"`
+}
+
+// UnmarshalJSON decodes a RawEvent and records whether Notifications was
+// present and non-null, so callers can distinguish "inherit calendar default"
+// (null/absent) from "explicitly no reminders" ([]).
+func (e *RawEvent) UnmarshalJSON(data []byte) error {
+	type alias RawEvent // avoid recursion
+	var a alias
+	if err := json.Unmarshal(data, &a); err != nil {
+		return err
+	}
+	*e = RawEvent(a)
+
+	// Re-inspect the raw Notifications token: a non-null value (an array,
+	// possibly empty) means the reminders are explicitly set on the event.
+	var probe struct {
+		Notifications json.RawMessage `json:"Notifications"`
+	}
+	if err := json.Unmarshal(data, &probe); err != nil {
+		return err
+	}
+	e.NotificationsSet = len(probe.Notifications) > 0 && string(probe.Notifications) != "null"
+	return nil
 }
 
 // Notification is one reminder/alarm on an event. Type is the API alarm

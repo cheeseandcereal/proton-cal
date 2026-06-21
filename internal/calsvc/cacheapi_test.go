@@ -52,13 +52,15 @@ func TestCacheTTLPolicy(t *testing.T) {
 		{"/core/v4/users", keyMaterialTTL, true},
 		{"/core/v4/addresses", keyMaterialTTL, true},
 		{"/calendar/v1", calendarListTTL, true},
-		{"/calendar/v1/CAL_ID/passphrase", keyMaterialTTL, true},
-		{"/calendar/v1/CAL_ID/keys", keyMaterialTTL, true},
-		{"/calendar/v1/CAL_ID/members", keyMaterialTTL, true},
+		{"/calendar/v2/CAL_ID/bootstrap", keyMaterialTTL, true},
 		// Event content must never be cached.
 		{"/calendar/v1/CAL_ID/events", 0, false},
 		{"/calendar/v1/CAL_ID/events/EV_ID", 0, false},
 		{"/calendar/v1/CAL_ID/events/sync", 0, false},
+		// The old v1 key endpoints are no longer fetched/cached.
+		{"/calendar/v1/CAL_ID/passphrase", 0, false},
+		{"/calendar/v1/CAL_ID/keys", 0, false},
+		{"/calendar/v1/CAL_ID/members", 0, false},
 		{"/core/v4/keys/salts", 0, false},
 	}
 	for _, tc := range cases {

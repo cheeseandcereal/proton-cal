@@ -30,7 +30,7 @@ const (
 	calendarListTTL = 7 * 24 * time.Hour
 )
 
-var calKeyMaterialRe = regexp.MustCompile(`^` + calendar.APIPath + `/[^/]+/(passphrase|keys|members)$`)
+var calKeyMaterialRe = regexp.MustCompile(`^/calendar/v2/[^/]+/bootstrap$`)
 
 // cacheTTL returns the TTL for a cacheable GET path; ok is false for
 // everything that must never be cached (event content, writes, anything
@@ -54,11 +54,7 @@ func accountKeyCacheKeys() []string {
 
 // calendarKeyCacheKeys are the cache keys behind one calendar's key unlock.
 func calendarKeyCacheKeys(calendarID string) []string {
-	return []string{
-		calendar.APIPath + "/" + calendarID + "/passphrase",
-		calendar.APIPath + "/" + calendarID + "/keys",
-		calendar.APIPath + "/" + calendarID + "/members",
-	}
+	return []string{calendar.BootstrapPath(calendarID)}
 }
 
 // cachedAPI decorates a papi.API with a read-through response cache for

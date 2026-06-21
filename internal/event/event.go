@@ -74,10 +74,14 @@ type Event struct {
 	Color         string
 	IsOrganizer   bool
 	MoreAttendees bool
-	Notifications []caltypes.Notification
-	Organizer     *Person
-	Attendees     []Attendee
-	Conference    *Conference
+	// Notifications are the event's own reminders. NotificationsSet
+	// distinguishes "explicitly none" (set, len 0) from "inherit the
+	// calendar default" (not set); see caltypes.RawEvent.
+	Notifications    []caltypes.Notification
+	NotificationsSet bool
+	Organizer        *Person
+	Attendees        []Attendee
+	Conference       *Conference
 
 	// conf* are scratch accumulators for conference data spread across the
 	// shared signed (ID/provider) and shared encrypted (URL/host) cards;

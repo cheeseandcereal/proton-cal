@@ -24,7 +24,8 @@ type ListEventsInput struct {
 // EventList is a resolved, expanded, decrypted listing window.
 type EventList struct {
 	Calendar  calendar.Info
-	Location  *time.Location // display zone the listing was resolved in
+	Settings  calendar.Settings // calendar default reminders (for inheritance)
+	Location  *time.Location    // display zone the listing was resolved in
 	From      time.Time
 	FromGiven bool // false when the window starts "now"
 	Days      int
@@ -68,6 +69,7 @@ func (s *Service) ListEvents(ctx context.Context, in ListEventsInput) (*EventLis
 		})
 		out = &EventList{
 			Calendar:  info,
+			Settings:  access.Settings,
 			Location:  loc,
 			From:      start,
 			FromGiven: in.From != "",
@@ -170,6 +172,7 @@ type GetEventInput struct {
 // calendar, the display zone, and (when requested) the reconstructed ICS.
 type GotEvent struct {
 	Calendar calendar.Info
+	Settings calendar.Settings // calendar default reminders (for inheritance)
 	Location *time.Location
 	Event    *event.Event
 	Raw      *caltypes.RawEvent
@@ -202,7 +205,7 @@ func (s *Service) GetEvent(ctx context.Context, in GetEventInput) (*GotEvent, er
 		if err != nil {
 			return fmt.Errorf("decrypting event: %w", err)
 		}
-		got := &GotEvent{Calendar: info, Location: loc, Event: ev, Raw: raw}
+		got := &GotEvent{Calendar: info, Settings: access.Settings, Location: loc, Event: ev, Raw: raw}
 		if in.WithICS {
 			ics, ierr := event.BuildICS(raw, access.KR)
 			if ierr != nil && !errors.Is(ierr, event.ErrDecryptDegraded) {
@@ -224,23 +227,32 @@ func (s *Service) GetEvent(ctx context.Context, in GetEventInput) (*GotEvent, er
 	return out, nil
 }
 
-// GotCalendar is a single resolved calendar with a flag for whether it is
-// the configured default.
+// GotCalendar is a single resolved calendar with its default settings and a
+// flag for whether it is the configured default.
 type GotCalendar struct {
 	Info      calendar.Info
+	Settings  calendar.Settings
 	IsDefault bool
 }
 
 // GetCalendar resolves a single calendar by selector (ID or name; "" = the
-// configured default, else first) and reports whether it is the configured
-// default. It reuses the cached calendar list and adds no network calls
-// beyond the existing list fetch resolveCalendar already performs.
+// configured default, else first), unlocks it to read its default settings
+// (reminders/duration), and reports whether it is the configured default.
+// The bootstrap fetch is cached, so repeat calls add no network round-trips.
 func (s *Service) GetCalendar(ctx context.Context, selector string) (*GotCalendar, error) {
-	info, err := s.resolveCalendar(ctx, selector)
+	var out *GotCalendar
+	err := s.withAccess(ctx, selector, func(info calendar.Info, access *calendar.Access) error {
+		out = &GotCalendar{
+			Info:      info,
+			Settings:  access.Settings,
+			IsDefault: info.Matches(s.cfg.DefaultCalendar),
+		}
+		return nil
+	})
 	if err != nil {
 		return nil, err
 	}
-	return &GotCalendar{Info: info, IsDefault: info.Matches(s.cfg.DefaultCalendar)}, nil
+	return out, nil
 }
 
 // anyDecryptFailed reports whether any listed event came back degraded.
