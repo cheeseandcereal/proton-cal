@@ -27,7 +27,9 @@ The reverse-engineered API details are documented in [RESEARCH.md](RESEARCH.md).
  - **All-day events**, multi-address signing
 - **`get event` / `get calendar`**: full single-resource detail, with
   `--fields`/`--all` to control which fields show and color swatches in the
-  terminal
+  terminal. Reminders and color reflect the calendar's defaults when an event
+  has none of its own (matching the Proton apps); `get calendar` shows the
+  calendar's default reminders and event duration
 - **`-o/--output json`** on every read/write command (machine-readable JSON
   on stdout; human messages on stderr)
 - **MCP server**: stdio server exposing the same operations as 5 tools

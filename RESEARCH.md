@@ -187,10 +187,17 @@ sufficient scope"). Consequences:
 | POST   | `/calendar/v1`                       | Create calendar |
 | GET    | `/calendar/v1/{calID}`               | Get one calendar |
 | DELETE | `/calendar/v1/{calID}`               | Delete calendar |
-| GET    | `/calendar/v2/{calID}/bootstrap`     | Keys + members + passphrase + settings in one call |
-| GET    | `/calendar/v1/{calID}/keys`          | Calendar private keys |
-| GET    | `/calendar/v1/{calID}/passphrase`    | Calendar passphrase (per member) |
-| GET    | `/calendar/v1/{calID}/members`       | Member entries |
+| GET    | `/calendar/v2/{calID}/bootstrap`     | **Keys + members + passphrase + settings in one call** - the calendar key unlock path uses this (replaces the three v1 calls below) |
+| GET    | `/calendar/v1/{calID}/keys`          | Calendar private keys (superseded by `/v2/bootstrap`) |
+| GET    | `/calendar/v1/{calID}/passphrase`    | Calendar passphrase (superseded by `/v2/bootstrap`) |
+| GET    | `/calendar/v1/{calID}/members`       | Member entries (superseded by `/v2/bootstrap`) |
+
+The unlock path (`calendar.Keychain.Unlock`) issues a single
+`GET /calendar/v2/{calID}/bootstrap` whose body carries `Keys`, `Passphrase`,
+`Members` (same shapes as the v1 endpoints) and `CalendarSettings`. The
+settings are stored on `calendar.Access.Settings` and drive default-reminder
+display (see below). The cache key for a calendar's key material is this one
+bootstrap path.
 
 **Response shape drift (live-verified June 2026):** `GET /calendar/v1`
 returns `Calendars[]` where display metadata (`Name`, `Description`,
@@ -255,6 +262,18 @@ These come back on every event row in the clear, with no decryption:
   `NOTIFICATION_TYPE_API` (`0` email, `1` device/display); `Trigger` is an
   iCal duration offset (`-PT1H`, `-PT15M`). The web client synthesizes
   `VALARM` components from this field on read (`deserialize.ts`).
+  **Tri-state (verified live):** the JSON value is `null`/absent when the
+  event inherits the calendar's default reminders, `[]` when reminders are
+  explicitly removed (none), or the array of custom reminders. The web
+  client's `getHasDefaultNotifications` is exactly `!Notifications`. The
+  *default* reminders are NOT denormalized onto the event - they come from
+  the calendar's `CalendarSettings.DefaultPartDayNotifications` (timed) /
+  `DefaultFullDayNotifications` (all-day). The clients apply the default at
+  display time to events that carry none of their own. `caltypes.RawEvent`
+  records the tri-state via `NotificationsSet` (a custom `UnmarshalJSON`
+  distinguishes `null` from `[]`), and the sync update re-sends it verbatim
+  so an edit neither wipes reminders nor silently re-enables the default on
+  an event whose reminders were removed.
 - `Attendees` / `AttendeesInfo` - per-attendee `{ID, Token, Status}` plus a
   `MoreAttendees` flag. `Status` is `ATTENDEE_STATUS_API`: `0` needs-action,
   `1` tentative, `2` declined, `3` accepted. The identities (email/CN/role)
@@ -431,15 +450,17 @@ silently destroys data. Two failure modes we hit and fixed:
   `Attendees` rows live outside the cards. The web client's `formatData`
   re-sends them on every update (`Notifications: notificationsPart || null`,
   `Color: colorPart || null`, `Attendees: [{Token, Status, Comment}]`).
-  Sending `null`/`[]` instead **wipes the reminders and attendee RSVP rows**.
-  We mirror `formatData`: re-send the event's existing `Notifications`,
-  `Color` and clear `Attendees` (token + live `Status`) on update.
+  Sending the wrong value **wipes the reminders and attendee RSVP rows**.
+  We re-send the event's existing `Notifications` (preserving the
+  null/`[]`/array tri-state - see "Plaintext row fields"), `Color` and clear
+  `Attendees` (token + live `Status`) on update.
 
-Note: reminders may also be stored in a member-specific personal card
-(`PersonalEvents`), but the server denormalizes them into the plaintext
-`Notifications` row field, and re-sending that field on the sync update is
-sufficient to preserve them (live-verified on an event with no
-`PersonalEvents` card).
+Note: reminders can also live in a member-specific personal card
+(`PersonalEvents`), but in practice the events observed live carry **no**
+`PersonalEvents` card; the plaintext `Notifications` tri-state row field is
+the source of truth, and re-sending it verbatim on the sync update preserves
+the event's reminders (or its explicit "none", or its inheritance of the
+calendar default). `PersonalEvents` is therefore not decrypted.
 
 ### Updates reuse session keys
 
