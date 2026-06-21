@@ -243,10 +243,7 @@ func TestEventDetailRendersEnrichment(t *testing.T) {
 		t.Fatalf("selectFields: %v", err)
 	}
 	lines := eventDetailLines(ev, time.UTC, sel, calendar.Settings{}, calendar.Info{})
-	joined := ""
-	for _, l := range lines {
-		joined += l + "\n"
-	}
+	joined := strings.Join(lines, "\n") + "\n"
 	for _, want := range []string{
 		"Summary:", "Test Event",
 		"Organizer:", "adam <adam@adamcrowder.net>",

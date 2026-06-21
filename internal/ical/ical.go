@@ -19,6 +19,7 @@
 package ical
 
 import (
+	"errors"
 	"fmt"
 	"strings"
 	"time"
@@ -133,7 +134,7 @@ func dtProp(name string, t time.Time, tzName string, allDay bool) (string, error
 // trailing CRLF — Proton's parts don't.
 func BuildFragments(v VEvent) (Fragments, error) {
 	if v.Start == nil || v.End == nil {
-		return Fragments{}, fmt.Errorf("ical: event must have start and end times")
+		return Fragments{}, errors.New("ical: event must have start and end times")
 	}
 
 	sharedSigned, err := buildSharedSigned(v)

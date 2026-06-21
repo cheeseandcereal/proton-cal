@@ -63,7 +63,7 @@ type suite struct {
 var (
 	setupOnce   sync.Once
 	setupSkip   string // non-empty: every test skips with this message
-	setupErr    error  // non-nil: every test fails with this error
+	errSetup    error  // non-nil: every test fails with this error
 	sharedSuite *suite
 )
 
@@ -76,8 +76,8 @@ func setup(t *testing.T) *suite {
 	if setupSkip != "" {
 		t.Skip(setupSkip)
 	}
-	if setupErr != nil {
-		t.Fatalf("integration suite setup failed: %v", setupErr)
+	if errSetup != nil {
+		t.Fatalf("integration suite setup failed: %v", errSetup)
 	}
 	return sharedSuite
 }
@@ -91,12 +91,12 @@ func initSuite() {
 		setupSkip = skipMessage
 		return
 	} else if err != nil {
-		setupErr = fmt.Errorf("reading config.toml: %w", err)
+		errSetup = fmt.Errorf("reading config.toml: %w", err)
 		return
 	}
 	var tc testConfig
 	if err := toml.Unmarshal(data, &tc); err != nil {
-		setupErr = fmt.Errorf("parsing config.toml: %w", err)
+		errSetup = fmt.Errorf("parsing config.toml: %w", err)
 		return
 	}
 	if len(tc.Calendars) == 0 {
@@ -107,12 +107,12 @@ func initSuite() {
 	// 2. Real user config + stored session: missing session -> clean skip.
 	cfg, err := config.Load()
 	if err != nil {
-		setupErr = fmt.Errorf("loading CLI config: %w", err)
+		errSetup = fmt.Errorf("loading CLI config: %w", err)
 		return
 	}
 	store, err := config.NewSessionStore()
 	if err != nil {
-		setupErr = fmt.Errorf("opening session store: %w", err)
+		errSetup = fmt.Errorf("opening session store: %w", err)
 		return
 	}
 	sess, err := store.Load()
@@ -120,7 +120,7 @@ func initSuite() {
 		setupSkip = skipMessage
 		return
 	} else if err != nil {
-		setupErr = fmt.Errorf("loading session: %w", err)
+		errSetup = fmt.Errorf("loading session: %w", err)
 		return
 	}
 	if len(sess.SaltedKeyPass) == 0 {
@@ -134,24 +134,24 @@ func initSuite() {
 		setupSkip = skipMessage
 		return
 	} else if err != nil {
-		setupErr = fmt.Errorf("restoring client from session: %w", err)
+		errSetup = fmt.Errorf("restoring client from session: %w", err)
 		return
 	}
 	unlocked, err := auth.UnlockKeys(ctx, client.Store(), client)
 	if err != nil {
-		setupErr = fmt.Errorf("unlocking keys (is the saved session still valid? re-run `proton-cal login`): %w", err)
+		errSetup = fmt.Errorf("unlocking keys (is the saved session still valid? re-run `proton-cal login`): %w", err)
 		return
 	}
 	cals, err := calendar.List(ctx, client)
 	if err != nil {
-		setupErr = fmt.Errorf("listing calendars: %w", err)
+		errSetup = fmt.Errorf("listing calendars: %w", err)
 		return
 	}
 	resolved := make([]calendar.Info, 0, len(tc.Calendars))
 	for _, sel := range tc.Calendars {
 		info, err := calendar.Resolve(cals, sel, "")
 		if err != nil {
-			setupErr = fmt.Errorf("resolving configured calendar %q: %w", sel, err)
+			errSetup = fmt.Errorf("resolving configured calendar %q: %w", sel, err)
 			return
 		}
 		resolved = append(resolved, info)

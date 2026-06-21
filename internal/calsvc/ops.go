@@ -185,7 +185,7 @@ type GotEvent struct {
 // event returns an error advising --calendar.
 func (s *Service) GetEvent(ctx context.Context, in GetEventInput) (*GotEvent, error) {
 	if in.EventID == "" {
-		return nil, fmt.Errorf("event ID is required")
+		return nil, errors.New("event ID is required")
 	}
 	tz := s.EffectiveTimezone(in.TZ)
 	loc, err := icaltime.LoadLocation(tz)

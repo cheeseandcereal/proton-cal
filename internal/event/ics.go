@@ -1,7 +1,7 @@
 package event
 
 import (
-	"fmt"
+	"errors"
 	"strings"
 
 	"github.com/ProtonMail/gopenpgp/v2/crypto"
@@ -26,7 +26,7 @@ const ICSProdID = "-//proton-cal//proton-cal//EN"
 // error only when no card content could be assembled at all.
 func BuildICS(raw *caltypes.RawEvent, calKR *crypto.KeyRing) (string, error) {
 	if raw == nil {
-		return "", fmt.Errorf("event: nil raw event")
+		return "", errors.New("event: nil raw event")
 	}
 
 	var cards []ical.MergeCard

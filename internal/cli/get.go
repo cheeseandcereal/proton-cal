@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"errors"
 	"fmt"
 
 	"github.com/spf13/cobra"
@@ -41,7 +42,7 @@ func newGetEventCmd() *cobra.Command {
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if ics && outputJSON() {
-				return fmt.Errorf("--ics cannot be combined with --output json")
+				return errors.New("--ics cannot be combined with --output json")
 			}
 			in.EventID = args[0]
 			in.WithICS = ics
@@ -65,7 +66,7 @@ func newGetEventCmd() *cobra.Command {
 			switch {
 			case ics:
 				if got.ICS == "" {
-					return fmt.Errorf("event could not be decrypted into iCalendar")
+					return errors.New("event could not be decrypted into iCalendar")
 				}
 				fmt.Println(got.ICS) // the document itself, to stdout
 				return nil

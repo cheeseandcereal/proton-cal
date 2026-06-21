@@ -315,7 +315,7 @@ func loginWithHumanVerification(ctx context.Context, m *proton.Manager, prompter
 		return nil, proton.Auth{}, fmt.Errorf("parsing human verification details: %w", err)
 	}
 
-	prompter.Notify(fmt.Sprintf("Human verification required. Available methods: %s", strings.Join(details.HumanVerificationMethods, ", ")))
+	prompter.Notify("Human verification required. Available methods: " + strings.Join(details.HumanVerificationMethods, ", "))
 
 	if !slices.Contains(details.HumanVerificationMethods, "captcha") {
 		return nil, proton.Auth{}, fmt.Errorf(
@@ -362,7 +362,7 @@ func captchaToken(prompter Prompter, verifyURL string) (string, error) {
 
 	// Best-effort browser launch; on failure just show the URL.
 	if err := browser.OpenURL(verifyURL); err != nil {
-		prompter.Notify(fmt.Sprintf("Open this URL: %s", verifyURL))
+		prompter.Notify("Open this URL: " + verifyURL)
 	}
 
 	token, err := prompter.Prompt("Paste the token here")

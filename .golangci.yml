@@ -8,15 +8,19 @@ linters:
   # Defaults (errcheck, govet, ineffassign, staticcheck, unused) plus a
   # moderate curated set.
   enable:
+    - bodyclose
     - copyloopvar
+    - errname
     - errorlint
     - gocritic
     - intrange
     - misspell
     - nolintlint
+    - perfsprint
     - revive
     - unconvert
     - unparam
+    - usestdlibvars
     - whitespace
   settings:
     errcheck:

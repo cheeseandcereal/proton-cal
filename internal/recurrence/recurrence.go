@@ -22,6 +22,7 @@
 package recurrence
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -76,10 +77,10 @@ func BuildRRule(repeat string, every int, count int, until string, tzName string
 		return "", fmt.Errorf("unsupported repeat frequency %q; choose one of: %s", repeat, strings.Join(choices, ", "))
 	}
 	if every < 1 {
-		return "", fmt.Errorf("every must be at least 1")
+		return "", errors.New("every must be at least 1")
 	}
 	if count != 0 && until != "" {
-		return "", fmt.Errorf("count and until are mutually exclusive; specify at most one")
+		return "", errors.New("count and until are mutually exclusive; specify at most one")
 	}
 	parts := []string{"FREQ=" + freq}
 	if every > 1 {
@@ -141,10 +142,10 @@ func SanitizeRRule(raw string) (string, error) {
 		value = strings.TrimSpace(value[6:])
 	}
 	if strings.ContainsAny(value, "\r\n") {
-		return "", fmt.Errorf("RRULE must not contain newline characters")
+		return "", errors.New("RRULE must not contain newline characters")
 	}
 	if value == "" {
-		return "", fmt.Errorf("invalid RRULE: empty value")
+		return "", errors.New("invalid RRULE: empty value")
 	}
 
 	seen := make(map[string]bool)
@@ -187,13 +188,13 @@ func SanitizeRRule(raw string) (string, error) {
 	}
 
 	if freq == "" {
-		return "", fmt.Errorf("RRULE must specify FREQ")
+		return "", errors.New("RRULE must specify FREQ")
 	}
 	if !isSupportedFreq(freq) {
 		return "", fmt.Errorf("unsupported FREQ %q; Proton supports: %s", freq, strings.Join(frequencies, ", "))
 	}
 	if hasCount && hasUntil {
-		return "", fmt.Errorf("RRULE must not combine COUNT and UNTIL")
+		return "", errors.New("RRULE must not combine COUNT and UNTIL")
 	}
 	if hasCount && count > maxCount {
 		return "", fmt.Errorf("COUNT must be at most %d", maxCount)

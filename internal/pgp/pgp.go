@@ -15,6 +15,7 @@ package pgp
 
 import (
 	"encoding/base64"
+	"errors"
 	"fmt"
 
 	"github.com/ProtonMail/gopenpgp/v2/crypto"
@@ -172,7 +173,7 @@ func UnlockKeyRing(armoredKeys []string, passphrase []byte) (*crypto.KeyRing, er
 		}
 	}
 	if kr.CountEntities() == 0 {
-		return nil, fmt.Errorf("pgp: no key could be unlocked")
+		return nil, errors.New("pgp: no key could be unlocked")
 	}
 	return kr, nil
 }

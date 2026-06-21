@@ -215,7 +215,7 @@ func (s *syncRecorder) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodPut && strings.HasSuffix(r.URL.Path, "/events/sync") {
 		var body map[string]any
 		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-			http.Error(w, err.Error(), 400)
+			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
 		s.mu.Lock()
