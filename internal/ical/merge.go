@@ -68,9 +68,7 @@ func MergeFragments(prodID string, cards ...MergeCard) string {
 
 	for _, card := range cards {
 		lines := unfoldLines(card.Data)
-		for _, block := range collectComponents(lines) {
-			components = append(components, block)
-		}
+		components = append(components, collectComponents(lines)...)
 		for _, line := range topLevelEventLines(lines) {
 			name, _, _, ok := splitContentLine(line)
 			if !ok {
@@ -108,9 +106,7 @@ func MergeFragments(prodID string, cards ...MergeCard) string {
 	for _, line := range multi {
 		out = append(out, foldLine(line))
 	}
-	for _, block := range components {
-		out = append(out, block)
-	}
+	out = append(out, components...)
 	out = append(out, "END:VEVENT", "END:VCALENDAR")
 	return strings.Join(out, "\r\n")
 }
