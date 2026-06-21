@@ -221,8 +221,8 @@ each, plus an optional attendees group:
 
 | Card                | Type | Crypto                       | Properties |
 |---------------------|------|------------------------------|------------|
-| Shared signed       | 2    | plaintext + detached sig     | `UID`, `DTSTAMP`, `DTSTART`, `DTEND`, [`RECURRENCE-ID`], [`RRULE`], `EXDATE`*, `SEQUENCE` |
-| Shared encrypted    | 3    | encrypted + sig of plaintext | `UID`, `DTSTAMP`, `CREATED`, [`SUMMARY`], [`DESCRIPTION`], [`LOCATION`] |
+| Shared signed       | 2    | plaintext + detached sig     | `UID`, `DTSTAMP`, `DTSTART`, `DTEND`, [`RECURRENCE-ID`], [`RRULE`], `EXDATE`*, `SEQUENCE`, `ORGANIZER`, [`X-PM-CONFERENCE-ID`] |
+| Shared encrypted    | 3    | encrypted + sig of plaintext | `UID`, `DTSTAMP`, `CREATED`, [`SUMMARY`], [`DESCRIPTION`], [`LOCATION`], [`X-PM-CONFERENCE-URL`], **plus every other ("rest") property** |
 | Calendar signed     | 2    | plaintext + detached sig     | `UID`, `DTSTAMP`, `EXDATE`*, `STATUS`, `TRANSP` |
 | Calendar encrypted  | 3    | encrypted + sig of plaintext | `UID`, `DTSTAMP`, `COMMENT` |
 | Attendees encrypted | 3    | encrypted (shared key)       | `UID`, `ATTENDEE`* |
@@ -233,6 +233,48 @@ Card `Type` enum: `0` clear text, `1` encrypted, `2` signed,
 The server reads the *shared signed* card to denormalize scheduling metadata
 (times, recurrence) into queryable columns; everything user-visible
 (summary, description, location) is ciphertext to it.
+
+**The "rest" rule (verified in the web client's `getVeventParts`):** only the
+named fields above are routed to specific cards. **Every other VEVENT
+property** - third-party `X-*` extensions, `PRIORITY`, `CLASS`, `URL`,
+`CATEGORIES`, `GEO`, `ATTACH`, etc. - is dumped verbatim into the **shared
+encrypted** card. So an imported event's foreign properties survive round-trip
+and are fully recoverable; the only field that is *not* an iCal property is
+`color` (it is a top-level row column, see below). `VALARM` sub-components go
+into a separate personal card, but the server also denormalizes them into the
+plaintext `Notifications` row field, which is the source of truth clients use
+on read.
+
+### Plaintext row fields (not in any card)
+
+These come back on every event row in the clear, with no decryption:
+
+- `Color` - per-event color override (CSS hex, e.g. `#EC3E7C`), empty when the
+  event uses the calendar color.
+- `Notifications` - `[{Type, Trigger}]` reminders. `Type` is
+  `NOTIFICATION_TYPE_API` (`0` email, `1` device/display); `Trigger` is an
+  iCal duration offset (`-PT1H`, `-PT15M`). The web client synthesizes
+  `VALARM` components from this field on read (`deserialize.ts`).
+- `Attendees` / `AttendeesInfo` - per-attendee `{ID, Token, Status}` plus a
+  `MoreAttendees` flag. `Status` is `ATTENDEE_STATUS_API`: `0` needs-action,
+  `1` tentative, `2` declined, `3` accepted. The identities (email/CN/role)
+  live encrypted in the attendees card; they join to these rows by `Token`
+  (= the card's `X-PM-TOKEN` attendee parameter), which is how live RSVP
+  status is recovered.
+- `IsOrganizer`, `IsProtonProtonInvite`, `IsPersonalSingleEdit`,
+  `CreateTime`/`ModifyTime`/`LastEditTime`.
+
+### Video conferencing (Proton Meet / Zoom)
+
+A conference is stored as two custom properties split across the shared cards:
+
+- `X-PM-CONFERENCE-ID;X-PM-PROVIDER=<n>:<id>` in the **shared signed** card.
+  `X-PM-PROVIDER` is `VIDEO_CONFERENCE_PROVIDER`: `1` Zoom, `2` Proton Meet.
+- `X-PM-CONFERENCE-URL;X-PM-HOST=<email>:<url>` in the **shared encrypted**
+  card. The URL carries the meeting password in its `#pwd-<...>` fragment.
+  The join block is also mirrored into `DESCRIPTION`.
+
+Reassembling the full conference therefore needs both cards.
 
 ### Fragment format
 
@@ -258,6 +300,34 @@ Zoned:    DTSTART;TZID=America/Los_Angeles:20260709T090000
 - All-day events use exclusive `DTEND;VALUE=DATE` (day after the last day).
   The server sets `FullDay: 1` and stores the instants at **midnight UTC**
   with `StartTimezone: "UTC"`.
+
+### ICS reconstruction (read/export)
+
+To export a full standards-complete iCalendar event, decrypt all four cards
+and **merge their VEVENT property lines into one VEVENT** (our
+`ical.MergeFragments` + `event.BuildICS`):
+
+- The cards each repeat `UID`/`DTSTAMP` and may duplicate other single-valued
+  properties. Resolution: the **shared signed** card wins for structural props
+  (`UID`, `DTSTAMP`, `DTSTART`, `DTEND`, `RRULE`, `RECURRENCE-ID`, `SEQUENCE`);
+  first-seen wins otherwise. Multi-valued props (`EXDATE`, `ATTENDEE`, ...) are
+  unioned as a set.
+- Unknown/third-party properties are preserved verbatim (they live in the
+  shared encrypted card's "rest"). Nested `VALARM` components are preserved.
+- **`X-PM-SESSION-KEY` is stripped.** It is the symmetric key that decrypts the
+  event's stored ciphertext - a durable decryption *capability*, not snapshot
+  content. It is only ever injected by Proton into invite-attachment ICS (never
+  present in a normal event read), and is meaningless to a standard consumer, so
+  it must not leak into an export. Other Proton-internal markers
+  (`X-PM-PROTON-REPLY`, `X-PM-SHARED-EVENT-ID`, `X-PM-BOOKINGUID`) are kept.
+- The row-level fields that are *not* iCal properties are re-injected: `COLOR`
+  from the `Color` column, and a `VALARM` per `Notifications` entry (`Type 0`
+  -> `ACTION:EMAIL`, else `DISPLAY`; `Trigger` used verbatim). This mirrors how
+  the web client materializes alarms from `Notifications` on read.
+- Output wraps with `VERSION:2.0` and `PRODID:-//proton-cal//proton-cal//EN`,
+  CRLF endings, lines folded at 75 octets. Zoned times keep their bare `TZID`
+  with no `VTIMEZONE` (as Proton stores them); this is accepted by
+  Google/Apple/RFC-lenient consumers but strict Outlook may warn.
 
 ### Encryption process (create)
 
