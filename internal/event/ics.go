@@ -8,7 +8,6 @@ import (
 
 	"github.com/cheeseandcereal/proton-cal/internal/caltypes"
 	"github.com/cheeseandcereal/proton-cal/internal/ical"
-	"github.com/cheeseandcereal/proton-cal/internal/pgp"
 )
 
 // ICSProdID identifies this tool as the producer of exported iCalendar data
@@ -32,22 +31,15 @@ func BuildICS(raw *caltypes.RawEvent, calKR *crypto.KeyRing) (string, error) {
 	var cards []ical.MergeCard
 	add := func(parts []caltypes.EventPart, keyPacket string, sharedSigned bool) {
 		for _, part := range parts {
-			data := part.Data
-			if part.IsEncrypted() {
-				if calKR == nil {
-					continue
-				}
-				plain, err := pgp.DecryptPart(part.Data, keyPacket, calKR)
-				if err != nil {
-					continue // lenient: skip cards we cannot read
-				}
-				data = plain
+			data, signed, err := partPlaintext(part, keyPacket, calKR)
+			if err != nil {
+				continue // lenient: skip cards we cannot read
 			}
 			if strings.TrimSpace(data) == "" {
 				continue
 			}
 			cards = append(cards, ical.MergeCard{
-				SharedSigned: sharedSigned && !part.IsEncrypted(),
+				SharedSigned: sharedSigned && signed,
 				Data:         data,
 			})
 		}

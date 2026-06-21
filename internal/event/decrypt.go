@@ -111,33 +111,43 @@ func assembleConference(ev *Event) {
 	ev.Conference = c
 }
 
+// partPlaintext returns the clear text of one card part: the data verbatim
+// for clear/signed cards, or the decrypted body for encrypted ones. signed
+// reports whether the part is a clear/signed (i.e. not encrypted) card. err is
+// non-nil only when an encrypted card could not be decrypted (a nil key ring
+// counts as a failure). Callers decide how lenient to be about err.
+func partPlaintext(part caltypes.EventPart, keyPacketB64 string, calKR *crypto.KeyRing) (data string, signed bool, err error) {
+	switch {
+	case part.Type == caltypes.CardClear || part.Type == caltypes.CardSigned:
+		return part.Data, true, nil
+	case part.IsEncrypted():
+		if calKR == nil {
+			return "", false, errNoKeyRing
+		}
+		plain, derr := pgp.DecryptPart(part.Data, keyPacketB64, calKR)
+		return plain, false, derr
+	default:
+		return "", false, nil
+	}
+}
+
+// errNoKeyRing marks an encrypted card that cannot be decrypted because no
+// calendar key ring was available.
+var errNoKeyRing = errors.New("event: no calendar key ring")
+
 func mergeParts(ev *Event, parts []caltypes.EventPart, keyPacketB64 string, calKR *crypto.KeyRing, shared bool) {
 	for _, part := range parts {
-		var data string
-		signed := false
-		switch {
-		case part.Type == caltypes.CardClear || part.Type == caltypes.CardSigned:
-			data = part.Data
-			signed = true
-			if data != "" && shared {
-				ev.RawSharedSigned = data
-			}
-		case part.IsEncrypted():
-			if calKR == nil {
-				ev.DecryptFailed = true
-				continue
-			}
-			plain, err := pgp.DecryptPart(part.Data, keyPacketB64, calKR)
-			if err != nil {
-				// Lenient: one bad card never kills the event, but the
-				// degradation is recorded - write paths must not merge
-				// from a half-decrypted event.
-				ev.DecryptFailed = true
-				continue
-			}
-			data = plain
-		default:
+		data, signed, err := partPlaintext(part, keyPacketB64, calKR)
+		if err != nil {
+			// Lenient: one bad card never kills the event, but the
+			// degradation is recorded - write paths must not merge
+			// from a half-decrypted event.
+			ev.DecryptFailed = true
 			continue
+		}
+		// A non-encrypted card type we don't recognize yields empty data.
+		if signed && data != "" && shared {
+			ev.RawSharedSigned = data
 		}
 		if data == "" {
 			continue

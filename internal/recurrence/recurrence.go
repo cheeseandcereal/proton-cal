@@ -17,8 +17,8 @@
 //     timestamp onto either an existing exception row or a generated
 //     occurrence, for single-occurrence operations.
 //
-// The implementation is kept
-// dependency-light on purpose: stdlib + github.com/teambition/rrule-go only.
+// The implementation is kept dependency-light on purpose: stdlib +
+// github.com/teambition/rrule-go only.
 package recurrence
 
 import (

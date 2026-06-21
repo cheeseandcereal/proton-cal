@@ -168,13 +168,11 @@ const maxConcurrentChunks = 6
 
 // query fetches the raw event rows a calendar exposes for the window
 // [start, end). The endpoint ignores Start/End unless a Type is supplied, so
-// this issues one paginated stream per Type (queryTypes), splitting windows
-// wider than maxWindowSeconds into chunks the server will accept, and runs
-// the streams concurrently. The window is padded by windowPadSeconds at each
-// end for timezone slack. Rows are deduplicated by ID (a row can match in
-// several chunks/Types) and returned sorted by StartTime. The precise
-// occurrence-level filtering (and recurring-master expansion) happens later;
-// recurring masters always survive here.
+// it issues one paginated stream per Type (queryTypes) concurrently,
+// splitting over-wide windows into maxWindowSeconds chunks and padding each
+// end by windowPadSeconds for timezone slack. Rows are deduplicated by ID and
+// sorted by StartTime; recurring masters always survive (occurrence-level
+// filtering and expansion happen later). See docs/api.md.
 func query(ctx context.Context, client papi.API, calendarID string, start, end int64, tzName string) ([]*caltypes.RawEvent, error) {
 	if end <= start {
 		return nil, nil
