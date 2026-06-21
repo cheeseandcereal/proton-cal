@@ -1,8 +1,9 @@
 package recurrence
 
 import (
+	"cmp"
 	"fmt"
-	"sort"
+	"slices"
 	"time"
 
 	"github.com/cheeseandcereal/proton-cal/internal/caltypes"
@@ -166,11 +167,11 @@ func ExpandOccurrences(events []*caltypes.RawEvent, start, end int64) []Occurren
 		}
 	}
 
-	sort.SliceStable(results, func(i, j int) bool {
-		if results[i].Start != results[j].Start {
-			return results[i].Start < results[j].Start
-		}
-		return results[i].Event.ID < results[j].Event.ID
+	slices.SortStableFunc(results, func(a, b Occurrence) int {
+		return cmp.Or(
+			cmp.Compare(a.Start, b.Start),
+			cmp.Compare(a.Event.ID, b.Event.ID),
+		)
 	})
 	return results
 }

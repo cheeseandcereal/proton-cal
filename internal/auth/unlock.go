@@ -1,10 +1,11 @@
 package auth
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
-	"sort"
+	"slices"
 
 	proton "github.com/ProtonMail/go-proton-api"
 	"github.com/ProtonMail/gopenpgp/v2/crypto"
@@ -94,7 +95,7 @@ func FetchKeyData(ctx context.Context, api papi.API) (proton.User, []proton.Addr
 	}
 
 	addrs := addrResp.Addresses
-	sort.SliceStable(addrs, func(i, j int) bool { return addrs[i].Order < addrs[j].Order })
+	slices.SortStableFunc(addrs, func(a, b proton.Address) int { return cmp.Compare(a.Order, b.Order) })
 	return userResp.User, addrs, nil
 }
 

@@ -1,10 +1,11 @@
 package calsvc
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
-	"sort"
+	"slices"
 	"time"
 
 	"github.com/cheeseandcereal/proton-cal/internal/calendar"
@@ -61,11 +62,11 @@ func (s *Service) ListEvents(ctx context.Context, in ListEventsInput) (*EventLis
 		if err != nil {
 			return fmt.Errorf("listing events: %w", err)
 		}
-		sort.SliceStable(listed, func(i, j int) bool {
-			if listed[i].Occurrence.Start != listed[j].Occurrence.Start {
-				return listed[i].Occurrence.Start < listed[j].Occurrence.Start
-			}
-			return listed[i].Occurrence.Event.ID < listed[j].Occurrence.Event.ID
+		slices.SortStableFunc(listed, func(a, b event.Listed) int {
+			return cmp.Or(
+				cmp.Compare(a.Occurrence.Start, b.Occurrence.Start),
+				cmp.Compare(a.Occurrence.Event.ID, b.Occurrence.Event.ID),
+			)
 		})
 		out = &EventList{
 			Calendar:  info,
@@ -257,12 +258,9 @@ func (s *Service) GetCalendar(ctx context.Context, selector string) (*GotCalenda
 
 // anyDecryptFailed reports whether any listed event came back degraded.
 func anyDecryptFailed(listed []event.Listed) bool {
-	for _, l := range listed {
-		if l.Event != nil && l.Event.DecryptFailed {
-			return true
-		}
-	}
-	return false
+	return slices.ContainsFunc(listed, func(l event.Listed) bool {
+		return l.Event != nil && l.Event.DecryptFailed
+	})
 }
 
 // UpdateEventInput describes a partial update with user-shaped strings.

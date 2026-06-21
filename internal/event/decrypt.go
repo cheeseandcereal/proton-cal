@@ -3,6 +3,7 @@ package event
 import (
 	"context"
 	"errors"
+	"slices"
 	"strings"
 	"time"
 
@@ -187,7 +188,7 @@ func mergeParsed(ev *Event, p ical.VEvent) {
 	// Attendees are repeatable and split across cards; append (de-duping by
 	// token, preferring the first sighting which carries the richest params).
 	for _, a := range p.Attendees {
-		if a.Token != "" && attendeeSeen(ev.Attendees, a.Token) {
+		if a.Token != "" && slices.ContainsFunc(ev.Attendees, func(x Attendee) bool { return x.Token == a.Token }) {
 			continue
 		}
 		ev.Attendees = append(ev.Attendees, Attendee{
@@ -203,17 +204,6 @@ func mergeParsed(ev *Event, p ical.VEvent) {
 		ev.confURL = p.ConferenceURL
 		ev.confHost = p.ConferenceHost
 	}
-}
-
-// attendeeSeen reports whether an attendee with the given non-empty token is
-// already present.
-func attendeeSeen(attendees []Attendee, token string) bool {
-	for _, a := range attendees {
-		if a.Token == token {
-			return true
-		}
-	}
-	return false
 }
 
 // ListWindow queries, expands and decrypts all occurrences overlapping

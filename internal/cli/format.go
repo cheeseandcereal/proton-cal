@@ -2,7 +2,7 @@ package cli
 
 import (
 	"fmt"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
@@ -500,6 +500,6 @@ func sortedFieldSet(s fieldSet) []string {
 	for k := range s {
 		out = append(out, string(k))
 	}
-	sort.Strings(out)
+	slices.Sort(out)
 	return out
 }

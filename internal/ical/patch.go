@@ -1,6 +1,8 @@
 package ical
 
 import (
+	"maps"
+	"slices"
 	"strings"
 	"time"
 )
@@ -66,7 +68,7 @@ func PatchCard(card string, patch CardPatch) string {
 
 	// Insert Set entries for properties that were not already present, in a
 	// stable order (sorted by name) so output is deterministic.
-	for _, name := range sortedKeys(patch.Set) {
+	for _, name := range slices.Sorted(maps.Keys(patch.Set)) {
 		if existing[name] || patch.Delete[name] {
 			continue
 		}
@@ -109,18 +111,4 @@ func DateValue(t time.Time, tzName string, allDay bool) (string, error) {
 		return "", err
 	}
 	return strings.TrimPrefix(line, "X"), nil
-}
-
-func sortedKeys(m map[string]string) []string {
-	keys := make([]string, 0, len(m))
-	for k := range m {
-		keys = append(keys, k)
-	}
-	// insertion sort - small maps, avoids importing sort for one call site
-	for i := 1; i < len(keys); i++ {
-		for j := i; j > 0 && keys[j-1] > keys[j]; j-- {
-			keys[j-1], keys[j] = keys[j], keys[j-1]
-		}
-	}
-	return keys
 }

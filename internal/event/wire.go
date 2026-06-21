@@ -1,11 +1,12 @@
 package event
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"fmt"
 	"net/url"
-	"sort"
+	"slices"
 	"strconv"
 
 	"github.com/cheeseandcereal/proton-cal/internal/calendar"
@@ -227,7 +228,7 @@ func query(ctx context.Context, client papi.API, calendarID string, start, end i
 			out = append(out, ev)
 		}
 	}
-	sort.SliceStable(out, func(i, j int) bool { return out[i].StartTime < out[j].StartTime })
+	slices.SortStableFunc(out, func(a, b *caltypes.RawEvent) int { return cmp.Compare(a.StartTime, b.StartTime) })
 	return out, nil
 }
 

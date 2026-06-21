@@ -4,7 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sort"
+	"maps"
+	"slices"
 	"time"
 
 	"github.com/cheeseandcereal/proton-cal/internal/calendar"
@@ -133,11 +134,7 @@ func deleteSeries(ctx context.Context, client papi.API, access *calendar.Access,
 			idSet[r.ID] = struct{}{}
 		}
 	}
-	ids := make([]string, 0, len(idSet))
-	for id := range idSet {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
+	ids := slices.Sorted(maps.Keys(idSet))
 	if err := deleteRows(ctx, client, access.CalendarID, ids, access.MemberID); err != nil {
 		return nil, err
 	}
