@@ -517,3 +517,7 @@ folding.
   `getIsRruleSupported`, `getSupportedUntil`).
 - `github.com/ProtonMail/go-srp` - PMHash/SRP implementation, mailbox
   password derivation.
+- `github.com/Nojuza/proton-calendar-cli` - prior Python reverse-engineering
+  of the same internal API: the auth/key-unlock chain, the four-part event
+  card model (shared/calendar × signed/encrypted), the `events/sync` write
+  endpoint, and the all-signatures-over-plaintext rule.
