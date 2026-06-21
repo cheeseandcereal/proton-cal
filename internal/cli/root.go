@@ -30,6 +30,7 @@ func init() {
 		newLogoutCmd(),
 		newCalendarsCmd(),
 		newEventsCmd(),
+		newGetCmd(),
 		newCreateCmd(),
 		newUpdateCmd(),
 		newDeleteCmd(),

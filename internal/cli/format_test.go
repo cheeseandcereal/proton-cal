@@ -2,6 +2,7 @@ package cli
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -176,6 +177,62 @@ func TestOccurrenceJSONEditedOccurrence(t *testing.T) {
 	got := occurrenceJSON(l, time.UTC)
 	if !got.EditedOccurrence || got.Recurring {
 		t.Errorf("EditedOccurrence=%v Recurring=%v, want true/false", got.EditedOccurrence, got.Recurring)
+	}
+}
+
+func TestEventDetailRendersEnrichment(t *testing.T) {
+	ev := &event.Event{
+		EventID: "evt1", UID: "uid1", CalendarID: "cal1",
+		Summary:     "Test Event",
+		Location:    "Some Test Location",
+		Start:       time.Unix(ts(2026, 6, 24, 8, 0), 0).UTC(),
+		End:         time.Unix(ts(2026, 6, 24, 8, 30), 0).UTC(),
+		Color:       "#EC3E7C",
+		IsOrganizer: true,
+		Organizer:   &event.Person{Email: "adam@adamcrowder.net", CN: "adam"},
+		Attendees: []event.Attendee{
+			{Email: "adacrowd@amazon.com", CN: "adacrowd", Role: "REQ-PARTICIPANT", Status: 3},
+		},
+		Conference: &event.Conference{
+			Provider: "2", ID: "MQYTXG4HKC",
+			URL: "https://meet.proton.me/join/id-MQYTXG4HKC#pwd-x", Password: "x",
+		},
+		Notifications: []caltypes.Notification{{Type: 1, Trigger: "-PT1H"}},
+	}
+
+	// JSON shape.
+	j := eventDetailJSON(ev, time.UTC)
+	if j.Color != "#EC3E7C" || !j.IsOrganizer {
+		t.Errorf("color/isOrganizer = %q/%v", j.Color, j.IsOrganizer)
+	}
+	if j.Organizer == nil || j.Organizer.Email != "adam@adamcrowder.net" {
+		t.Errorf("organizer = %+v", j.Organizer)
+	}
+	if len(j.Attendees) != 1 || j.Attendees[0].Status != "accepted" {
+		t.Errorf("attendees = %+v", j.Attendees)
+	}
+	if j.Conference == nil || j.Conference.Provider != "Proton Meet" {
+		t.Errorf("conference = %+v", j.Conference)
+	}
+	if len(j.Notifications) != 1 || j.Notifications[0].Trigger != "-PT1H" {
+		t.Errorf("notifications = %+v", j.Notifications)
+	}
+
+	// Human lines contain the key facts.
+	lines := eventDetailLines(ev, time.UTC)
+	joined := ""
+	for _, l := range lines {
+		joined += l + "\n"
+	}
+	for _, want := range []string{
+		"Test Event", "organizer: adam <adam@adamcrowder.net>",
+		"attendee: adacrowd <adacrowd@amazon.com> (accepted)",
+		"Proton Meet: https://meet.proton.me/join/id-MQYTXG4HKC#pwd-x",
+		"reminder (notify): -PT1H", "color: #EC3E7C", "ID: evt1",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("detail lines missing %q\n%s", want, joined)
+		}
 	}
 }
 

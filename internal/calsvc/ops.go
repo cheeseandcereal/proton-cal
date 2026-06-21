@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/cheeseandcereal/proton-cal/internal/calendar"
+	"github.com/cheeseandcereal/proton-cal/internal/caltypes"
 	"github.com/cheeseandcereal/proton-cal/internal/event"
 	"github.com/cheeseandcereal/proton-cal/internal/icaltime"
 )
@@ -152,6 +153,72 @@ func (s *Service) CreateEvent(ctx context.Context, in CreateEventInput) (*Create
 		return nil
 	})
 	if werr != nil {
+		return nil, werr
+	}
+	return out, nil
+}
+
+// GetEventInput addresses a single event for detailed retrieval.
+type GetEventInput struct {
+	EventID  string
+	Calendar string // calendar ID or name; "" = default, else first
+	TZ       string
+	WithICS  bool // also reconstruct the raw iCalendar (BuildICS)
+}
+
+// GotEvent is a single decrypted event with its raw row, the resolved
+// calendar, the display zone, and (when requested) the reconstructed ICS.
+type GotEvent struct {
+	Calendar calendar.Info
+	Location *time.Location
+	Event    *event.Event
+	Raw      *caltypes.RawEvent
+	ICS      string // populated only when GetEventInput.WithICS
+}
+
+// GetEvent fetches, decrypts and (optionally) reconstructs the ICS of a
+// single event in the addressed calendar. The event must live in the
+// resolved calendar (default/first unless Calendar is given); a missing
+// event returns an error advising --calendar.
+func (s *Service) GetEvent(ctx context.Context, in GetEventInput) (*GotEvent, error) {
+	if in.EventID == "" {
+		return nil, fmt.Errorf("event ID is required")
+	}
+	tz := s.EffectiveTimezone(in.TZ)
+	loc, err := icaltime.LoadLocation(tz)
+	if err != nil {
+		return nil, err
+	}
+
+	var out *GotEvent
+	attempt := 0
+	werr := s.withAccess(ctx, in.Calendar, func(info calendar.Info, access *calendar.Access) error {
+		attempt++
+		raw, err := event.Get(ctx, s.client, info.ID, in.EventID)
+		if err != nil {
+			return fmt.Errorf("fetching event: %w", err)
+		}
+		ev, err := event.Decrypt(raw, access.KR)
+		if err != nil {
+			return fmt.Errorf("decrypting event: %w", err)
+		}
+		got := &GotEvent{Calendar: info, Location: loc, Event: ev, Raw: raw}
+		if in.WithICS {
+			ics, ierr := event.BuildICS(raw, access.KR)
+			if ierr != nil && !errors.Is(ierr, event.ErrDecryptDegraded) {
+				return fmt.Errorf("building ICS: %w", ierr)
+			}
+			got.ICS = ics
+		}
+		out = got
+		// Stale cached calendar keys decrypt nothing; surface the
+		// degradation once so withAccess refreshes keys and retries.
+		if attempt == 1 && ev.DecryptFailed {
+			return fmt.Errorf("decrypting event: %w", event.ErrDecryptDegraded)
+		}
+		return nil
+	})
+	if werr != nil && (!errors.Is(werr, event.ErrDecryptDegraded) || out == nil) {
 		return nil, werr
 	}
 	return out, nil
