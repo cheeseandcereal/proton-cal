@@ -100,7 +100,7 @@ func (s *server) listEvents(ctx context.Context, _ *mcp.CallToolRequest, args li
 	if err != nil {
 		return nil, nil, err
 	}
-	return textResult(renderEvents(list.Items, list.Days, list.Location)), nil, nil
+	return textResult(renderEvents(list.Items, list.Days, list.Location, list.Settings, list.Calendar)), nil, nil
 }
 
 // ---------------------------------------------------------------- get_event
@@ -133,7 +133,7 @@ func (s *server) getEvent(ctx context.Context, _ *mcp.CallToolRequest, args getE
 		}
 		return textResult(got.ICS), nil, nil
 	}
-	return textResult(renderEventDetail(got.Event, got.Location)), nil, nil
+	return textResult(renderEventDetail(got.Event, got.Location, got.Settings, got.Calendar)), nil, nil
 }
 
 // ---------------------------------------------------------------- create_event

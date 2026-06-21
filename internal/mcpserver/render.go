@@ -8,6 +8,7 @@ import (
 	"github.com/cheeseandcereal/proton-cal/internal/calendar"
 	"github.com/cheeseandcereal/proton-cal/internal/calsvc"
 	"github.com/cheeseandcereal/proton-cal/internal/event"
+	"github.com/cheeseandcereal/proton-cal/internal/eventview"
 )
 
 // renderCalendars renders the list_calendars reply: name, type, ID and a
@@ -32,8 +33,8 @@ func renderCalendars(cals []calendar.Info, defaultSelector string) string {
 }
 
 // renderOccurrence renders one listed occurrence as a text block in the
-// list_events line format.
-func renderOccurrence(l event.Listed, loc *time.Location) string {
+// list_events line format. set/cal resolve the effective reminders and color.
+func renderOccurrence(l event.Listed, loc *time.Location, set calendar.Settings, cal calendar.Info) string {
 	raw := l.Occurrence.Event
 	ev := l.Event
 	summary := ev.Summary
@@ -64,7 +65,7 @@ func renderOccurrence(l event.Listed, loc *time.Location) string {
 	if ev.Description != "" {
 		line += "\n  " + ev.Description
 	}
-	if detail := renderEventExtras(ev); detail != "" {
+	if detail := renderEventExtras(ev, set, cal); detail != "" {
 		line += "\n" + detail
 	}
 	line += "\n  ID: " + ev.EventID
@@ -74,71 +75,29 @@ func renderOccurrence(l event.Listed, loc *time.Location) string {
 	return line
 }
 
-// attendeeStatusName maps the ATTENDEE_STATUS_API code to a label.
-func attendeeStatusName(status int) string {
-	switch status {
-	case 0:
-		return "needs-action"
-	case 1:
-		return "tentative"
-	case 2:
-		return "declined"
-	case 3:
-		return "accepted"
-	default:
-		return ""
-	}
-}
-
-// conferenceProviderName maps the VIDEO_CONFERENCE_PROVIDER code to a label.
-func conferenceProviderName(provider string) string {
-	switch provider {
-	case "1":
-		return "Zoom"
-	case "2":
-		return "Proton Meet"
-	default:
-		return provider
-	}
-}
-
 // renderEventExtras renders the enrichment lines (organizer, attendees,
-// conferencing, reminders) shared by list_events and get_event. Returns ""
-// when the event has none. Each line is indented two spaces.
-func renderEventExtras(ev *event.Event) string {
+// conferencing, reminders) shared by list_events and get_event, with the
+// effective reminders resolved from the calendar defaults. Returns "" when
+// the event has none. Each line is indented two spaces.
+func renderEventExtras(ev *event.Event, set calendar.Settings, _ calendar.Info) string {
 	var lines []string
 	if ev.Organizer != nil {
-		who := ev.Organizer.Email
-		if ev.Organizer.CN != "" && ev.Organizer.CN != who {
-			who = fmt.Sprintf("%s <%s>", ev.Organizer.CN, ev.Organizer.Email)
-		}
-		lines = append(lines, "  organizer: "+who)
+		lines = append(lines, "  organizer: "+eventview.PersonOf(ev.Organizer))
 	}
 	for _, a := range ev.Attendees {
-		who := a.Email
-		if a.CN != "" && a.CN != who {
-			who = fmt.Sprintf("%s <%s>", a.CN, a.Email)
-		}
-		if st := attendeeStatusName(a.Status); st != "" {
-			who += " (" + st + ")"
-		}
-		lines = append(lines, "  attendee: "+who)
+		lines = append(lines, "  attendee: "+eventview.AttendeeString(a))
 	}
 	if c := ev.Conference; c != nil && c.URL != "" {
-		lines = append(lines, "  "+conferenceProviderName(c.Provider)+": "+c.URL)
+		lines = append(lines, "  "+eventview.ConferenceProviderName(c.Provider)+": "+c.URL)
 	}
-	for _, n := range ev.Notifications {
-		kind := "notify"
-		if n.Type == 0 {
-			kind = "email"
-		}
-		lines = append(lines, "  reminder ("+kind+"): "+n.Trigger)
+	for _, n := range eventview.EffectiveReminders(ev, set) {
+		lines = append(lines, "  reminder ("+eventview.ReminderKind(n.Type)+"): "+n.Trigger)
 	}
 	return strings.Join(lines, "\n")
 }
 
 // renderEventDetail renders the get_event reply for a single fetched event.
-func renderEventDetail(ev *event.Event, loc *time.Location) string {
+func renderEventDetail(ev *event.Event, loc *time.Location, set calendar.Settings, cal calendar.Info) string {
 	summary := ev.Summary
 	if summary == "" {
 		summary = "(no title)"
@@ -159,11 +118,11 @@ func renderEventDetail(ev *event.Event, loc *time.Location) string {
 	if ev.Description != "" {
 		line += "\n  description: " + ev.Description
 	}
-	if detail := renderEventExtras(ev); detail != "" {
+	if detail := renderEventExtras(ev, set, cal); detail != "" {
 		line += "\n" + detail
 	}
-	if ev.Color != "" {
-		line += "\n  color: " + ev.Color
+	if c := eventview.EffectiveColor(ev, cal); c != "" {
+		line += "\n  color: " + c
 	}
 	line += "\n  ID: " + ev.EventID
 	return line
@@ -171,14 +130,14 @@ func renderEventDetail(ev *event.Event, loc *time.Location) string {
 
 // renderEvents renders the list_events reply for a window of expanded
 // occurrences.
-func renderEvents(listed []event.Listed, days int, loc *time.Location) string {
+func renderEvents(listed []event.Listed, days int, loc *time.Location, set calendar.Settings, cal calendar.Info) string {
 	if len(listed) == 0 {
 		return fmt.Sprintf("No events in the next %d days.", days)
 	}
 	lines := make([]string, 0, len(listed)+1)
 	lines = append(lines, fmt.Sprintf("Events in the next %d days:\n", days))
 	for _, l := range listed {
-		lines = append(lines, renderOccurrence(l, loc))
+		lines = append(lines, renderOccurrence(l, loc, set, cal))
 	}
 	return strings.Join(lines, "\n")
 }

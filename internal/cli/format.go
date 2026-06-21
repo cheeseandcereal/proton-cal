@@ -8,7 +8,9 @@ import (
 
 	"github.com/cheeseandcereal/proton-cal/internal/calendar"
 	"github.com/cheeseandcereal/proton-cal/internal/calsvc"
+	"github.com/cheeseandcereal/proton-cal/internal/caltypes"
 	"github.com/cheeseandcereal/proton-cal/internal/event"
+	"github.com/cheeseandcereal/proton-cal/internal/eventview"
 )
 
 // eventJSON is the machine-readable shape of one listed occurrence.
@@ -64,38 +66,11 @@ type notificationJSON struct {
 	Trigger string `json:"trigger"`
 }
 
-// attendeeStatusName maps the ATTENDEE_STATUS_API code to a label.
-func attendeeStatusName(status int) string {
-	switch status {
-	case 0:
-		return "needs-action"
-	case 1:
-		return "tentative"
-	case 2:
-		return "declined"
-	case 3:
-		return "accepted"
-	default:
-		return ""
-	}
-}
-
-// conferenceProviderName maps the VIDEO_CONFERENCE_PROVIDER code to a label.
-func conferenceProviderName(provider string) string {
-	switch provider {
-	case "1":
-		return "Zoom"
-	case "2":
-		return "Proton Meet"
-	default:
-		return provider
-	}
-}
-
 // enrichEventJSON copies the detail fields from a decrypted event onto an
-// eventJSON. Shared by the list and get paths.
-func enrichEventJSON(j *eventJSON, ev *event.Event) {
-	j.Color = ev.Color
+// eventJSON, resolving the effective color and reminders from the calendar
+// defaults. Shared by the list and get paths.
+func enrichEventJSON(j *eventJSON, ev *event.Event, set calendar.Settings, cal calendar.Info) {
+	j.Color = eventview.EffectiveColor(ev, cal)
 	j.IsOrganizer = ev.IsOrganizer
 	j.MoreAttendees = ev.MoreAttendees
 	if ev.Organizer != nil {
@@ -104,27 +79,19 @@ func enrichEventJSON(j *eventJSON, ev *event.Event) {
 	for _, a := range ev.Attendees {
 		j.Attendees = append(j.Attendees, attendeeJSON{
 			Email: a.Email, CN: a.CN, Role: a.Role, PartStat: a.PartStat,
-			RSVP: a.RSVP, Status: attendeeStatusName(a.Status),
+			RSVP: a.RSVP, Status: eventview.AttendeeStatusName(a.Status),
 		})
 	}
 	if ev.Conference != nil {
 		j.Conference = &conferenceJSON{
-			Provider: conferenceProviderName(ev.Conference.Provider),
+			Provider: eventview.ConferenceProviderName(ev.Conference.Provider),
 			ID:       ev.Conference.ID, URL: ev.Conference.URL,
 			Password: ev.Conference.Password, Host: ev.Conference.Host,
 		}
 	}
-	for _, n := range ev.Notifications {
+	for _, n := range eventview.EffectiveReminders(ev, set) {
 		j.Notifications = append(j.Notifications, notificationJSON{Type: n.Type, Trigger: n.Trigger})
 	}
-}
-
-// personString renders an email/CN pair as "CN <email>" or just the email.
-func personString(email, cn string) string {
-	if cn != "" && cn != email {
-		return fmt.Sprintf("%s <%s>", cn, email)
-	}
-	return email
 }
 
 // eventDetailRows builds the labeled body rows of an event (location,
@@ -133,7 +100,7 @@ func personString(email, cn string) string {
 // events-list sub-lines and the get-event detail view so labels and ordering
 // stay identical. It does NOT include the head fields (summary/start/end) or
 // the --all-only technical fields (rrule/uid/calendar_id/id).
-func eventDetailRows(ev *event.Event, sel fieldSet) []labeled {
+func eventDetailRows(ev *event.Event, sel fieldSet, set calendar.Settings, cal calendar.Info) []labeled {
 	var rows []labeled
 	if sel.has(fieldLocation) && ev.Location != "" {
 		rows = append(rows, labeled{"Location", ev.Location})
@@ -142,33 +109,27 @@ func eventDetailRows(ev *event.Event, sel fieldSet) []labeled {
 		rows = append(rows, labeled{"Description", ev.Description})
 	}
 	if sel.has(fieldOrganizer) && ev.Organizer != nil {
-		rows = append(rows, labeled{"Organizer", personString(ev.Organizer.Email, ev.Organizer.CN)})
+		rows = append(rows, labeled{"Organizer", eventview.PersonOf(ev.Organizer)})
 	}
 	if sel.has(fieldAttendees) {
 		for _, a := range ev.Attendees {
-			who := personString(a.Email, a.CN)
-			if st := attendeeStatusName(a.Status); st != "" {
-				who += " (" + st + ")"
-			}
-			rows = append(rows, labeled{"Attendee", who})
+			rows = append(rows, labeled{"Attendee", eventview.AttendeeString(a)})
 		}
 	}
 	if sel.has(fieldConference) {
 		if c := ev.Conference; c != nil && c.URL != "" {
-			rows = append(rows, labeled{"Conference (" + conferenceProviderName(c.Provider) + ")", c.URL})
+			rows = append(rows, labeled{"Conference (" + eventview.ConferenceProviderName(c.Provider) + ")", c.URL})
 		}
 	}
 	if sel.has(fieldReminders) {
-		for _, n := range ev.Notifications {
-			kind := "notify"
-			if n.Type == 0 {
-				kind = "email"
-			}
-			rows = append(rows, labeled{"Reminder (" + kind + ")", n.Trigger})
+		for _, n := range eventview.EffectiveReminders(ev, set) {
+			rows = append(rows, labeled{"Reminder (" + eventview.ReminderKind(n.Type) + ")", n.Trigger})
 		}
 	}
-	if sel.has(fieldColor) && ev.Color != "" {
-		rows = append(rows, labeled{"Color", swatch(ev.Color) + ev.Color})
+	if sel.has(fieldColor) {
+		if c := eventview.EffectiveColor(ev, cal); c != "" {
+			rows = append(rows, labeled{"Color", swatch(c) + c})
+		}
 	}
 	return rows
 }
@@ -178,8 +139,9 @@ func eventDetailRows(ev *event.Event, sel fieldSet) []labeled {
 // summary; everything else (location, description, organizer, attendees,
 // conference, reminders, color) goes on its own labeled, aligned sub-line.
 // Times are rendered in loc (all-day dates in UTC, their canonical anchor
-// zone). sel selects which sub-line fields appear.
-func occurrenceLines(l event.Listed, loc *time.Location, sel fieldSet) []string {
+// zone). sel selects which sub-line fields appear; set/cal resolve the
+// effective reminders and color.
+func occurrenceLines(l event.Listed, loc *time.Location, sel fieldSet, set calendar.Settings, cal calendar.Info) []string {
 	raw := l.Occurrence.Event
 	ev := l.Event
 	summary := ev.Summary
@@ -204,7 +166,7 @@ func occurrenceLines(l event.Listed, loc *time.Location, sel fieldSet) []string 
 			start.In(loc).Format("2006-01-02 15:04 MST"), end.In(loc).Format("15:04 MST"), summary)
 	}
 
-	rows := eventDetailRows(ev, sel)
+	rows := eventDetailRows(ev, sel, set, cal)
 	if recurring {
 		rows = append(rows, labeled{"Occurrence start", calsvc.FormatOccurrenceStart(l.Occurrence.Start, ev.AllDay, loc)})
 	}
@@ -220,7 +182,7 @@ func occurrenceLines(l event.Listed, loc *time.Location, sel fieldSet) []string 
 // occurrenceJSON maps one listed occurrence to its machine-readable shape.
 // Timed starts/ends are RFC3339 in loc; all-day ones in UTC (their canonical
 // anchor zone, so the date is the event's date).
-func occurrenceJSON(l event.Listed, loc *time.Location) eventJSON {
+func occurrenceJSON(l event.Listed, loc *time.Location, set calendar.Settings, cal calendar.Info) eventJSON {
 	raw := l.Occurrence.Event
 	ev := l.Event
 	renderLoc := loc
@@ -242,13 +204,13 @@ func occurrenceJSON(l event.Listed, loc *time.Location) eventJSON {
 		RRule:             ev.RRule,
 		CalendarID:        ev.CalendarID,
 	}
-	enrichEventJSON(&j, ev)
+	enrichEventJSON(&j, ev, set, cal)
 	return j
 }
 
 // eventDetailJSON maps a single fetched event (not an expanded occurrence)
 // to its machine-readable shape. Times are the event's own start/end.
-func eventDetailJSON(ev *event.Event, loc *time.Location) eventJSON {
+func eventDetailJSON(ev *event.Event, loc *time.Location, set calendar.Settings, cal calendar.Info) eventJSON {
 	renderLoc := loc
 	if ev.AllDay {
 		renderLoc = time.UTC
@@ -266,14 +228,15 @@ func eventDetailJSON(ev *event.Event, loc *time.Location) eventJSON {
 		RRule:       ev.RRule,
 		CalendarID:  ev.CalendarID,
 	}
-	enrichEventJSON(&j, ev)
+	enrichEventJSON(&j, ev, set, cal)
 	return j
 }
 
 // eventDetailLines renders a single fetched event as aligned "Label: value"
 // lines. sel selects which fields appear (the default curated set, an
-// explicit --fields subset, or everything with --all).
-func eventDetailLines(ev *event.Event, loc *time.Location, sel fieldSet) []string {
+// explicit --fields subset, or everything with --all); set/cal resolve the
+// effective reminders and color.
+func eventDetailLines(ev *event.Event, loc *time.Location, sel fieldSet, set calendar.Settings, cal calendar.Info) []string {
 	renderLoc := loc
 	if ev.AllDay {
 		renderLoc = time.UTC
@@ -304,7 +267,7 @@ func eventDetailLines(ev *event.Event, loc *time.Location, sel fieldSet) []strin
 
 	// Body fields (location/description/organizer/attendees/conference/
 	// reminders/color), shared with the events-list sub-lines.
-	rows = append(rows, eventDetailRows(ev, sel)...)
+	rows = append(rows, eventDetailRows(ev, sel, set, cal)...)
 
 	// --all-only fields.
 	add(fieldRRule, "RRULE", ev.RRule)
@@ -370,15 +333,17 @@ const (
 
 // Calendar field keys (match calendarJSON tags).
 const (
-	calFieldName        fieldKey = "name"
-	calFieldType        fieldKey = "type"
-	calFieldColor       fieldKey = "color"
-	calFieldDescription fieldKey = "description"
-	calFieldID          fieldKey = "id"
-	calFieldIsDefault   fieldKey = "is_default"
-	calFieldEmail       fieldKey = "email"
-	calFieldMemberID    fieldKey = "member_id"
-	calFieldAddressID   fieldKey = "address_id"
+	calFieldName             fieldKey = "name"
+	calFieldType             fieldKey = "type"
+	calFieldColor            fieldKey = "color"
+	calFieldDescription      fieldKey = "description"
+	calFieldID               fieldKey = "id"
+	calFieldIsDefault        fieldKey = "is_default"
+	calFieldDefaultReminders fieldKey = "default_reminders"
+	calFieldDefaultDuration  fieldKey = "default_duration"
+	calFieldEmail            fieldKey = "email"
+	calFieldMemberID         fieldKey = "member_id"
+	calFieldAddressID        fieldKey = "address_id"
 )
 
 // fieldRow describes one field in a resource's registry.
@@ -428,6 +393,8 @@ var calendarFieldRegistry = []fieldRow{
 	{calFieldType, true},
 	{calFieldColor, true},
 	{calFieldDescription, true},
+	{calFieldDefaultReminders, true},
+	{calFieldDefaultDuration, true},
 	{calFieldID, true},
 	{calFieldIsDefault, true},
 	{calFieldEmail, false},
@@ -486,9 +453,9 @@ func fieldNames(registry []fieldRow) []string {
 }
 
 // calendarDetailLines renders a single calendar as aligned "Label: value"
-// lines, with a color swatch on the Color row. sel selects which fields
-// appear.
-func calendarDetailLines(c calendar.Info, isDefault bool, sel fieldSet) []string {
+// lines, with a color swatch on the Color row and the default reminders
+// resolved from the calendar settings. sel selects which fields appear.
+func calendarDetailLines(c calendar.Info, set calendar.Settings, isDefault bool, sel fieldSet) []string {
 	var rows []labeled
 	add := func(key fieldKey, label, value string) {
 		if sel.has(key) && value != "" {
@@ -501,6 +468,13 @@ func calendarDetailLines(c calendar.Info, isDefault bool, sel fieldSet) []string
 		rows = append(rows, labeled{"Color", swatch(c.Color) + c.Color})
 	}
 	add(calFieldDescription, "Description", c.Description)
+	if sel.has(calFieldDefaultReminders) {
+		rows = append(rows, defaultReminderRows("Default reminder (timed)", set.DefaultPartDayNotifications)...)
+		rows = append(rows, defaultReminderRows("Default reminder (all-day)", set.DefaultFullDayNotifications)...)
+	}
+	if sel.has(calFieldDefaultDuration) && set.DefaultEventDuration > 0 {
+		rows = append(rows, labeled{"Default duration", fmt.Sprintf("%d min", set.DefaultEventDuration)})
+	}
 	add(calFieldID, "ID", c.ID)
 	if sel.has(calFieldIsDefault) && isDefault {
 		rows = append(rows, labeled{"Default", "yes"})
@@ -509,6 +483,15 @@ func calendarDetailLines(c calendar.Info, isDefault bool, sel fieldSet) []string
 	add(calFieldMemberID, "Member ID", c.MemberID)
 	add(calFieldAddressID, "Address ID", c.AddressID)
 	return alignLabeled(rows)
+}
+
+// defaultReminderRows renders one labeled row per default notification.
+func defaultReminderRows(label string, ns []caltypes.Notification) []labeled {
+	rows := make([]labeled, 0, len(ns))
+	for _, n := range ns {
+		rows = append(rows, labeled{label + " (" + eventview.ReminderKind(n.Type) + ")", n.Trigger})
+	}
+	return rows
 }
 
 // sortedFieldSet returns a stable, ordered slice for testing/debugging.

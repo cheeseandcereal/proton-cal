@@ -46,7 +46,7 @@ func newEventsCmd() *cobra.Command {
 			if outputJSON() {
 				rows := make([]eventJSON, 0, len(list.Items))
 				for _, l := range list.Items {
-					rows = append(rows, occurrenceJSON(l, list.Location))
+					rows = append(rows, occurrenceJSON(l, list.Location, list.Settings, list.Calendar))
 				}
 				return printJSON(rows)
 			}
@@ -63,7 +63,7 @@ func newEventsCmd() *cobra.Command {
 			}
 			fmt.Fprintln(w, strings.Repeat("-", 50))
 			for _, l := range list.Items {
-				for _, line := range occurrenceLines(l, list.Location, sel) {
+				for _, line := range occurrenceLines(l, list.Location, sel, list.Settings, list.Calendar) {
 					fmt.Fprintln(w, line)
 				}
 			}

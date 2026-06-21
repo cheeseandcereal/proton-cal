@@ -70,10 +70,10 @@ func newGetEventCmd() *cobra.Command {
 				fmt.Println(got.ICS) // the document itself, to stdout
 				return nil
 			case outputJSON():
-				return printJSON(eventDetailJSON(got.Event, got.Location))
+				return printJSON(eventDetailJSON(got.Event, got.Location, got.Settings, got.Calendar))
 			default:
 				w := humanOut()
-				for _, line := range eventDetailLines(got.Event, got.Location, sel) {
+				for _, line := range eventDetailLines(got.Event, got.Location, sel, got.Settings, got.Calendar) {
 					fmt.Fprintln(w, line)
 				}
 				return nil
@@ -130,7 +130,7 @@ func newGetCalendarCmd() *cobra.Command {
 				return printJSON(calendarJSONOf(got.Info, got.IsDefault))
 			}
 			w := humanOut()
-			for _, line := range calendarDetailLines(got.Info, got.IsDefault, sel) {
+			for _, line := range calendarDetailLines(got.Info, got.Settings, got.IsDefault, sel) {
 				fmt.Fprintln(w, line)
 			}
 			return nil

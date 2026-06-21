@@ -54,7 +54,7 @@ func hasLine(lines []string, want string) bool {
 }
 
 func TestOccurrenceLinesTimed(t *testing.T) {
-	got := occurrenceLines(listedTimed(), time.UTC, listDefaultFields())
+	got := occurrenceLines(listedTimed(), time.UTC, listDefaultFields(), calendar.Settings{}, calendar.Info{})
 	// Head: date/time (with timezone) + summary only; no inline location.
 	if got[0] != "  2026-06-12 09:00 UTC - 09:30 UTC  Standup" {
 		t.Errorf("head line = %q", got[0])
@@ -76,7 +76,7 @@ func TestOccurrenceLinesTimed(t *testing.T) {
 
 func TestOccurrenceLinesTimedInZone(t *testing.T) {
 	loc := time.FixedZone("UTC+2", 2*60*60)
-	got := occurrenceLines(listedTimed(), loc, listDefaultFields())
+	got := occurrenceLines(listedTimed(), loc, listDefaultFields(), calendar.Settings{}, calendar.Info{})
 	if got[0] != "  2026-06-12 11:00 UTC+2 - 11:30 UTC+2  Standup" {
 		t.Errorf("head line in UTC+2 = %q", got[0])
 	}
@@ -87,7 +87,7 @@ func TestOccurrenceLinesNoTitleNoExtras(t *testing.T) {
 	l.Event.Summary = ""
 	l.Event.Description = ""
 	l.Event.Location = ""
-	got := occurrenceLines(l, time.UTC, listDefaultFields())
+	got := occurrenceLines(l, time.UTC, listDefaultFields(), calendar.Settings{}, calendar.Info{})
 	want := []string{
 		"  2026-06-12 09:00 UTC - 09:30 UTC  (no title)",
 		"    ID: evt1",
@@ -103,7 +103,7 @@ func TestOccurrenceLinesAllDay(t *testing.T) {
 	// Render in a negative-offset zone: the all-day date must stay the
 	// UTC-anchored date, not shift to the previous local day.
 	loc := time.FixedZone("UTC-7", -7*60*60)
-	got := occurrenceLines(l, loc, listDefaultFields())
+	got := occurrenceLines(l, loc, listDefaultFields(), calendar.Settings{}, calendar.Info{})
 	if got[0] != "  2026-06-12 (all day)  Standup" {
 		t.Errorf("all-day head line = %q", got[0])
 	}
@@ -113,7 +113,7 @@ func TestOccurrenceLinesRecurringMaster(t *testing.T) {
 	l := listedTimed()
 	l.Occurrence.Event.RRule = "FREQ=DAILY"
 	l.Event.RRule = "FREQ=DAILY"
-	got := occurrenceLines(l, time.UTC, listDefaultFields())
+	got := occurrenceLines(l, time.UTC, listDefaultFields(), calendar.Settings{}, calendar.Info{})
 	if got[0] != "  2026-06-12 09:00 UTC - 09:30 UTC  Standup  (recurring)" {
 		t.Errorf("head line = %q", got[0])
 	}
@@ -128,7 +128,7 @@ func TestOccurrenceLinesRecurringAllDayMaster(t *testing.T) {
 	l.Occurrence.Start = ts(2026, 6, 12, 0, 0)
 	l.Event.AllDay = true
 	loc := time.FixedZone("UTC-7", -7*60*60)
-	got := occurrenceLines(l, loc, listDefaultFields())
+	got := occurrenceLines(l, loc, listDefaultFields(), calendar.Settings{}, calendar.Info{})
 	if !hasLine(got, "Occurrence start: 2026-06-12") {
 		t.Errorf("missing all-day occurrence start sub-line:\n%q", got)
 	}
@@ -138,7 +138,7 @@ func TestOccurrenceLinesEditedOccurrence(t *testing.T) {
 	l := listedTimed()
 	l.Occurrence.Event.RecurrenceID = ts(2026, 6, 12, 8, 0)
 	l.Event.RecurrenceID = time.Unix(ts(2026, 6, 12, 8, 0), 0).UTC()
-	got := occurrenceLines(l, time.UTC, listDefaultFields())
+	got := occurrenceLines(l, time.UTC, listDefaultFields(), calendar.Settings{}, calendar.Info{})
 	if got[0] != "  2026-06-12 09:00 UTC - 09:30 UTC  Standup  (edited occurrence)" {
 		t.Errorf("edited occurrence head line = %q", got[0])
 	}
@@ -152,7 +152,7 @@ func TestOccurrenceJSONTimed(t *testing.T) {
 	l.Occurrence.Event.RRule = "FREQ=DAILY"
 	l.Event.RRule = "FREQ=DAILY"
 	loc := time.FixedZone("UTC+2", 2*60*60)
-	got := occurrenceJSON(l, loc)
+	got := occurrenceJSON(l, loc, calendar.Settings{}, calendar.Info{})
 	want := eventJSON{
 		ID:                "evt1",
 		UID:               "uid1",
@@ -179,7 +179,7 @@ func TestOccurrenceJSONAllDayUsesUTC(t *testing.T) {
 	l.Occurrence.Start = ts(2026, 6, 12, 0, 0)
 	l.Occurrence.End = ts(2026, 6, 13, 0, 0)
 	loc := time.FixedZone("UTC-7", -7*60*60)
-	got := occurrenceJSON(l, loc)
+	got := occurrenceJSON(l, loc, calendar.Settings{}, calendar.Info{})
 	if got.Start != "2026-06-12T00:00:00Z" || got.End != "2026-06-13T00:00:00Z" {
 		t.Errorf("all-day start/end = %q / %q, want UTC-anchored dates", got.Start, got.End)
 	}
@@ -192,7 +192,7 @@ func TestOccurrenceJSONEditedOccurrence(t *testing.T) {
 	l := listedTimed()
 	l.Occurrence.Event.RecurrenceID = ts(2026, 6, 12, 8, 0)
 	l.Event.RecurrenceID = time.Unix(ts(2026, 6, 12, 8, 0), 0).UTC()
-	got := occurrenceJSON(l, time.UTC)
+	got := occurrenceJSON(l, time.UTC, calendar.Settings{}, calendar.Info{})
 	if !got.EditedOccurrence || got.Recurring {
 		t.Errorf("EditedOccurrence=%v Recurring=%v, want true/false", got.EditedOccurrence, got.Recurring)
 	}
@@ -215,11 +215,12 @@ func TestEventDetailRendersEnrichment(t *testing.T) {
 			Provider: "2", ID: "MQYTXG4HKC",
 			URL: "https://meet.proton.me/join/id-MQYTXG4HKC#pwd-x", Password: "x",
 		},
-		Notifications: []caltypes.Notification{{Type: 1, Trigger: "-PT1H"}},
+		Notifications:    []caltypes.Notification{{Type: 1, Trigger: "-PT1H"}},
+		NotificationsSet: true,
 	}
 
 	// JSON shape.
-	j := eventDetailJSON(ev, time.UTC)
+	j := eventDetailJSON(ev, time.UTC, calendar.Settings{}, calendar.Info{})
 	if j.Color != "#EC3E7C" || !j.IsOrganizer {
 		t.Errorf("color/isOrganizer = %q/%v", j.Color, j.IsOrganizer)
 	}
@@ -241,7 +242,7 @@ func TestEventDetailRendersEnrichment(t *testing.T) {
 	if err != nil {
 		t.Fatalf("selectFields: %v", err)
 	}
-	lines := eventDetailLines(ev, time.UTC, sel)
+	lines := eventDetailLines(ev, time.UTC, sel, calendar.Settings{}, calendar.Info{})
 	joined := ""
 	for _, l := range lines {
 		joined += l + "\n"
@@ -304,7 +305,7 @@ func TestCalendarDetailLines(t *testing.T) {
 	}
 	// Curated default hides email/member/address.
 	def, _ := selectFields(calendarFieldRegistry, nil, false)
-	joined := strings.Join(calendarDetailLines(c, true, def), "\n")
+	joined := strings.Join(calendarDetailLines(c, calendar.Settings{}, true, def), "\n")
 	for _, want := range []string{"Name:", "Personal", "Type:", "normal", "Color:", "#415DF0", "ID:", "cal1", "Default:"} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("default calendar detail missing %q\n%s", want, joined)
@@ -317,7 +318,7 @@ func TestCalendarDetailLines(t *testing.T) {
 	}
 	// --all reveals them.
 	all, _ := selectFields(calendarFieldRegistry, nil, true)
-	joinedAll := strings.Join(calendarDetailLines(c, false, all), "\n")
+	joinedAll := strings.Join(calendarDetailLines(c, calendar.Settings{}, false, all), "\n")
 	for _, want := range []string{"Email:", "me@example.com", "Member ID:", "mem1", "Address ID:", "addr1"} {
 		if !strings.Contains(joinedAll, want) {
 			t.Errorf("--all calendar detail missing %q\n%s", want, joinedAll)
@@ -326,6 +327,52 @@ func TestCalendarDetailLines(t *testing.T) {
 	// Not-default calendar omits the Default row.
 	if strings.Contains(joinedAll, "Default:") {
 		t.Errorf("non-default calendar should omit Default row\n%s", joinedAll)
+	}
+}
+
+func TestCalendarDetailDefaultReminders(t *testing.T) {
+	c := calendar.Info{ID: "cal1", Name: "Personal", Color: "#415DF0"}
+	set := calendar.Settings{
+		DefaultEventDuration:        30,
+		DefaultPartDayNotifications: []caltypes.Notification{{Type: 1, Trigger: "-PT15M"}},
+		DefaultFullDayNotifications: []caltypes.Notification{{Type: 1, Trigger: "-PT16H"}},
+	}
+	def, _ := selectFields(calendarFieldRegistry, nil, false)
+	joined := strings.Join(calendarDetailLines(c, set, false, def), "\n")
+	for _, want := range []string{
+		"Default reminder (timed) (notify): -PT15M",
+		"Default reminder (all-day) (notify): -PT16H",
+		"Default duration: 30 min",
+	} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("calendar detail missing %q\n%s", want, joined)
+		}
+	}
+}
+
+func TestEventDetailInheritsCalendarDefaults(t *testing.T) {
+	cal := calendar.Info{Color: "#415DF0"}
+	set := calendar.Settings{DefaultPartDayNotifications: []caltypes.Notification{{Type: 1, Trigger: "-PT30M"}}}
+	// Event with no own color/notifications: shows the calendar's.
+	ev := &event.Event{
+		EventID: "e1", Summary: "Untagged",
+		Start: time.Unix(ts(2026, 6, 24, 8, 0), 0).UTC(),
+		End:   time.Unix(ts(2026, 6, 24, 8, 30), 0).UTC(),
+	}
+	sel, _ := selectFields(eventFieldRegistry, nil, true)
+	joined := strings.Join(eventDetailLines(ev, time.UTC, sel, set, cal), "\n")
+	if !strings.Contains(joined, "Reminder (notify): -PT30M") {
+		t.Errorf("inherited reminder missing:\n%s", joined)
+	}
+	if !strings.Contains(joined, "#415DF0") {
+		t.Errorf("inherited color missing:\n%s", joined)
+	}
+
+	// Explicitly no reminders: the default must NOT appear.
+	ev.NotificationsSet = true
+	joined = strings.Join(eventDetailLines(ev, time.UTC, sel, set, cal), "\n")
+	if strings.Contains(joined, "-PT30M") {
+		t.Errorf("removed-reminder event must not show the default:\n%s", joined)
 	}
 }
 
