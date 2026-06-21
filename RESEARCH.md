@@ -161,21 +161,25 @@ sufficient scope"). Consequences:
 
 ### Calendar key unlock
 
-1. `GET /calendar/v1/{calID}/members` - find *our* member entry (match
-   `Email` case-insensitively against our addresses; shared calendars list
-   other users too). Yields `MemberID` and `AddressID` (which selects the
-   signing address key for writes).
-2. `GET /calendar/v1/{calID}/passphrase` - returns
-   `Passphrase.MemberPassphrases[]`, one entry per member, each an armored
-   PGP `Passphrase` message plus a detached `Signature`. Decrypt our entry
-   with an address private key. The passphrase may be encrypted to **any**
-   of the account's address keys, not necessarily the member's - try all of
-   them. The web client is lenient about the detached signature; verifying
-   it is optional in practice.
-3. `GET /calendar/v1/{calID}/keys` - armored calendar private keys (possibly
-   several generations, each tagged with a `PassphraseID`). Unlock each with
-   the decrypted passphrase; keep every key that unlocks, since old events
-   may be encrypted to retired calendar keys.
+A single `GET /calendar/v2/{calID}/bootstrap` returns `Members`, `Passphrase`,
+`Keys` and `CalendarSettings` together; the three fields below have the same
+shapes they have on the standalone v1 routes, so the unlock logic is unchanged
+- only the number of round-trips dropped from three to one.
+
+1. `Members` - find *our* member entry (match `Email` case-insensitively
+   against our addresses; shared calendars list other users too). Yields
+   `MemberID` and `AddressID` (which selects the signing address key for
+   writes).
+2. `Passphrase` - `Passphrase.MemberPassphrases[]`, one entry per member, each
+   an armored PGP `Passphrase` message plus a detached `Signature`. Decrypt
+   our entry with an address private key. The passphrase may be encrypted to
+   **any** of the account's address keys, not necessarily the member's - try
+   all of them. The web client is lenient about the detached signature;
+   verifying it is optional in practice.
+3. `Keys` - armored calendar private keys (possibly several generations, each
+   tagged with a `PassphraseID`). Unlock each with the decrypted passphrase;
+   keep every key that unlocks, since old events may be encrypted to retired
+   calendar keys.
 
 ## Calendar API Endpoints
 
@@ -187,17 +191,31 @@ sufficient scope"). Consequences:
 | POST   | `/calendar/v1`                       | Create calendar |
 | GET    | `/calendar/v1/{calID}`               | Get one calendar |
 | DELETE | `/calendar/v1/{calID}`               | Delete calendar |
-| GET    | `/calendar/v2/{calID}/bootstrap`     | **Keys + members + passphrase + settings in one call** - the calendar key unlock path uses this (replaces the three v1 calls below) |
-| GET    | `/calendar/v1/{calID}/keys`          | Calendar private keys (superseded by `/v2/bootstrap`) |
-| GET    | `/calendar/v1/{calID}/passphrase`    | Calendar passphrase (superseded by `/v2/bootstrap`) |
-| GET    | `/calendar/v1/{calID}/members`       | Member entries (superseded by `/v2/bootstrap`) |
+| GET    | `/calendar/v2/{calID}/bootstrap`     | **Keys + members + passphrase + settings in one call** - our unlock path uses this; it is the *only* `v2` route |
+| GET    | `/calendar/v1/{calID}/keys`          | Calendar private keys (we don't call it; bootstrap supplies the keys) |
+| GET    | `/calendar/v1/{calID}/passphrase`    | Calendar passphrase (we don't call it; bootstrap supplies it) |
+| GET    | `/calendar/v1/{calID}/members`       | Member entries (we don't call it; bootstrap supplies them) |
+| GET    | `/calendar/v1/{calID}/settings`      | Calendar settings, standalone (we don't call it; bootstrap supplies them) |
+| PUT    | `/calendar/v1/{calID}/settings`      | Update calendar settings (we don't write settings) |
+
+**Versioning note.** The API is almost entirely `calendar/v1`; in the Proton
+web client (`packages/shared/lib/api/calendars.ts`) `calendar/v2` is used by a
+single function, `getFullCalendar` -> `GET /calendar/v2/{calID}/bootstrap`.
+`v2` is therefore just the namespace for the one consolidated bootstrap route,
+not a newer API surface: **there is no `v2` calendar-list endpoint** (listing
+is `GET /calendar/v1`) and settings have their own `v1` route. The standalone
+`/keys`, `/passphrase`, `/members` and `/settings` routes are **not
+deprecated** - the web client still uses them for narrower operations (key
+reactivation, member management, settings reads/writes that pair with the
+`PUT .../settings`). They are simply off our read/unlock path, which only ever
+needs the bootstrap snapshot.
 
 The unlock path (`calendar.Keychain.Unlock`) issues a single
 `GET /calendar/v2/{calID}/bootstrap` whose body carries `Keys`, `Passphrase`,
-`Members` (same shapes as the v1 endpoints) and `CalendarSettings`. The
-settings are stored on `calendar.Access.Settings` and drive default-reminder
-display (see below). The cache key for a calendar's key material is this one
-bootstrap path.
+`Members` (same shapes as the standalone v1 endpoints) and `CalendarSettings`.
+The settings are stored on `calendar.Access.Settings` and drive
+default-reminder display (see below). The cache key for a calendar's key
+material is this one bootstrap path.
 
 **Response shape drift (live-verified June 2026):** `GET /calendar/v1`
 returns `Calendars[]` where display metadata (`Name`, `Description`,
