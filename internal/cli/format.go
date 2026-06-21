@@ -127,14 +127,22 @@ func personString(email, cn string) string {
 	return email
 }
 
-// detailLines renders the enrichment detail lines (organizer, attendees,
-// conference, reminders) shared by the list expansion and the get-event
-// detail view. Each line is prefixed with indent and uses Title-Case labels.
-// sel selects which enrichment fields to include.
-func detailLines(ev *event.Event, indent string, sel fieldSet) []string {
-	var lines []string
+// eventDetailRows builds the labeled body rows of an event (location,
+// description, organizer, attendees, conference, reminders, color), in a
+// consistent order, for whichever fields sel selects. It is shared by the
+// events-list sub-lines and the get-event detail view so labels and ordering
+// stay identical. It does NOT include the head fields (summary/start/end) or
+// the --all-only technical fields (rrule/uid/calendar_id/id).
+func eventDetailRows(ev *event.Event, sel fieldSet) []labeled {
+	var rows []labeled
+	if sel.has(fieldLocation) && ev.Location != "" {
+		rows = append(rows, labeled{"Location", ev.Location})
+	}
+	if sel.has(fieldDescription) && ev.Description != "" {
+		rows = append(rows, labeled{"Description", ev.Description})
+	}
 	if sel.has(fieldOrganizer) && ev.Organizer != nil {
-		lines = append(lines, indent+"Organizer: "+personString(ev.Organizer.Email, ev.Organizer.CN))
+		rows = append(rows, labeled{"Organizer", personString(ev.Organizer.Email, ev.Organizer.CN)})
 	}
 	if sel.has(fieldAttendees) {
 		for _, a := range ev.Attendees {
@@ -142,12 +150,12 @@ func detailLines(ev *event.Event, indent string, sel fieldSet) []string {
 			if st := attendeeStatusName(a.Status); st != "" {
 				who += " (" + st + ")"
 			}
-			lines = append(lines, indent+"Attendee: "+who)
+			rows = append(rows, labeled{"Attendee", who})
 		}
 	}
 	if sel.has(fieldConference) {
 		if c := ev.Conference; c != nil && c.URL != "" {
-			lines = append(lines, indent+"Conference ("+conferenceProviderName(c.Provider)+"): "+c.URL)
+			rows = append(rows, labeled{"Conference (" + conferenceProviderName(c.Provider) + ")", c.URL})
 		}
 	}
 	if sel.has(fieldReminders) {
@@ -156,17 +164,21 @@ func detailLines(ev *event.Event, indent string, sel fieldSet) []string {
 			if n.Type == 0 {
 				kind = "email"
 			}
-			lines = append(lines, indent+"Reminder ("+kind+"): "+n.Trigger)
+			rows = append(rows, labeled{"Reminder (" + kind + ")", n.Trigger})
 		}
 	}
-	return lines
+	if sel.has(fieldColor) && ev.Color != "" {
+		rows = append(rows, labeled{"Color", swatch(ev.Color) + ev.Color})
+	}
+	return rows
 }
 
 // occurrenceLines renders one listed occurrence as human-readable output
-// lines. Times are rendered in loc (all-day dates in UTC, their canonical
-// anchor zone). The compact head line is always shown; sel selects which
-// enrichment sub-lines (organizer/attendees/conference/reminders/color) are
-// expanded beneath it.
+// lines. The head line carries only the date/time (with timezone) and the
+// summary; everything else (location, description, organizer, attendees,
+// conference, reminders, color) goes on its own labeled, aligned sub-line.
+// Times are rendered in loc (all-day dates in UTC, their canonical anchor
+// zone). sel selects which sub-line fields appear.
 func occurrenceLines(l event.Listed, loc *time.Location, sel fieldSet) []string {
 	raw := l.Occurrence.Event
 	ev := l.Event
@@ -189,23 +201,18 @@ func occurrenceLines(l event.Listed, loc *time.Location, sel fieldSet) []string 
 		head = fmt.Sprintf("  %s (all day)  %s", start.UTC().Format("2006-01-02"), summary)
 	} else {
 		head = fmt.Sprintf("  %s - %s  %s",
-			start.In(loc).Format("2006-01-02 15:04"), end.In(loc).Format("15:04"), summary)
-	}
-	if ev.Location != "" {
-		head += fmt.Sprintf("  [%s]", ev.Location)
+			start.In(loc).Format("2006-01-02 15:04 MST"), end.In(loc).Format("15:04 MST"), summary)
 	}
 
-	lines := []string{head}
-	if ev.Description != "" {
-		lines = append(lines, "      "+ev.Description)
-	}
-	lines = append(lines, detailLines(ev, "    ", sel)...)
-	if sel.has(fieldColor) && ev.Color != "" {
-		lines = append(lines, "    Color: "+swatch(ev.Color)+ev.Color)
-	}
-	lines = append(lines, "    ID: "+ev.EventID)
+	rows := eventDetailRows(ev, sel)
 	if recurring {
-		lines = append(lines, "    occurrence start: "+calsvc.FormatOccurrenceStart(l.Occurrence.Start, ev.AllDay, loc))
+		rows = append(rows, labeled{"Occurrence start", calsvc.FormatOccurrenceStart(l.Occurrence.Start, ev.AllDay, loc)})
+	}
+	rows = append(rows, labeled{"ID", ev.EventID})
+
+	lines := []string{head}
+	for _, line := range alignLabeled(rows) {
+		lines = append(lines, "    "+line)
 	}
 	return lines
 }
@@ -294,40 +301,11 @@ func eventDetailLines(ev *event.Event, loc *time.Location, sel fieldSet) []strin
 	if sel.has(fieldRecurring) && ev.IsRecurring() {
 		rows = append(rows, labeled{"Recurring", "yes"})
 	}
-	add(fieldLocation, "Location", ev.Location)
-	add(fieldDescription, "Description", ev.Description)
 
-	// Enrichment (organizer/attendees/conference/reminders) as their own
-	// labeled rows, aligned with the rest.
-	if sel.has(fieldOrganizer) && ev.Organizer != nil {
-		rows = append(rows, labeled{"Organizer", personString(ev.Organizer.Email, ev.Organizer.CN)})
-	}
-	if sel.has(fieldAttendees) {
-		for _, a := range ev.Attendees {
-			who := personString(a.Email, a.CN)
-			if st := attendeeStatusName(a.Status); st != "" {
-				who += " (" + st + ")"
-			}
-			rows = append(rows, labeled{"Attendee", who})
-		}
-	}
-	if sel.has(fieldConference) {
-		if c := ev.Conference; c != nil && c.URL != "" {
-			rows = append(rows, labeled{"Conference (" + conferenceProviderName(c.Provider) + ")", c.URL})
-		}
-	}
-	if sel.has(fieldReminders) {
-		for _, n := range ev.Notifications {
-			kind := "notify"
-			if n.Type == 0 {
-				kind = "email"
-			}
-			rows = append(rows, labeled{"Reminder (" + kind + ")", n.Trigger})
-		}
-	}
-	if sel.has(fieldColor) && ev.Color != "" {
-		rows = append(rows, labeled{"Color", swatch(ev.Color) + ev.Color})
-	}
+	// Body fields (location/description/organizer/attendees/conference/
+	// reminders/color), shared with the events-list sub-lines.
+	rows = append(rows, eventDetailRows(ev, sel)...)
+
 	// --all-only fields.
 	add(fieldRRule, "RRULE", ev.RRule)
 	add(fieldUID, "UID", ev.UID)
@@ -428,6 +406,19 @@ var eventFieldRegistry = []fieldRow{
 	{fieldUID, false},
 	{fieldCalendarID, false},
 	{fieldID, true},
+}
+
+// listDefaultFields is the curated sub-line set shown under each event in the
+// events list when no --fields/--all is given: location, description,
+// conference and color. The head line already carries date/time + summary,
+// and the ID is always appended, so neither needs to be selected here.
+func listDefaultFields() fieldSet {
+	return fieldSet{
+		fieldLocation:    true,
+		fieldDescription: true,
+		fieldConference:  true,
+		fieldColor:       true,
+	}
 }
 
 // calendarFieldRegistry is the ordered set of selectable calendar fields.

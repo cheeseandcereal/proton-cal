@@ -39,22 +39,45 @@ func listedTimed() event.Listed {
 	}
 }
 
-func TestOccurrenceLinesTimed(t *testing.T) {
-	got := occurrenceLines(listedTimed(), time.UTC, fieldSet{})
-	want := []string{
-		"  2026-06-12 09:00 - 09:30  Standup  [Zoom]",
-		"      Weekly sync",
-		"    ID: evt1",
+// hasLine reports whether any line matches want after trimming leading
+// whitespace and collapsing the alignment padding (runs of spaces) to one.
+func hasLine(lines []string, want string) bool {
+	collapse := func(s string) string {
+		return strings.Join(strings.Fields(s), " ")
 	}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("occurrenceLines() = %q, want %q", got, want)
+	for _, l := range lines {
+		if collapse(l) == collapse(want) {
+			return true
+		}
+	}
+	return false
+}
+
+func TestOccurrenceLinesTimed(t *testing.T) {
+	got := occurrenceLines(listedTimed(), time.UTC, listDefaultFields())
+	// Head: date/time (with timezone) + summary only; no inline location.
+	if got[0] != "  2026-06-12 09:00 UTC - 09:30 UTC  Standup" {
+		t.Errorf("head line = %q", got[0])
+	}
+	if strings.Contains(got[0], "Zoom") {
+		t.Errorf("location must not be inline on the head line: %q", got[0])
+	}
+	// Location and description on their own labeled sub-lines.
+	if !hasLine(got, "Location: Zoom") {
+		t.Errorf("missing Location sub-line:\n%q", got)
+	}
+	if !hasLine(got, "Description: Weekly sync") {
+		t.Errorf("missing Description sub-line:\n%q", got)
+	}
+	if !hasLine(got, "ID: evt1") {
+		t.Errorf("missing ID sub-line:\n%q", got)
 	}
 }
 
 func TestOccurrenceLinesTimedInZone(t *testing.T) {
 	loc := time.FixedZone("UTC+2", 2*60*60)
-	got := occurrenceLines(listedTimed(), loc, fieldSet{})
-	if got[0] != "  2026-06-12 11:00 - 11:30  Standup  [Zoom]" {
+	got := occurrenceLines(listedTimed(), loc, listDefaultFields())
+	if got[0] != "  2026-06-12 11:00 UTC+2 - 11:30 UTC+2  Standup" {
 		t.Errorf("head line in UTC+2 = %q", got[0])
 	}
 }
@@ -64,9 +87,9 @@ func TestOccurrenceLinesNoTitleNoExtras(t *testing.T) {
 	l.Event.Summary = ""
 	l.Event.Description = ""
 	l.Event.Location = ""
-	got := occurrenceLines(l, time.UTC, fieldSet{})
+	got := occurrenceLines(l, time.UTC, listDefaultFields())
 	want := []string{
-		"  2026-06-12 09:00 - 09:30  (no title)",
+		"  2026-06-12 09:00 UTC - 09:30 UTC  (no title)",
 		"    ID: evt1",
 	}
 	if !reflect.DeepEqual(got, want) {
@@ -80,8 +103,8 @@ func TestOccurrenceLinesAllDay(t *testing.T) {
 	// Render in a negative-offset zone: the all-day date must stay the
 	// UTC-anchored date, not shift to the previous local day.
 	loc := time.FixedZone("UTC-7", -7*60*60)
-	got := occurrenceLines(l, loc, fieldSet{})
-	if got[0] != "  2026-06-12 (all day)  Standup  [Zoom]" {
+	got := occurrenceLines(l, loc, listDefaultFields())
+	if got[0] != "  2026-06-12 (all day)  Standup" {
 		t.Errorf("all-day head line = %q", got[0])
 	}
 }
@@ -90,15 +113,12 @@ func TestOccurrenceLinesRecurringMaster(t *testing.T) {
 	l := listedTimed()
 	l.Occurrence.Event.RRule = "FREQ=DAILY"
 	l.Event.RRule = "FREQ=DAILY"
-	got := occurrenceLines(l, time.UTC, fieldSet{})
-	want := []string{
-		"  2026-06-12 09:00 - 09:30  Standup  (recurring)  [Zoom]",
-		"      Weekly sync",
-		"    ID: evt1",
-		"    occurrence start: 2026-06-12 09:00",
+	got := occurrenceLines(l, time.UTC, listDefaultFields())
+	if got[0] != "  2026-06-12 09:00 UTC - 09:30 UTC  Standup  (recurring)" {
+		t.Errorf("head line = %q", got[0])
 	}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("occurrenceLines() = %q, want %q", got, want)
+	if !hasLine(got, "Occurrence start: 2026-06-12 09:00") {
+		t.Errorf("missing occurrence start sub-line:\n%q", got)
 	}
 }
 
@@ -108,10 +128,9 @@ func TestOccurrenceLinesRecurringAllDayMaster(t *testing.T) {
 	l.Occurrence.Start = ts(2026, 6, 12, 0, 0)
 	l.Event.AllDay = true
 	loc := time.FixedZone("UTC-7", -7*60*60)
-	got := occurrenceLines(l, loc, fieldSet{})
-	last := got[len(got)-1]
-	if last != "    occurrence start: 2026-06-12" {
-		t.Errorf("all-day occurrence start line = %q", last)
+	got := occurrenceLines(l, loc, listDefaultFields())
+	if !hasLine(got, "Occurrence start: 2026-06-12") {
+		t.Errorf("missing all-day occurrence start sub-line:\n%q", got)
 	}
 }
 
@@ -119,14 +138,12 @@ func TestOccurrenceLinesEditedOccurrence(t *testing.T) {
 	l := listedTimed()
 	l.Occurrence.Event.RecurrenceID = ts(2026, 6, 12, 8, 0)
 	l.Event.RecurrenceID = time.Unix(ts(2026, 6, 12, 8, 0), 0).UTC()
-	got := occurrenceLines(l, time.UTC, fieldSet{})
-	if got[0] != "  2026-06-12 09:00 - 09:30  Standup  (edited occurrence)  [Zoom]" {
+	got := occurrenceLines(l, time.UTC, listDefaultFields())
+	if got[0] != "  2026-06-12 09:00 UTC - 09:30 UTC  Standup  (edited occurrence)" {
 		t.Errorf("edited occurrence head line = %q", got[0])
 	}
-	for _, line := range got {
-		if line == "    occurrence start: 2026-06-12 09:00" {
-			t.Errorf("edited occurrence must not get an occurrence start line: %q", got)
-		}
+	if hasLine(got, "Occurrence start: 2026-06-12 09:00") {
+		t.Errorf("edited occurrence must not get an occurrence start line: %q", got)
 	}
 }
 

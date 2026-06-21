@@ -21,9 +21,10 @@ func newEventsCmd() *cobra.Command {
 		Short: "List upcoming events (recurring events expanded into occurrences)",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			// The list stays compact by default: only --fields/--all expand
-			// labeled sub-lines beneath each event's one-line head.
-			sel := fieldSet{}
+			// The list head shows date/time + summary; the rest are labeled
+			// sub-lines. By default a curated subset (location, description,
+			// conference, color) is shown; --fields/--all override it.
+			sel := listDefaultFields()
 			if all || len(fields) > 0 {
 				var err error
 				if sel, err = selectFields(eventFieldRegistry, fields, all); err != nil {
