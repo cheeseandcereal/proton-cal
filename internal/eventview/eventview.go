@@ -78,9 +78,8 @@ func SummaryOr(ev *event.Event) string {
 	return ev.Summary
 }
 
-// RecurrenceSuffix returns a parenthesized recurrence marker for a row -
-// "  (recurring)" for a master, "  (edited occurrence)" for an exception, or
-// "" otherwise. The leading two spaces let callers append it directly.
+// RecurrenceSuffix returns a recurrence marker for a row ("  (recurring)" for a
+// master, "  (edited occurrence)" for an exception, "" otherwise), space-prefixed.
 func RecurrenceSuffix(raw *caltypes.RawEvent) string {
 	switch {
 	case raw.IsMaster():
@@ -100,11 +99,8 @@ func ReminderKind(typ int) string {
 	return "notify"
 }
 
-// EffectiveReminders returns the reminders that actually apply to an event:
-// its own when set (explicitly none -> empty), otherwise the calendar's
-// default set for the event's all-day/timed kind. This mirrors the Proton
-// clients, which show the calendar default for events that carry no
-// reminders of their own (getHasDefaultNotifications === !Notifications).
+// EffectiveReminders returns the reminders that apply: the event's own when set
+// (explicitly none -> empty), else the calendar default for its all-day/timed kind.
 func EffectiveReminders(ev *event.Event, set calendar.Settings) []caltypes.Notification {
 	if ev.NotificationsSet {
 		return ev.Notifications
@@ -121,12 +117,9 @@ func EffectiveColor(ev *event.Event, cal calendar.Info) string {
 	return cal.Color
 }
 
-// CalendarHeaderLines renders the lines shared by every calendar listing: the
-// "<name> (<type>)" header with a "  [default]" marker when the calendar's ID
-// equals defaultID (Proton's server-side default calendar), then an indented
-// "  ID: <id>" line. Surfaces that want more (e.g. the CLI adds
-// color/description rows) append to these. Pass "" for defaultID to suppress
-// the marker.
+// CalendarHeaderLines renders the shared calendar listing lines: a
+// "<name> (<type>)" header (with "  [default]" when c.ID == defaultID) and an
+// "  ID: <id>" line. Pass "" for defaultID to suppress the marker.
 func CalendarHeaderLines(c calendar.Info, defaultID string) []string {
 	header := c.Name + " (" + c.TypeString() + ")"
 	if defaultID != "" && c.ID == defaultID {
@@ -135,11 +128,8 @@ func CalendarHeaderLines(c calendar.Info, defaultID string) []string {
 	return []string{header, "  ID: " + c.ID}
 }
 
-// UpdateOutcomeMessage renders the human-readable confirmation for an update.
-// The first string is the headline ("Event updated." / "Occurrence
-// updated."); the second is a follow-up note about removed exceptions, or ""
-// when none were removed. Callers join them however their surface formats
-// multi-line output.
+// UpdateOutcomeMessage renders the update confirmation: a headline plus a
+// follow-up note about removed exceptions ("" when none were removed).
 func UpdateOutcomeMessage(outcome *event.UpdateOutcome) (headline, note string) {
 	headline = "Event updated."
 	if outcome.EditedOccurrence {
@@ -151,9 +141,8 @@ func UpdateOutcomeMessage(outcome *event.UpdateOutcome) (headline, note string) 
 	return headline, note
 }
 
-// DeleteResultMessage renders the human-readable confirmation for a delete.
-// When withID is true the whole-event case names the event ID (the MCP form);
-// when false it is the bare "Event deleted." (the CLI form).
+// DeleteResultMessage renders the delete confirmation. withID true names the
+// event ID in the whole-event case (MCP form); false is bare "Event deleted." (CLI).
 func DeleteResultMessage(res *event.DeleteResult, eventID string, withID bool) string {
 	switch res.Kind {
 	case event.DeletedOccurrence:

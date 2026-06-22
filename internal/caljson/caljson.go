@@ -28,15 +28,11 @@ type Event struct {
 	Recurring        bool   `json:"recurring"`
 	EditedOccurrence bool   `json:"edited_occurrence"`
 	// RecurrenceIDTS is the unix start of the ORIGINAL occurrence this row
-	// replaces (the iCal RECURRENCE-ID). It is set only for edited-occurrence
-	// (exception) rows; it identifies which occurrence of the series the edit
-	// applies to and is the selector to pass back to update/delete it.
+	// replaces (iCal RECURRENCE-ID). Set only on exception rows; the selector to
+	// pass back to update/delete that occurrence.
 	RecurrenceIDTS int64 `json:"recurrence_id_ts,omitempty"`
-	// OccurrenceStartTS is the selector to pass back to update/delete one
-	// occurrence of a recurring series. It is set (and emitted) only for a
-	// master row's expanded occurrences; it is omitted for non-recurring
-	// events, already-edited occurrences, and the single-event view, where
-	// there is no series occurrence to address.
+	// OccurrenceStartTS is the selector to update/delete one occurrence of a
+	// series. Set only on a master row's expanded occurrences; omitted otherwise.
 	OccurrenceStartTS int64          `json:"occurrence_start_ts,omitempty"`
 	RRule             string         `json:"rrule,omitempty"`
 	CalendarID        string         `json:"calendar_id,omitempty"`
@@ -99,9 +95,8 @@ type Calendar struct {
 	DefaultDuration             int            `json:"default_duration,omitempty"` // minutes; 0 = unset
 	DefaultNormalNotifications  []Notification `json:"default_normal_notifications,omitempty"`
 	DefaultFullDayNotifications []Notification `json:"default_full_day_notifications,omitempty"`
-	// MakesBusy is whether events on this calendar mark you busy. A pointer so
-	// the list path (no settings) omits it while the detail path always
-	// reports it (including false).
+	// MakesBusy reports whether events here mark you busy. A pointer so the list
+	// path omits it while the detail path always reports it (including false).
 	MakesBusy *bool `json:"makes_busy,omitempty"`
 }
 
@@ -224,10 +219,8 @@ func CalendarOf(c calendar.Info, isDefault bool) Calendar {
 	}
 }
 
-// CalendarDetailOf maps a single fetched calendar plus its default settings
-// (duration and reminder sets) to its JSON shape. Used for `get calendar`,
-// where the bootstrap settings are available; the calendar list uses
-// CalendarOf and omits these fields.
+// CalendarDetailOf maps a fetched calendar plus its default settings to JSON
+// (for `get calendar`); the calendar list uses CalendarOf and omits these.
 func CalendarDetailOf(c calendar.Info, set calendar.Settings, isDefault bool) Calendar {
 	j := CalendarOf(c, isDefault)
 	j.DefaultDuration = set.DefaultEventDuration

@@ -18,12 +18,11 @@ import (
 	"github.com/cheeseandcereal/proton-cal/internal/recurrence"
 )
 
-// Now returns the current time; a package variable so tests can pin it
-// (DTSTAMP/CREATED in fragments derive from it).
+// Now returns the current time; a package var so tests can pin it
+// (DTSTAMP/CREATED derive from it).
 var Now = time.Now
 
-// NewUID generates an iCalendar UID for new events; a package variable so
-// tests can pin it.
+// NewUID generates an iCalendar UID for new events; a package var so tests can pin it.
 var NewUID = func() string {
 	var b [16]byte
 	if _, err := rand.Read(b[:]); err != nil {
@@ -32,15 +31,13 @@ var NewUID = func() string {
 	return hex.EncodeToString(b[:])
 }
 
-// ErrDecryptDegraded marks operations refused because the event's cards
-// could not all be decrypted/parsed (wrong or stale calendar keys, or
-// corrupt data). Callers holding cached key material should refresh it and
-// retry; merging an update from a half-decrypted event would silently blank
-// the unreadable fields.
+// ErrDecryptDegraded marks operations refused because not all cards could be
+// decrypted/parsed (stale keys or corrupt data). Merging from a half-decrypted
+// event would silently blank unreadable fields; refresh keys and retry.
 var ErrDecryptDegraded = errors.New("event could not be fully decrypted")
 
-// Event is a decrypted calendar event. Times are absolute instants;
-// rendering (including any unix-timestamp encoding) is a frontend concern.
+// Event is a decrypted calendar event. Times are absolute instants; rendering
+// is a frontend concern.
 type Event struct {
 	EventID    string
 	UID        string
@@ -63,37 +60,32 @@ type Event struct {
 	RecurrenceID time.Time // zero = not a single-edit exception row
 	Exdates      []time.Time
 
-	// RawSharedSigned is the verbatim shared-signed fragment (kept for
-	// diagnostics; SEQUENCE is parsed into Sequence).
+	// RawSharedSigned is the verbatim shared-signed fragment (SEQUENCE parsed into Sequence).
 	RawSharedSigned string
 	Sequence        int
 
-	// Enrichment fields (read-only display). Color and Notifications come
-	// from the plaintext row; Organizer/Attendees/Conference are parsed from
-	// the cards. IsOrganizer/MoreAttendees mirror the row flags.
+	// Enrichment fields (read-only display): Color/Notifications from the row,
+	// Organizer/Attendees/Conference from the cards; IsOrganizer/MoreAttendees mirror row flags.
 	Color         string
 	IsOrganizer   bool
 	MoreAttendees bool
-	// Notifications are the event's own reminders. NotificationsSet
-	// distinguishes "explicitly none" (set, len 0) from "inherit the
-	// calendar default" (not set); see caltypes.RawEvent.
+	// Notifications are the event's own reminders; NotificationsSet distinguishes
+	// "explicitly none" (set, len 0) from "inherit default" (not set). See caltypes.RawEvent.
 	Notifications    []caltypes.Notification
 	NotificationsSet bool
 	Organizer        *Person
 	Attendees        []Attendee
 	Conference       *Conference
 
-	// conf* are scratch accumulators for conference data spread across the
-	// shared signed (ID/provider) and shared encrypted (URL/host) cards;
-	// assembleConference folds them into Conference after all cards merge.
+	// conf* accumulate conference data spread across shared signed (ID/provider)
+	// and shared encrypted (URL/host) cards; assembleConference folds them in.
 	confID       string
 	confProvider string
 	confURL      string
 	confHost     string
 
-	// DecryptFailed reports that at least one card failed to decrypt or
-	// parse (the rest of the event is still populated). Read paths render
-	// what they can; write paths refuse to merge from such an event.
+	// DecryptFailed reports at least one card failed to decrypt/parse. Read paths
+	// render what they can; write paths refuse to merge from such an event.
 	DecryptFailed bool
 }
 
@@ -103,10 +95,8 @@ type Person struct {
 	CN    string
 }
 
-// Attendee is a decrypted attendee with its live RSVP status. Email/CN/Role/
-// PartStat/RSVP come from the encrypted ATTENDEE card; Status is the live
-// API RSVP from the plaintext row (caltypes.AttendeeToken.Status), joined by
-// token. Status is -1 when no matching row token was found.
+// Attendee is a decrypted attendee with its live RSVP status. Most fields come
+// from the encrypted ATTENDEE card; Status is the row RSVP joined by token (-1 if no match).
 type Attendee struct {
 	Email    string
 	CN       string
@@ -117,10 +107,8 @@ type Attendee struct {
 	Status   int
 }
 
-// Conference is the event's video-conferencing data (Proton Meet/Zoom),
-// reassembled from the shared signed (ID/provider) and shared encrypted
-// (URL/host) cards. Provider follows VIDEO_CONFERENCE_PROVIDER (1 = Zoom,
-// 2 = Meet). Password is parsed from the URL "#pwd-" fragment when present.
+// Conference is the event's video-conferencing data. Provider follows
+// VIDEO_CONFERENCE_PROVIDER (1 = Zoom, 2 = Meet); Password parsed from URL "#pwd-".
 type Conference struct {
 	Provider string
 	ID       string
@@ -138,9 +126,8 @@ type Listed struct {
 	Event      *Event
 }
 
-// CreateOptions describes a new event. For all-day events Start/End are
-// dates and End is the EXCLUSIVE iCal end (day after the last day) -
-// frontends are responsible for the inclusive→exclusive conversion.
+// CreateOptions describes a new event. For all-day events End is the EXCLUSIVE
+// iCal end (day after the last day); frontends do the inclusive→exclusive conversion.
 type CreateOptions struct {
 	Summary     string
 	Description string
@@ -151,45 +138,36 @@ type CreateOptions struct {
 	AllDay      bool
 	RRule       string // verbatim RRULE value ("" = not recurring)
 
-	// Reminders is the event's own reminder set; RemindersSet selects the
-	// tri-state on the wire (mirroring caltypes.RawEvent):
-	//   - RemindersSet false           -> null  (inherit the calendar default)
-	//   - RemindersSet true, len 0      -> []    (explicitly none)
-	//   - RemindersSet true, len>0      -> the custom array
+	// Reminders + RemindersSet drive the wire tri-state (per caltypes.RawEvent):
+	// unset -> null (inherit default); set len 0 -> [] (none); set len>0 -> custom array.
 	Reminders    []caltypes.Notification
 	RemindersSet bool
-	// Color is the per-event color override ("#RRGGBB"); "" = inherit the
-	// calendar color (sent as null).
+	// Color is the per-event color override ("#RRGGBB"); "" = inherit (null).
 	Color string
 
-	// Exception-row fields (single-occurrence edits): UID must equal the
-	// master's UID, RecurrenceID the original occurrence start, Sequence
-	// >= the master's SEQUENCE (server-enforced).
+	// Exception-row fields (single-occurrence edits): UID must equal the master's,
+	// RecurrenceID the original occurrence start, Sequence >= master SEQUENCE (server-enforced).
 	UID          string
 	RecurrenceID *time.Time
 	Sequence     int
 }
 
-// RemindersUpdate expresses an update to an event's reminders, distinct from
-// "keep current" (a nil *RemindersUpdate). Inherit reverts to the calendar
-// default (null); otherwise List is the new set (empty = explicitly none).
+// RemindersUpdate updates reminders (nil *RemindersUpdate = keep current).
+// Inherit reverts to the calendar default (null); else List is the new set (empty = none).
 type RemindersUpdate struct {
 	Inherit bool
 	List    []caltypes.Notification
 }
 
-// ColorUpdate expresses an update to an event's color, distinct from "keep
-// current" (a nil *ColorUpdate). Value is the canonical palette hex to set.
-// (Proton has no "inherit" sentinel for color: reverting to the calendar
-// default means explicitly setting the event color to the calendar's own
-// color, which the calsvc layer resolves before constructing this.)
+// ColorUpdate updates color (nil *ColorUpdate = keep current); Value is the
+// canonical palette hex. Proton has no color "inherit" sentinel: calsvc resolves
+// "revert to default" to the calendar's own color before constructing this.
 type ColorUpdate struct {
 	Value string
 }
 
-// UpdateOptions describes a partial update; nil pointers mean "keep
-// current". SEQUENCE is bumped only on significant changes (times,
-// recurrence, exdates) per RFC 5546 - field-only edits keep it.
+// UpdateOptions describes a partial update; nil pointers mean "keep current".
+// SEQUENCE bumps only on significant changes (times, recurrence, exdates) per RFC 5546.
 type UpdateOptions struct {
 	Summary     *string
 	Description *string
@@ -200,9 +178,8 @@ type UpdateOptions struct {
 	RRule       *string
 	ClearRRule  bool
 	AddExdates  []time.Time
-	// Reminders/Color: nil = keep the event's current value; non-nil
-	// overrides it (see RemindersUpdate / ColorUpdate). Neither is a
-	// significant change (no SEQUENCE bump).
+	// Reminders/Color: nil = keep current; non-nil overrides (see RemindersUpdate /
+	// ColorUpdate). Neither is significant (no SEQUENCE bump).
 	Reminders *RemindersUpdate
 	Color     *ColorUpdate
 }

@@ -13,10 +13,8 @@ import (
 	"strings"
 )
 
-// ErrInvalidColor wraps the failures returned by Resolve for an unknown or
-// empty color spec. Callers (e.g. the CLI) can detect it with errors.Is to
-// re-render the valid-color hint in a richer form (such as with terminal
-// swatches) instead of relying on the plain text.
+// ErrInvalidColor wraps Resolve failures for an unknown or empty color spec.
+// Callers detect it with errors.Is to render a richer valid-color hint.
 var ErrInvalidColor = errors.New("invalid color")
 
 // color pairs a friendly name with its canonical uppercase hex.
@@ -31,10 +29,8 @@ type Color struct {
 	Hex  string
 }
 
-// palette is the Proton accent palette (ACCENT_COLORS_MAP from the Proton web
-// client, packages/shared/lib/colors.ts), in its display order. These are the
-// only colors the Proton API accepts for an event ("Not a valid Proton color"
-// otherwise).
+// palette is the Proton accent palette (web client ACCENT_COLORS_MAP) in display
+// order; the only colors the API accepts ("Not a valid Proton color" otherwise).
 var palette = []color{
 	{"purple", "#8080FF"},
 	{"pink", "#DB60D6"},
@@ -76,10 +72,8 @@ var byHex = func() map[string]string {
 	return m
 }()
 
-// DefaultSentinel is the special color spec meaning "use the calendar's
-// color" (Proton has no per-event "no color" state once one is set; reverting
-// means setting the event color to the calendar's own color). Frontends
-// detect it with IsDefault before calling Resolve.
+// DefaultSentinel is the color spec meaning "use the calendar's color": Proton
+// has no per-event "no color" state, so reverting sets the calendar's own color.
 const DefaultSentinel = "default"
 
 // IsDefault reports whether spec is the "default" sentinel (case-insensitive).
@@ -87,10 +81,9 @@ func IsDefault(spec string) bool {
 	return strings.EqualFold(strings.TrimSpace(spec), DefaultSentinel)
 }
 
-// Resolve turns a user color spec (a friendly name like "strawberry" or a hex
-// like "#EC3E7C", case-insensitive) into the canonical uppercase hex. Unknown
-// colors (and the "default" sentinel, which callers must handle separately)
-// error with a hint listing the valid friendly names.
+// Resolve turns a friendly name or hex (case-insensitive) into canonical
+// uppercase hex. Unknown colors and the "default" sentinel (handled separately
+// by callers) error with a valid-names hint.
 func Resolve(spec string) (string, error) {
 	s := strings.TrimSpace(spec)
 	if s == "" {
@@ -132,9 +125,8 @@ func Label(hex string) string {
 	return hex
 }
 
-// Names returns the friendly palette colors as a comma-separated, sorted
-// list with each name's hex in parentheses, e.g. "carrot (#F78400), ..."
-// (for error hints).
+// Names returns the palette as a sorted comma-separated list with each name's
+// hex in parentheses (for error hints), e.g. "carrot (#F78400), ...".
 func Names() string {
 	entries := make([]string, 0, len(palette))
 	for _, c := range palette {
@@ -144,9 +136,8 @@ func Names() string {
 	return strings.Join(entries, ", ")
 }
 
-// Palette returns the valid colors sorted by friendly name, so callers can
-// render the valid-color list themselves (e.g. with terminal swatches). The
-// ordering matches Names().
+// Palette returns the valid colors sorted by friendly name (matching Names'
+// order), so callers can render the valid-color list themselves.
 func Palette() []Color {
 	out := make([]Color, len(palette))
 	for i, c := range palette {

@@ -33,13 +33,9 @@ func (p EventPart) IsEncrypted() bool {
 	return p.Type == CardEncrypted || p.Type == CardEncryptedAndSigned
 }
 
-// RawEvent is a raw calendar event row as returned by the API
-// (GET /calendar/v1/{calID}/events and .../events/{eventID}).
-//
-// Recurrence metadata is plaintext and denormalized by the server:
-// RRule is the verbatim RRULE value, Exdates are unix timestamps,
-// RecurrenceID is the unix timestamp of the original occurrence start
-// (present only on single-edit "exception" rows).
+// RawEvent is a raw calendar event row from GET /calendar/v1/{calID}/events
+// (and .../events/{eventID}). Recurrence metadata is plaintext: RRule verbatim,
+// Exdates/RecurrenceID are unix timestamps (RecurrenceID only on exception rows).
 type RawEvent struct {
 	ID            string `json:"ID"`
 	UID           string `json:"UID"`
@@ -62,29 +58,22 @@ type RawEvent struct {
 	Author      string `json:"Author,omitempty"`
 	Permissions int    `json:"Permissions,omitempty"`
 
-	// Color is the per-event color override (CSS hex, e.g. "#EC3E7C"), or
-	// empty when the event uses the calendar's color. Plaintext row field,
-	// not an iCal property.
+	// Color is the per-event color override (CSS hex), empty to inherit the
+	// calendar color. Plaintext row field, not an iCal property.
 	Color string `json:"Color,omitempty"`
 	// IsOrganizer is 1 when this account organizes the event.
 	IsOrganizer int `json:"IsOrganizer,omitempty"`
 
-	// Notifications are the event's own reminders/alarms (plaintext row
-	// field). The API distinguishes three states, which NotificationsSet
-	// captures (set by UnmarshalJSON):
-	//   - null/absent  -> NotificationsSet false: inherit the calendar's
-	//     default reminders (DefaultPart/FullDayNotifications).
-	//   - []           -> NotificationsSet true,  len 0: explicitly none.
-	//   - [{...}]       -> NotificationsSet true, len>0: custom reminders.
-	// The web client's getHasDefaultNotifications is exactly !Notifications.
+	// Notifications are the event's own reminders. Three API states (see
+	// NotificationsSet): null/absent = inherit calendar default; [] = explicitly
+	// none; [{...}] = custom.
 	Notifications []Notification `json:"Notifications,omitempty"`
 	// NotificationsSet reports whether Notifications was present and non-null
 	// on the wire (distinguishing explicit-none [] from inherit null).
 	NotificationsSet bool `json:"-"`
 
-	// Attendees carries the per-attendee anonymized token and live RSVP
-	// status. Attendee identities (email/name) live encrypted in the
-	// AttendeesEvents card and join to these rows by Token.
+	// Attendees carries the anonymized token and live RSVP status; identities
+	// live encrypted in the AttendeesEvents card and join by Token.
 	Attendees     []AttendeeToken `json:"Attendees,omitempty"`
 	AttendeesInfo AttendeesInfo   `json:"AttendeesInfo,omitempty"`
 
@@ -97,9 +86,8 @@ type RawEvent struct {
 	PersonalEvents  []EventPart `json:"PersonalEvents,omitempty"`
 }
 
-// UnmarshalJSON decodes a RawEvent and records whether Notifications was
-// present and non-null, so callers can distinguish "inherit calendar default"
-// (null/absent) from "explicitly no reminders" ([]).
+// UnmarshalJSON decodes a RawEvent, recording whether Notifications was present
+// and non-null to distinguish inherit (null/absent) from explicit none ([]).
 func (e *RawEvent) UnmarshalJSON(data []byte) error {
 	type alias RawEvent // avoid recursion
 	var a alias
@@ -108,8 +96,8 @@ func (e *RawEvent) UnmarshalJSON(data []byte) error {
 	}
 	*e = RawEvent(a)
 
-	// Re-inspect the raw Notifications token: a non-null value (an array,
-	// possibly empty) means the reminders are explicitly set on the event.
+	// A non-null Notifications token (array, possibly empty) means reminders
+	// are explicitly set on the event.
 	var probe struct {
 		Notifications json.RawMessage `json:"Notifications"`
 	}
@@ -120,18 +108,16 @@ func (e *RawEvent) UnmarshalJSON(data []byte) error {
 	return nil
 }
 
-// Notification is one reminder/alarm on an event. Type is the API alarm
-// kind (0 = email, 1 = device/display); Trigger is an iCal duration offset
-// relative to the event start (e.g. "-PT1H", "-PT15M").
+// Notification is one reminder on an event. Type is the API alarm kind
+// (0 = email, 1 = device); Trigger is an iCal duration offset (e.g. "-PT1H").
 type Notification struct {
 	Type    int    `json:"Type"`
 	Trigger string `json:"Trigger"`
 }
 
-// AttendeeToken is the plaintext per-attendee row: an opaque token (matching
-// the encrypted ATTENDEE card's X-PM-TOKEN) and the live RSVP Status.
-// Status is ATTENDEE_STATUS_API: 0 = needs-action, 1 = tentative,
-// 2 = declined, 3 = accepted.
+// AttendeeToken is the plaintext per-attendee row: opaque token (matches the
+// encrypted ATTENDEE card's X-PM-TOKEN) plus live RSVP Status (ATTENDEE_STATUS_API:
+// 0 needs-action, 1 tentative, 2 declined, 3 accepted).
 type AttendeeToken struct {
 	ID         string `json:"ID"`
 	Token      string `json:"Token"`

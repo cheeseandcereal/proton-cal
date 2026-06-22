@@ -4,9 +4,8 @@ import (
 	"strings"
 )
 
-// MergeCard names one of the four decrypted fragments fed to MergeFragments.
-// The order/identity matters only for SharedSigned, which wins ties on
-// structural single-valued properties.
+// MergeCard names one decrypted fragment fed to MergeFragments. Only
+// SharedSigned matters: it wins ties on structural single-valued properties.
 type MergeCard struct {
 	// Shared reports whether this is the shared-signed card (the
 	// authoritative source for structural props on a tie).
@@ -37,34 +36,24 @@ var multiValuedProps = map[string]bool{
 	"COMMENT":    true,
 }
 
-// strippedProps are dropped from the merged output. X-PM-SESSION-KEY is a
-// durable decryption capability (the symmetric key for the event's encrypted
-// content); it is never part of a normally-fetched event and is meaningless
-// to a standard ICS consumer, so it must never leak into an export.
+// strippedProps are dropped from merged output. X-PM-SESSION-KEY is a durable
+// decryption capability and must never leak into an export.
 var strippedProps = map[string]bool{
 	"X-PM-SESSION-KEY": true,
 }
 
-// MergeFragments reconstructs a single standards-complete VCALENDAR/VEVENT
-// from the decrypted per-card fragments. It unions every property line
-// (preserving unknown/third-party properties verbatim), resolves duplicate
-// single-valued properties (shared-signed card wins structural props;
-// first-seen wins otherwise), unions multi-valued properties as a set,
-// strips X-PM-SESSION-KEY, and re-wraps with VERSION:2.0 and the given
-// prodID. Nested components (e.g. VALARM) found inside any card are preserved
-// verbatim.
-//
-// Property values are kept exactly as decrypted (TEXT escaping intact);
-// content lines are folded for output.
+// MergeFragments reconstructs a single VCALENDAR/VEVENT from the decrypted
+// cards: unions property lines (unknown/nested preserved verbatim), resolves
+// duplicates (shared-signed wins structural, else first-seen), unions
+// multi-valued as a set, strips X-PM-SESSION-KEY, re-wraps with VERSION:2.0
+// and prodID. Values keep their decrypted TEXT escaping; lines are folded.
 func MergeFragments(prodID string, cards ...MergeCard) string {
 	return MergeVCalendar(prodID, MergeVEventBody(cards...))
 }
 
-// MergeVCalendar wraps one or more pre-built VEVENT bodies (each a slice of
-// folded BEGIN:VEVENT...END:VEVENT lines, e.g. from MergeVEventBody) in a
-// single VCALENDAR with VERSION:2.0 and the given prodID. Empty bodies are
-// skipped. This is the multi-VEVENT (recurring-series) export wrapper; the
-// single-body case reproduces MergeFragments byte-for-byte.
+// MergeVCalendar wraps pre-built VEVENT bodies in one VCALENDAR with
+// VERSION:2.0 and prodID (the multi-VEVENT series wrapper). The single-body
+// case reproduces MergeFragments byte-for-byte.
 func MergeVCalendar(prodID string, bodies ...[]string) string {
 	out := make([]string, 0, 16)
 	out = append(out, "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:"+prodID)
@@ -75,10 +64,8 @@ func MergeVCalendar(prodID string, bodies ...[]string) string {
 	return strings.Join(out, "\r\n")
 }
 
-// MergeVEventBody reconstructs a single VEVENT (BEGIN:VEVENT...END:VEVENT,
-// folded lines) from the decrypted per-card fragments, applying the same
-// union/override/strip rules as MergeFragments. The result carries no
-// VCALENDAR wrapper so callers can place several VEVENTs in one VCALENDAR.
+// MergeVEventBody reconstructs one VEVENT (no VCALENDAR wrapper, folded) from
+// the cards with MergeFragments's union/override/strip rules.
 func MergeVEventBody(cards ...MergeCard) []string {
 	// Ordered list of merged top-level property lines (logical, unfolded),
 	// plus an index so structural overrides can replace in place.
@@ -134,10 +121,8 @@ func MergeVEventBody(cards ...MergeCard) []string {
 	return out
 }
 
-// topLevelEventLines returns the property lines belonging directly to the
-// VEVENT (i.e. not inside a nested component such as VALARM, and not the
-// VCALENDAR/VEVENT boundary lines themselves). Input without any VEVENT is
-// treated as a bare property list.
+// topLevelEventLines returns the property lines directly inside the VEVENT
+// (not nested components or boundary lines). No VEVENT = bare property list.
 func topLevelEventLines(lines []string) []string {
 	hasVEvent := false
 	for _, l := range lines {
@@ -185,10 +170,8 @@ func topLevelEventLines(lines []string) []string {
 	return out
 }
 
-// collectComponents returns verbatim, CRLF-joined nested-component blocks
-// (e.g. VALARM) found directly inside the VEVENT. Each returned block is a
-// self-contained BEGIN:.../END:... unit with folded lines. Cards in the
-// normal read path carry none; this preserves any that do.
+// collectComponents returns verbatim CRLF-joined nested-component blocks
+// (e.g. VALARM) found inside the VEVENT, each a folded BEGIN:.../END:... unit.
 func collectComponents(lines []string) []string {
 	var blocks []string
 	var cur []string

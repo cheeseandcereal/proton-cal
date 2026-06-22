@@ -27,10 +27,8 @@ import (
 	"github.com/cheeseandcereal/proton-cal/internal/icaltime"
 )
 
-// VEvent is the structured content of one VEVENT: the input to
-// BuildFragments and the output of ParseFragment. Pointer fields
-// distinguish "absent" from "present but zero" (update logic needs
-// keep-current semantics; a genuine 1970-01-01 start is not "missing").
+// VEvent is the structured content of one VEVENT (input to BuildFragments,
+// output of ParseFragment). Pointer fields distinguish absent from zero.
 type VEvent struct {
 	UID     string
 	DTStamp time.Time
@@ -54,14 +52,12 @@ type VEvent struct {
 	Exdates      []time.Time // deleted occurrence starts
 	RecurrenceID *time.Time  // original occurrence start (exception rows)
 
-	// Read-only enrichment fields (populated by ParseFragment, ignored by
-	// BuildFragments). The write path never emits these.
+	// Read-only enrichment (set by ParseFragment, never emitted by BuildFragments).
 	Organizer *Organizer // ORGANIZER
 	Attendees []Attendee // ATTENDEE (repeatable; appended in parse order)
 
-	// Proton Meet/Zoom conferencing, split across the shared cards:
-	// the ID/provider are in the signed card, the URL/host in the encrypted
-	// card. Provider follows VIDEO_CONFERENCE_PROVIDER (1 = Zoom, 2 = Meet).
+	// Proton conferencing split across shared cards (ID/provider signed,
+	// URL/host encrypted). Provider per VIDEO_CONFERENCE_PROVIDER (1=Zoom, 2=Meet).
 	ConferenceID       string // X-PM-CONFERENCE-ID value
 	ConferenceProvider string // X-PM-CONFERENCE-ID's X-PM-PROVIDER param
 	ConferenceURL      string // X-PM-CONFERENCE-URL value
@@ -75,10 +71,8 @@ type Organizer struct {
 	CN    string // CN parameter
 }
 
-// Attendee is a parsed ATTENDEE property. Email is the CAL-ADDRESS with any
-// "mailto:" stripped; the parameters carry display name, role, RSVP and
-// participation status, plus Proton's anonymized X-PM-TOKEN (which joins to
-// the plaintext row attendee for live RSVP status).
+// Attendee is a parsed ATTENDEE property. Proton's X-PM-TOKEN joins to the
+// plaintext row attendee for live RSVP status.
 type Attendee struct {
 	Email    string // CAL-ADDRESS, "mailto:" stripped
 	CN       string // CN parameter (display name)
@@ -96,16 +90,9 @@ type Fragments struct {
 	CalendarEncrypted string
 }
 
-// dtProp formats a date(-time) property line (DTSTART/DTEND/EXDATE/
-// RECURRENCE-ID), no trailing CRLF, matching the Proton web client's
-// three forms:
-//
-//	all-day:     NAME;VALUE=DATE:20260709            (t's own wall date; no zone conversion)
-//	UTC timed:   NAME:20260709T160000Z               (tzName "" or "UTC")
-//	zoned timed: NAME;TZID=America/Los_Angeles:20260709T090000  (t converted into tzName)
-//
-// All-day uses t's own calendar date because converting zones could
-// shift the intended date across midnight.
+// dtProp formats a date(-time) property line (e.g. DTSTART), no trailing CRLF,
+// in the Proton web client's three forms: all-day VALUE=DATE (t's own wall
+// date, no zone convert, to avoid shifting across midnight), UTC, or TZID.
 func dtProp(name string, t time.Time, tzName string, allDay bool) (string, error) {
 	if allDay {
 		return fmt.Sprintf("%s;VALUE=DATE:%s", name, t.Format("20060102")), nil
@@ -120,17 +107,15 @@ func dtProp(name string, t time.Time, tzName string, allDay bool) (string, error
 	return fmt.Sprintf("%s;TZID=%s:%s", name, tzName, t.In(loc).Format("20060102T150405")), nil
 }
 
-// BuildFragments builds the four iCalendar fragments for an event
-// with a fixed property order (property order matters;
-// fragments are signed byte-for-byte):
+// BuildFragments builds the four iCalendar fragments with a fixed property
+// order (order matters; fragments are signed byte-for-byte):
 //
 //	shared signed:      UID, DTSTAMP, DTSTART, DTEND, [RECURRENCE-ID], [RRULE], EXDATEs, SEQUENCE
 //	shared encrypted:   UID, DTSTAMP, CREATED, [SUMMARY], [DESCRIPTION], [LOCATION]
 //	calendar signed:    UID, DTSTAMP, EXDATEs, STATUS, TRANSP
 //	calendar encrypted: UID, DTSTAMP, COMMENT
 //
-// TEXT values are escaped with escapeText and every content line is
-// folded with foldLine. The wrapper carries no VERSION/PRODID and no
+// TEXT is escaped and lines folded; the wrapper has no VERSION/PRODID and no
 // trailing CRLF — Proton's parts don't.
 func BuildFragments(v VEvent) (Fragments, error) {
 	if v.Start == nil || v.End == nil {

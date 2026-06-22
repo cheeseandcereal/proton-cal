@@ -7,12 +7,9 @@ import (
 	"github.com/cheeseandcereal/proton-cal/internal/calsvc"
 )
 
-// runCLI executes one command line in-process against the given service
-// factory, capturing stdout and stderr. It builds a fresh command tree per
-// call and restores every mutated package global (writers, factory, and the
-// persistent flag vars) on cleanup, so tests do not leak state into each
-// other. A nil factory leaves serviceFactory untouched (for pure
-// arg-parsing/validation cases that must fail before any service is built).
+// runCLI executes one command line in-process, capturing stdout/stderr. It uses
+// a fresh command tree and restores every mutated package global on cleanup so
+// tests don't leak state. A nil factory leaves serviceFactory untouched.
 func runCLI(t *testing.T, factory func() (*calsvc.Service, error), args ...string) (stdout, stderr string, err error) {
 	t.Helper()
 
@@ -33,9 +30,8 @@ func runCLI(t *testing.T, factory func() (*calsvc.Service, error), args ...strin
 	// Reset persistent flags to defaults; cobra re-parses them from args.
 	outputFormat, noColor, noCache = "text", false, false
 
-	// A fresh root tree avoids cobra retaining flag state across runs.
-	// Route through executeRoot so tests exercise the same usage-error
-	// handling as production (Execute).
+	// Fresh root tree avoids cobra retaining flag state; route through
+	// executeRoot for the same usage-error handling as production.
 	root := newRootCmd()
 	root.SetArgs(args)
 	root.SetOut(&outBuf)

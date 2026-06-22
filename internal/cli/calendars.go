@@ -28,8 +28,7 @@ func newCalendarsCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			// Best-effort: a failure to read the server default just leaves
-			// no calendar marked default.
+			// Best-effort: a read failure just leaves none marked default.
 			defaultID, _ := svc.DefaultCalendarID(cmd.Context())
 
 			if outputJSON() {

@@ -115,7 +115,7 @@ func newUpdateCalendarCmd() *cobra.Command {
 }
 
 // parseReminderSet turns repeatable reminder flag values into a notification
-// set. An all-empty input clears the set (returns an empty, non-nil slice).
+// set; an all-empty input clears it (empty, non-nil slice).
 func parseReminderSet(values []string) ([]caltypes.Notification, error) {
 	nonEmpty := make([]string, 0, len(values))
 	for _, v := range values {
@@ -151,9 +151,8 @@ func newDeleteCalendarCmd() *cobra.Command {
 			}
 			defer svc.Close()
 
-			// Dry run: resolve the target first so a missing --yes can refuse
-			// with the exact calendar that WOULD be deleted (name + type +
-			// ID), guarding against deleting the wrong calendar.
+			// Resolve first so a missing --yes can refuse with the exact
+			// calendar that WOULD be deleted, guarding against the wrong one.
 			info, err := svc.ResolveCalendarInfo(cmd.Context(), args[0])
 			if err != nil {
 				return err
@@ -194,9 +193,8 @@ func newDeleteCalendarCmd() *cobra.Command {
 	return cmd
 }
 
-// promptDeletePassword reads the login password from the terminal (hidden
-// input). It errors when stdin is not a terminal so non-interactive callers
-// must pass --password.
+// promptDeletePassword reads the login password from the terminal (hidden);
+// errors when stdin is not a terminal so callers must pass --password.
 func promptDeletePassword() (string, error) {
 	if !term.IsTerminal(int(os.Stdin.Fd())) {
 		return "", errors.New("deleting an owned calendar requires the login password: pass --password (no terminal available to prompt)")

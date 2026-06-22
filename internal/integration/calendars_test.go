@@ -8,9 +8,8 @@ import (
 	"github.com/cheeseandcereal/proton-cal/internal/calendar"
 )
 
-// TestCalendars asserts calendar listing and that every configured selector
-// resolves to a usable calendar. This is the only test that iterates over
-// ALL configured calendars; the lifecycle tests use just the first one.
+// TestCalendars asserts listing and that every configured selector resolves.
+// The only test iterating ALL calendars; lifecycle tests use just the first.
 func TestCalendars(t *testing.T) {
 	s := setup(t)
 

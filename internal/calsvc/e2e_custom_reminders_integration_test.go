@@ -13,9 +13,8 @@ import (
 	"github.com/cheeseandcereal/proton-cal/internal/eventview"
 )
 
-// TestE2ECustomRemindersAndColor exercises the full reminders/color write
-// path live: create with custom reminders + color, read them back, then walk
-// the update tri-state (custom -> none -> inherit) and color (set -> inherit).
+// TestE2ECustomRemindersAndColor exercises the reminders/color write path live:
+// create with custom values, then walk the tri-state (custom -> none -> inherit).
 func TestE2ECustomRemindersAndColor(t *testing.T) {
 	svc, cal := liveService(t)
 	ctx := context.Background()
@@ -34,8 +33,7 @@ func TestE2ECustomRemindersAndColor(t *testing.T) {
 	}
 	defer func() { _, _ = svc.DeleteEvent(ctx, DeleteEventInput{EventID: created.ID, Calendar: cal}) }()
 
-	// Read back: custom reminders are the event's own (set), color matches.
-	// The server may reorder the array, so assert on set membership.
+	// Server may reorder the array, so assert on set membership.
 	got := getEvt(t, svc, cal, created.ID)
 	if !got.Event.NotificationsSet || len(got.Event.Notifications) != 2 {
 		t.Fatalf("created reminders not stored: set=%v %+v", got.Event.NotificationsSet, got.Event.Notifications)
@@ -77,9 +75,8 @@ func TestE2ECustomRemindersAndColor(t *testing.T) {
 		t.Errorf("effective reminders after inherit = %+v, want calendar default %+v", eff, wantDefault)
 	}
 
-	// Revert color to the calendar default. Proton has no "clear" for color:
-	// reverting sets the event color explicitly to the calendar's own color,
-	// so the event color ends up equal to the calendar color (not empty).
+	// Proton has no "clear" for color: reverting sets the event color to the
+	// calendar's own color, so it ends up equal to the calendar color (not empty).
 	calInfo, err := svc.GetCalendar(ctx, cal)
 	if err != nil {
 		t.Fatalf("GetCalendar: %v", err)
@@ -96,9 +93,8 @@ func TestE2ECustomRemindersAndColor(t *testing.T) {
 	}
 }
 
-// TestE2EOccurrenceInheritsReminders is a regression guard: a fresh
-// single-occurrence edit of a series with custom reminders/color must keep
-// the master's reminders/color (the exception row is a CREATE that used to
+// TestE2EOccurrenceInheritsReminders guards a regression: a single-occurrence
+// edit must keep the master's reminders/color (the exception-row CREATE used to
 // silently revert to inherit).
 func TestE2EOccurrenceInheritsReminders(t *testing.T) {
 	svc, cal := liveService(t)
@@ -119,9 +115,8 @@ func TestE2EOccurrenceInheritsReminders(t *testing.T) {
 	}
 	defer func() { _, _ = svc.DeleteEvent(ctx, DeleteEventInput{EventID: created.ID, Calendar: cal}) }()
 
-	// Edit the SECOND occurrence's summary only (no reminder/color flags).
-	// Format the occurrence start with the canonical formatter so it parses
-	// back to the exact same instant the server expanded.
+	// Edit the second occurrence's summary only. Use the canonical formatter so
+	// the occurrence start parses back to the exact instant the server expanded.
 	starts := occurrencesForUID(t, svc, cal, created.UID, date+" 00:00", 5)
 	if len(starts) < 2 {
 		t.Fatalf("expected >=2 occurrences, got %d", len(starts))
@@ -184,10 +179,9 @@ func TestE2ERemindersInICSExport(t *testing.T) {
 	}
 }
 
-// TestE2ESeriesICSExport verifies that GetEvent(WithICS) on a recurring event
-// exports the WHOLE series by default (master VEVENT + a VEVENT per edited
-// occurrence, each with its RECURRENCE-ID), and that NoSeries limits the
-// export to the single addressed VEVENT.
+// TestE2ESeriesICSExport verifies GetEvent(WithICS) exports the WHOLE series by
+// default (master + a VEVENT per edited occurrence with RECURRENCE-ID), and that
+// NoSeries limits export to the single addressed VEVENT.
 func TestE2ESeriesICSExport(t *testing.T) {
 	svc, cal := liveService(t)
 	ctx := context.Background()
@@ -249,9 +243,8 @@ func TestE2ESeriesICSExport(t *testing.T) {
 	}
 }
 
-// TestE2EInheritedRemindersInICS verifies the effective-reminder fix: an event
-// that inherits the calendar's default reminders (NotificationsSet=false) still
-// shows a VALARM in its --ics export (previously omitted).
+// TestE2EInheritedRemindersInICS verifies an event inheriting the calendar's
+// default reminders still shows a VALARM in --ics export (previously omitted).
 func TestE2EInheritedRemindersInICS(t *testing.T) {
 	svc, cal := liveService(t)
 	ctx := context.Background()

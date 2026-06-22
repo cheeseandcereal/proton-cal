@@ -11,36 +11,27 @@ import (
 	"github.com/cheeseandcereal/proton-cal/internal/ical"
 )
 
-// ICSProdID identifies this tool as the producer of exported iCalendar data
-// (RFC 5545 PRODID). It is informational; consumers ignore it.
+// ICSProdID is the producer of exported iCalendar data (RFC 5545 PRODID); informational.
 const ICSProdID = "-//proton-cal//proton-cal//EN"
 
-// RowExtras carries the row-level data that Proton stores outside the
-// encrypted cards and that must be re-injected into an exported VEVENT: the
-// COLOR property and a VALARM per reminder. Callers (calsvc) resolve these to
-// their EFFECTIVE values (the event's own when set, otherwise the calendar
-// default) so the export mirrors what the Proton clients actually display.
+// RowExtras carries row-level data stored outside the encrypted cards and
+// re-injected into an exported VEVENT (COLOR, a VALARM per reminder). Callers
+// resolve these to EFFECTIVE values so the export mirrors the Proton clients.
 type RowExtras struct {
 	Color         string
 	Notifications []caltypes.Notification
 }
 
-// ExtrasFromRow reads the literal row columns as RowExtras. It is the
-// non-resolving fallback (used when no effective values are available); the
-// normal path passes calsvc-resolved effective extras instead.
+// ExtrasFromRow reads the literal row columns as RowExtras: the non-resolving
+// fallback when no effective values are available.
 func ExtrasFromRow(raw *caltypes.RawEvent) RowExtras {
 	return RowExtras{Color: raw.Color, Notifications: raw.Notifications}
 }
 
-// BuildICS reconstructs a standards-complete iCalendar VCALENDAR/VEVENT for a
-// raw event row by decrypting its cards and merging them into one VEVENT
-// (preserving third-party/unknown properties verbatim), then re-injecting the
-// row-level data that Proton stores outside the cards: COLOR (the effective
-// per-event color) and a VALARM per effective reminder (exactly as the web
-// client does on read).
-//
-// Decryption is lenient (no signature verification); BuildICS returns an
-// error only when no card content could be assembled at all.
+// BuildICS reconstructs an iCalendar VCALENDAR/VEVENT from a raw row: decrypts
+// and merges its cards (unknown properties verbatim), then injects effective
+// COLOR and a VALARM per reminder. Lenient decryption (no signature verify);
+// errors only when no card content could be assembled at all.
 func BuildICS(raw *caltypes.RawEvent, calKR *crypto.KeyRing, extras RowExtras) (string, error) {
 	body, err := buildVEventBody(raw, calKR, extras)
 	if err != nil {
@@ -49,19 +40,11 @@ func BuildICS(raw *caltypes.RawEvent, calKR *crypto.KeyRing, extras RowExtras) (
 	return ical.MergeVCalendar(ICSProdID, body), nil
 }
 
-// BuildSeriesICS reconstructs one VCALENDAR containing every VEVENT of a
-// recurring series: the master VEVENT (with its RRULE/EXDATEs) followed by one
-// VEVENT per edited occurrence (each carrying its RECURRENCE-ID, read verbatim
-// from the row's signed card). Rows are emitted master-first, then exceptions
-// ordered by RecurrenceID, for deterministic output.
-//
-// extrasByID maps an event ID to its resolved (effective) COLOR/VALARM extras;
-// a row missing from the map falls back to its literal row columns.
-//
-// Decryption is lenient: rows whose cards cannot be read are skipped. The
-// returned anyDecryptFailed is true when at least one row was skipped (so the
-// caller can drive a key-refresh retry); ErrDecryptDegraded is returned only
-// when NO row could be assembled at all.
+// BuildSeriesICS reconstructs one VCALENDAR with every VEVENT of a series:
+// master first (RRULE/EXDATEs), then exceptions ordered by RecurrenceID, for
+// deterministic output. extrasByID maps event ID to resolved COLOR/VALARM extras
+// (falling back to literal row columns). Lenient: unreadable rows are skipped and
+// set anyDecryptFailed; returns ErrDecryptDegraded only when NO row assembled.
 func BuildSeriesICS(rows []*caltypes.RawEvent, calKR *crypto.KeyRing, extrasByID map[string]RowExtras) (ics string, anyDecryptFailed bool, err error) {
 	ordered := orderSeriesRows(rows)
 
@@ -88,9 +71,8 @@ func BuildSeriesICS(rows []*caltypes.RawEvent, calKR *crypto.KeyRing, extrasByID
 	return ical.MergeVCalendar(ICSProdID, bodies...), anyDecryptFailed, nil
 }
 
-// orderSeriesRows returns the rows master-first (RRULE && RecurrenceID==0),
-// then exception rows sorted by RecurrenceID, then any remaining rows. The
-// input is not mutated.
+// orderSeriesRows returns rows master-first, then exceptions by RecurrenceID,
+// then the rest. Input is not mutated.
 func orderSeriesRows(rows []*caltypes.RawEvent) []*caltypes.RawEvent {
 	out := make([]*caltypes.RawEvent, len(rows))
 	copy(out, rows)
@@ -111,9 +93,8 @@ func orderSeriesRows(rows []*caltypes.RawEvent) []*caltypes.RawEvent {
 	return out
 }
 
-// buildVEventBody decrypts one row's cards, merges them into a single
-// BEGIN:VEVENT...END:VEVENT block, and injects the effective COLOR/VALARMs.
-// Returns ErrDecryptDegraded when no card could be read.
+// buildVEventBody decrypts one row's cards, merges them into one VEVENT block,
+// and injects effective COLOR/VALARMs. Returns ErrDecryptDegraded if no card read.
 func buildVEventBody(raw *caltypes.RawEvent, calKR *crypto.KeyRing, extras RowExtras) ([]string, error) {
 	if raw == nil {
 		return nil, errors.New("event: nil raw event")
@@ -148,9 +129,8 @@ func buildVEventBody(raw *caltypes.RawEvent, calKR *crypto.KeyRing, extras RowEx
 	return injectRowData(body, extras), nil
 }
 
-// injectRowData adds the COLOR property and VALARM components for the
-// row-level fields that are not stored as iCal properties in the cards. The
-// additions are inserted just before END:VEVENT.
+// injectRowData adds COLOR and VALARM components for row-level fields not stored
+// in the cards, inserted just before END:VEVENT.
 func injectRowData(body []string, extras RowExtras) []string {
 	var extra []string
 	if extras.Color != "" {
@@ -176,9 +156,8 @@ func injectRowData(body []string, extras RowExtras) []string {
 	return body
 }
 
-// valarmLines renders one VALARM for a notification. Type 0 = email, anything
-// else = display (matching NOTIFICATION_TYPE_API). The Trigger is already an
-// iCal duration; a DESCRIPTION is required by RFC 5545 for DISPLAY alarms.
+// valarmLines renders one VALARM. Type 0 = email, else display (NOTIFICATION_TYPE_API);
+// DESCRIPTION is required by RFC 5545 for DISPLAY alarms.
 func valarmLines(n caltypes.Notification) []string {
 	action := "DISPLAY"
 	if n.Type == 0 {

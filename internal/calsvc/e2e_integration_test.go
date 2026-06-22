@@ -95,9 +95,8 @@ func e2eFutureDate() string {
 	return time.Now().UTC().AddDate(0, 0, e2eOffsetDays).Format("2006-01-02")
 }
 
-// e2eFutureSlot returns start/end "YYYY-MM-DD HH:MM" strings ~30 days out at
-// a fixed wall time, in the given (or configured) zone semantics. Whole
-// minutes keep the round trip exact.
+// e2eFutureSlot returns start/end "YYYY-MM-DD HH:MM" ~30 days out at a fixed
+// wall time. Whole minutes keep the round trip exact.
 func e2eFutureSlot() (start, end string) {
 	d := e2eFutureDate()
 	return d + " 09:00", d + " 09:30"
@@ -119,8 +118,7 @@ func trackDelete(t *testing.T, svc *Service, calSel, eventID string) (markDelete
 }
 
 // TestE2EServiceLifecycle drives the full timed-event lifecycle through the
-// service layer (the seam both the CLI and MCP share): create -> get (field
-// round trip) -> field-only update -> time update -> list -> delete -> gone.
+// service layer: create -> get -> field update -> time update -> list -> delete.
 func TestE2EServiceLifecycle(t *testing.T) {
 	svc, cal := liveService(t)
 	ctx := context.Background()

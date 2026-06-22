@@ -28,8 +28,7 @@ import (
 const serverVersion = "1.0.0"
 
 // server holds the lazily initialised service, guarded by a mutex so
-// concurrent tool calls bootstrap exactly once. The bootstrap func is a
-// field so tests can stub it.
+// concurrent tool calls bootstrap exactly once. bootstrap is a field for tests.
 type server struct {
 	mu        sync.Mutex
 	svc       *calsvc.Service
@@ -55,9 +54,8 @@ func (s *server) service() (*calsvc.Service, error) {
 	return svc, nil
 }
 
-// Run starts the stdio MCP server (blocks until the client disconnects or
-// ctx is cancelled). A client closing stdin (the normal MCP shutdown) is a
-// clean exit, not an error.
+// Run starts the stdio MCP server, blocking until the client disconnects or ctx
+// is cancelled. Client closing stdin (normal MCP shutdown) is a clean exit.
 func Run(ctx context.Context) error {
 	s := newServer()
 	srv := mcp.NewServer(&mcp.Implementation{Name: "proton-calendar", Version: serverVersion}, nil)

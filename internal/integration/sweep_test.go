@@ -12,12 +12,9 @@ import (
 	"github.com/cheeseandcereal/proton-cal/internal/event"
 )
 
-// TestZSweep runs last (test files compile alphabetically and tests run in
-// declaration order, so this file's name and the Z prefix keep it at the
-// end). It scans every configured calendar over a wide window around the
-// suite's event horizon (now+25d .. now+40d) and deletes any leftover row
-// whose decrypted summary carries the suite tag - cleaning up after crashed
-// or interrupted runs. Per-row failures are logged, never fatal.
+// TestZSweep runs last (Z prefix keeps it last in declaration order). It scans
+// every calendar over now+25d..now+40d and deletes any leftover row whose summary
+// carries the suite tag, cleaning up crashed runs. Per-row failures are non-fatal.
 func TestZSweep(t *testing.T) {
 	ctx := context.Background()
 	s := setup(t)

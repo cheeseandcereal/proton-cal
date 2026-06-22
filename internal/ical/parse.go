@@ -13,15 +13,10 @@ import (
 // parseable iCalendar content lines at all.
 var errNoContent = errors.New("ical: no parseable content")
 
-// ParseFragment parses an iCal fragment (full VCALENDAR or bare VEVENT,
-// folded or unfolded lines, escaped TEXT values) tolerantly: unknown
-// properties are ignored, malformed datetimes are skipped, and it never
-// panics. Garbage input yields a zero VEvent and an error.
-//
-// All VEVENT components are scanned (later values win); properties of
-// nested components (e.g. VALARM) and of non-VEVENT components (e.g.
-// VTIMEZONE) are skipped. Input without any BEGIN:VEVENT is treated as a
-// bare property list.
+// ParseFragment parses an iCal fragment (VCALENDAR or bare VEVENT) tolerantly:
+// unknown props ignored, malformed datetimes skipped, never panics; garbage
+// yields a zero VEvent and error. All VEVENTs scanned (later values win);
+// nested/non-VEVENT components skipped. No BEGIN:VEVENT = bare property list.
 func ParseFragment(data string) (VEvent, error) {
 	var ev VEvent
 
@@ -57,11 +52,9 @@ func hasVEventComponent(lines []string) bool {
 	return false
 }
 
-// eventContentLines returns the content lines belonging directly to VEVENT
-// components: component-boundary lines and the contents of nested (VALARM)
-// or non-VEVENT (VTIMEZONE) components are dropped. Input without any
-// BEGIN:VEVENT is treated as a bare property list, minus any structured
-// non-VEVENT components it contains.
+// eventContentLines returns content lines directly inside VEVENT components,
+// dropping boundary lines and nested/non-VEVENT (VALARM/VTIMEZONE) contents.
+// No BEGIN:VEVENT = bare property list, minus any structured components.
 func eventContentLines(lines []string) []string {
 	hasVEvent := hasVEventComponent(lines)
 
@@ -104,9 +97,8 @@ func eventContentLines(lines []string) []string {
 	return out
 }
 
-// applyProperty applies one recognized content line to ev, reporting
-// whether anything was extracted. Unknown properties and malformed values
-// are skipped (tolerant parsing).
+// applyProperty applies one content line to ev, reporting whether anything
+// was extracted; unknown props and malformed values are skipped.
 func applyProperty(ev *VEvent, name string, params map[string]string, value string) bool {
 	setText := func(dst **string) bool {
 		s := unescapeText(value)
@@ -188,10 +180,9 @@ func stripMailto(v string) string {
 	return v
 }
 
-// splitContentLine splits a content line into upper-cased name, parameter
-// map (keys upper-cased, surrounding quotes stripped) and raw value. The
-// value separator is the first ':' outside double quotes. Returns
-// ok=false for lines that are not NAME[;PARAMS]:VALUE shaped.
+// splitContentLine splits a line into upper-cased name, param map (keys
+// upper-cased, quotes stripped) and raw value at the first ':' outside
+// quotes. ok=false for non-NAME[;PARAMS]:VALUE lines.
 func splitContentLine(line string) (name string, params map[string]string, value string, ok bool) {
 	sep := -1
 	inQuotes := false
@@ -250,10 +241,8 @@ func splitOutsideQuotes(s string, sep byte) []string {
 	return append(parts, s[start:])
 }
 
-// parseDateTime parses an iCalendar date(-time) property value via the
-// shared icaltime codec, resolving local-form values in the TZID param's
-// zone (UTC when absent). Returns ok=false for anything malformed
-// (tolerant parsing).
+// parseDateTime parses a date(-time) value via the icaltime codec, resolving
+// local-form values in the TZID zone (UTC when absent); ok=false if malformed.
 func parseDateTime(value string, params map[string]string) (time.Time, bool) {
 	v := strings.TrimSpace(value)
 	loc, err := icaltime.LoadLocation(params["TZID"])

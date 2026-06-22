@@ -9,17 +9,14 @@ import (
 	"github.com/cheeseandcereal/proton-cal/internal/calcolor"
 )
 
-// swatchedColorError rewrites an invalid-color error (calcolor.ErrInvalidColor)
-// so the enumerated valid colors are each prefixed with a terminal swatch,
-// using the same color-enable rule as calendars/events. Other errors (and the
-// case where color is disabled) are returned unchanged.
+// swatchedColorError prefixes each valid color in a calcolor.ErrInvalidColor
+// with a terminal swatch; other errors (and color-disabled) pass through.
 func swatchedColorError(err error) error {
 	if err == nil || !errors.Is(err, calcolor.ErrInvalidColor) || !colorEnabled() {
 		return err
 	}
 	hint := validColorHint()
-	// The original message embeds the plain "name (#HEX), ..." list produced
-	// by calcolor.Names(); swap it for the swatched rendering.
+	// Swap calcolor.Names()'s plain list for the swatched rendering.
 	msg := strings.Replace(err.Error(), calcolor.Names(), hint, 1)
 	return errors.New(msg)
 }
@@ -35,11 +32,8 @@ func validColorHint() string {
 	return strings.Join(parts, ", ")
 }
 
-// swatch renders a small colored block approximating a #RRGGBB color using a
-// 24-bit truecolor ANSI background, followed by a trailing space, e.g.
-// "\x1b[48;2;236;62;124m  \x1b[0m". It returns "" when color is disabled or
-// the value is not a valid #RRGGBB hex string, so callers can prefix it
-// unconditionally.
+// swatch renders a #RRGGBB color as a 24-bit truecolor ANSI block plus a
+// trailing space; returns "" when color is disabled or the hex is invalid.
 func swatch(hex string) string {
 	if !colorEnabled() {
 		return ""

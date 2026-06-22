@@ -5,12 +5,8 @@ import (
 	"unicode/utf8"
 )
 
-// escapeText escapes a TEXT property value per RFC 5545 §3.3.11:
-// backslash, semicolon and comma are escaped with a backslash, and
-// newlines become the literal two-character sequence "\n".
-//
-// Escaping prevents user-supplied text from injecting extra iCalendar
-// properties or content lines into the signed fragments.
+// escapeText escapes a TEXT value per RFC 5545 §3.3.11 (backslash/semicolon/
+// comma backslash-escaped, newline -> "\n"), preventing property injection.
 func escapeText(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))
@@ -25,8 +21,7 @@ func escapeText(s string) string {
 		case '\n':
 			b.WriteString(`\n`)
 		case '\r':
-			// Bare CR (or the CR of a CRLF pair) is dropped; the LF that
-			// follows, if any, is escaped above.
+			// Bare CR (or CRLF's CR) dropped; a following LF is escaped above.
 		default:
 			b.WriteRune(r)
 		}
@@ -34,9 +29,8 @@ func escapeText(s string) string {
 	return b.String()
 }
 
-// unescapeText reverses escapeText per RFC 5545 §3.3.11. Both \n and \N
-// decode to a newline. A trailing lone backslash is kept verbatim
-// (tolerant parsing; never an error).
+// unescapeText reverses escapeText per RFC 5545 §3.3.11 (\n and \N -> newline);
+// a trailing lone backslash is kept verbatim (tolerant).
 func unescapeText(s string) string {
 	if !strings.ContainsRune(s, '\\') {
 		return s
@@ -67,10 +61,8 @@ func unescapeText(s string) string {
 // maxLineOctets is the RFC 5545 §3.1 content line limit, excluding CRLF.
 const maxLineOctets = 75
 
-// foldLine folds a single content line per RFC 5545 §3.1: lines longer
-// than 75 octets are split into multiple lines joined by CRLF followed
-// by a single space, never splitting a multi-byte UTF-8 rune. Lines at
-// or under the limit are returned unchanged.
+// foldLine folds a content line per RFC 5545 §3.1: over 75 octets, split on
+// CRLF+space, never mid-rune; shorter lines returned unchanged.
 func foldLine(line string) string {
 	if len(line) <= maxLineOctets {
 		return line
@@ -80,8 +72,7 @@ func foldLine(line string) string {
 	budget := maxLineOctets
 	for len(line) > budget {
 		cut := budget
-		// Back up so we never split in the middle of a UTF-8 rune:
-		// a cut point is valid only at a rune start boundary.
+		// Back up to a rune start so we never split mid-rune.
 		for cut > 0 && !utf8.RuneStart(line[cut]) {
 			cut--
 		}
@@ -100,9 +91,8 @@ func foldLine(line string) string {
 	return b.String()
 }
 
-// unfoldLines splits raw iCalendar data into logical content lines,
-// joining folded continuations (a CRLF or LF followed by a space or tab)
-// per RFC 5545 §3.1. Accepts CRLF, LF and stray CR line endings.
+// unfoldLines splits raw data into logical lines, joining folded
+// continuations (CRLF/LF + space/tab) per RFC 5545 §3.1; accepts stray CR.
 func unfoldLines(data string) []string {
 	raw := strings.Split(strings.ReplaceAll(data, "\r\n", "\n"), "\n")
 	lines := make([]string, 0, len(raw))

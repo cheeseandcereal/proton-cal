@@ -36,8 +36,7 @@ import (
 const (
 	// maxCount is the largest COUNT the Proton API accepts.
 	maxCount = 49
-	// maxOccurrencesPerMaster is the safety cap on occurrences generated
-	// per master per window.
+	// maxOccurrencesPerMaster caps occurrences generated per master per window.
 	maxOccurrencesPerMaster = 1000
 )
 
@@ -56,17 +55,12 @@ func isSupportedFreq(freq string) bool {
 	return false
 }
 
-// BuildRRule builds an RRULE value string from structured arguments.
-//
-// repeat is a case-insensitive frequency (daily, weekly, monthly or yearly).
-// every becomes INTERVAL (omitted when 1). count (0 = unset) and until
-// ("" = unset, "YYYY-MM-DD") are mutually exclusive. For timed events the
-// UNTIL is serialized as the end of that day (23:59:59) in tzName converted
-// to UTC, mirroring Proton web's getSupportedUntil; for all-day events it is
-// a floating YYYYMMDD date. An empty tzName means UTC.
-//
-// Errors are returned for unsupported frequencies, every < 1, count outside
-// [1, maxCount], until past 2037-12-31, or count+until both set.
+// BuildRRule builds an RRULE string. repeat is a case-insensitive frequency;
+// every becomes INTERVAL (omitted when 1); count and until ("YYYY-MM-DD") are
+// mutually exclusive. Timed-event UNTIL is end-of-day in tzName (empty=UTC)
+// converted to UTC (mirroring Proton web's getSupportedUntil); all-day is a
+// floating YYYYMMDD. Errors on bad freq, every<1, count outside [1,maxCount],
+// until past 2037-12-31, or both count and until.
 func BuildRRule(repeat string, every int, count int, until string, tzName string, allDay bool) (string, error) {
 	freq := strings.ToUpper(repeat)
 	if !isSupportedFreq(freq) {
@@ -114,9 +108,8 @@ func BuildRRule(repeat string, every int, count int, until string, tzName string
 	return strings.Join(parts, ";"), nil
 }
 
-// untilYear extracts the year from an RRULE UNTIL value, which may be in
-// DATE form (YYYYMMDD), local DATE-TIME form (YYYYMMDDTHHMMSS) or UTC
-// DATE-TIME form (YYYYMMDDTHHMMSSZ).
+// untilYear extracts the year from an RRULE UNTIL value (DATE, local
+// DATE-TIME, or UTC DATE-TIME form).
 func untilYear(value string) (int, error) {
 	if t, ok := icaltime.Parse(value, time.UTC); ok {
 		return t.Year(), nil
@@ -124,18 +117,12 @@ func untilYear(value string) (int, error) {
 	return 0, fmt.Errorf("invalid RRULE: bad UNTIL value %q", value)
 }
 
-// SanitizeRRule validates and canonicalizes a raw user-supplied RRULE value.
-//
-// An optional leading "RRULE:" prefix is stripped. The returned string is a
-// canonical form of the input (uppercased keys and values, parts otherwise
-// preserved verbatim in input order), suitable for embedding into a signed
-// iCal fragment. Notably DATE-form (all-day) UNTIL values are preserved
-// exactly rather than being re-serialized as UTC datetimes.
-//
-// Rejects embedded CR/LF (injection into the iCal stream), unparseable
-// values, missing or unsupported FREQ, COUNT > maxCount, COUNT combined with
-// UNTIL, and UNTIL past 2037. The canonical value is additionally verified
-// to parse with rrule-go so we never sign an RRULE we cannot expand.
+// SanitizeRRule validates and canonicalizes a raw RRULE (optional "RRULE:"
+// prefix stripped; keys/values uppercased, parts kept in order) for embedding
+// into a signed iCal fragment, preserving DATE-form UNTIL exactly (not
+// re-serialized as UTC). Rejects CR/LF (iCal injection), unparseable values,
+// missing/unsupported FREQ, COUNT>maxCount, COUNT+UNTIL, and UNTIL past 2037;
+// verifies the result parses with rrule-go so we never sign an unexpandable rule.
 func SanitizeRRule(raw string) (string, error) {
 	value := strings.TrimSpace(raw)
 	if len(value) >= 6 && strings.EqualFold(value[:6], "RRULE:") {
@@ -210,11 +197,9 @@ func SanitizeRRule(raw string) (string, error) {
 	}
 
 	canonical := strings.Join(parts, ";")
-	// Final sanity check: make sure rrule-go can actually parse and expand
-	// this rule. We intentionally return OUR canonical string rather than
-	// rrule-go's serialization: rrule-go re-serializes UNTIL in UTC
-	// datetime form, which would corrupt DATE-form (all-day) UNTIL values
-	// such as UNTIL=20371231.
+	// Verify rrule-go can parse/expand it, but return OUR canonical string:
+	// rrule-go re-serializes UNTIL as a UTC datetime, corrupting DATE-form
+	// (all-day) values like UNTIL=20371231.
 	opt, err := rrule.StrToROptionInLocation(canonical, time.UTC)
 	if err != nil {
 		return "", fmt.Errorf("invalid RRULE: %w", err)

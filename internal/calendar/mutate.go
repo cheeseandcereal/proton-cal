@@ -14,8 +14,7 @@ import (
 const codeNotValidProtonColor = 2011
 
 // MemberPatch is a partial update to a calendar's per-user member metadata
-// (the calendar's display name, description and color all live on the member
-// entry). Only non-nil fields are sent; the server preserves omitted fields.
+// (name, description, color). Only non-nil fields are sent.
 type MemberPatch struct {
 	Name        *string
 	Description *string
@@ -27,9 +26,8 @@ func (p MemberPatch) empty() bool {
 	return p.Name == nil && p.Description == nil && p.Color == nil
 }
 
-// UpdateMember applies a partial metadata update to our member entry on a
-// calendar via PUT /calendar/v1/{calID}/members/{memberID}. A no-op patch is
-// rejected so callers do not make an empty request.
+// UpdateMember applies a partial metadata update to our member entry via
+// PUT /calendar/v1/{calID}/members/{memberID}. A no-op patch is rejected.
 func UpdateMember(ctx context.Context, client papi.API, calendarID, memberID string, patch MemberPatch) error {
 	if patch.empty() {
 		return errors.New("no member fields to update")
@@ -54,9 +52,8 @@ func UpdateMember(ctx context.Context, client papi.API, calendarID, memberID str
 	return nil
 }
 
-// SettingsPatch is a partial update to a calendar's default settings. Only
-// non-nil fields are sent; the server preserves omitted fields (verified
-// live: PUT .../settings is a partial update, not a full replace).
+// SettingsPatch is a partial update to a calendar's default settings; only
+// non-nil fields are sent (PUT .../settings is a partial update, not replace).
 type SettingsPatch struct {
 	DefaultEventDuration *int
 	PartDayNotifications *[]caltypes.Notification
@@ -96,12 +93,9 @@ func UpdateSettings(ctx context.Context, client papi.API, calendarID string, pat
 	return nil
 }
 
-// DeleteCalendar removes a calendar. Owned calendars use
-// DELETE /calendar/v1/{calID}; backend-managed calendars (holidays) use
-// DELETE /calendar/v1/{calID}/managed. The two routes are not
-// interchangeable: the server rejects the wrong one (managed route on a
-// normal calendar -> code 2011 "Not a backend managed calendar"; normal route
-// on a managed/subscribed calendar -> insufficient scope).
+// DeleteCalendar removes a calendar: owned via DELETE /calendar/v1/{calID},
+// backend-managed (holidays) via .../managed. The routes aren't interchangeable
+// (wrong managed route -> code 2011; wrong normal route -> insufficient scope).
 func DeleteCalendar(ctx context.Context, client papi.API, calendarID string, managed bool) error {
 	path := APIPath + "/" + calendarID
 	if managed {
@@ -113,9 +107,8 @@ func DeleteCalendar(ctx context.Context, client papi.API, calendarID string, man
 	return nil
 }
 
-// notificationsBody maps notifications to the API's wire shape. It always
-// returns a non-nil slice so the JSON serializes as [] (never null) when the
-// caller is clearing the set.
+// notificationsBody maps notifications to the API wire shape, always returning
+// a non-nil slice so JSON serializes as [] (never null) when clearing the set.
 func notificationsBody(ns []caltypes.Notification) []map[string]any {
 	out := make([]map[string]any, 0, len(ns))
 	for _, n := range ns {

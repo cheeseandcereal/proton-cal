@@ -10,10 +10,9 @@ import (
 	"github.com/cheeseandcereal/proton-cal/internal/event"
 )
 
-// TestEventLifecycle exercises the full timed-event lifecycle against the
-// live API: create -> get/decrypt (exact field round-trip, including RFC
-// 5545 TEXT escaping through the real server) -> field-only update (no
-// SEQUENCE bump) -> time update (SEQUENCE bump) -> delete -> gone.
+// TestEventLifecycle exercises the full timed-event lifecycle live: create ->
+// get/decrypt (RFC 5545 TEXT escaping round-trip) -> field update (no SEQUENCE
+// bump) -> time update (SEQUENCE bump) -> delete.
 func TestEventLifecycle(t *testing.T) {
 	ctx := context.Background()
 	s := setup(t)

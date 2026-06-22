@@ -202,10 +202,8 @@ func TestListDefaultFieldsExcludesColor(t *testing.T) {
 	}
 }
 
-// TestOccurrenceListConsistentAlignment verifies that the label column is
-// aligned identically across events even when they expose different fields:
-// an event with only Time/ID must still pad its labels to the same width as a
-// sibling event that has a longer label (e.g. Description).
+// TestOccurrenceListConsistentAlignment verifies the label column aligns across
+// events with different fields (short labels pad to a sibling's longer width).
 func TestOccurrenceListConsistentAlignment(t *testing.T) {
 	withDesc := listedTimed() // has Location + Description (long labels)
 	bare := listedTimed()

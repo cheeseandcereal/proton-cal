@@ -23,10 +23,8 @@ type ListEventsInput struct {
 	Days     int    // days to look ahead; <= 0 = 7
 }
 
-// resolved is the calendar context shared by every read result: the resolved
-// calendar, its default settings (for reminder/color inheritance) and the
-// display zone the read was resolved in. It is embedded so callers can reach
-// the fields directly (e.g. list.Calendar, got.Settings).
+// resolved is the calendar context shared by every read result (calendar,
+// default settings, display zone). Embedded so callers reach fields directly.
 type resolved struct {
 	Calendar calendar.Info
 	Settings calendar.Settings // calendar default reminders (for inheritance)
@@ -63,10 +61,8 @@ func (s *Service) ListEvents(ctx context.Context, in ListEventsInput) (*EventLis
 	}
 	end := start.AddDate(0, 0, days)
 
-	// Stale cached calendar keys decrypt nothing but fail silently (the
-	// listing renders blank); the degraded flag makes withAccessResult refetch
-	// keys and relist once, then accept a still-degraded pass (lenient
-	// rendering of genuinely bad rows).
+	// Stale cached keys decrypt nothing silently; the degraded flag makes
+	// withAccessResult refetch keys and relist once, then accept a degraded pass.
 	return withAccessResult(ctx, s, in.Calendar, func(info calendar.Info, access *calendar.Access) (*EventList, bool, error) {
 		listed, err := event.ListWindow(ctx, s.client, access.KR, info.ID, start.Unix(), end.Unix(), tz)
 		if err != nil {
@@ -99,20 +95,17 @@ type CreateEventInput struct {
 	Recurrence  Recurrence
 	Calendar    string
 	TZ          string
-	// Reminders is the event's own reminder set; RemindersSet selects the
-	// tri-state (RemindersSet false = inherit the calendar default, true +
-	// empty = explicitly none, true + non-empty = custom). Notifications are
-	// pre-parsed by the frontend (see internal/reminders).
+	// Reminders + RemindersSet select the tri-state (false = inherit default,
+	// true+empty = none, true+non-empty = custom); pre-parsed by the frontend.
 	Reminders    []caltypes.Notification
 	RemindersSet bool
 	// Color is the per-event color override ("#RRGGBB"); "" = inherit.
 	Color string
 }
 
-// CreatedEvent reports a create outcome. ID/UID are empty when the server
-// did not echo the created row; Start/End are the server-echoed times when
-// available, else the requested ones. Reminders/Color reflect what was
-// REQUESTED (the create response does not reliably echo row fields).
+// CreatedEvent reports a create outcome. ID/UID empty when the server didn't echo
+// the row; Start/End are echoed times if available, else requested. Reminders/Color
+// reflect what was REQUESTED (the create response doesn't reliably echo row fields).
 type CreatedEvent struct {
 	ID          string
 	UID         string
@@ -141,9 +134,8 @@ func (s *Service) CreateEvent(ctx context.Context, in CreateEventInput) (*Create
 	}
 
 	return withAccessResult(ctx, s, in.Calendar, func(_ calendar.Info, access *calendar.Access) (*CreatedEvent, bool, error) {
-		// A timed event with no explicit end defaults to the calendar's
-		// default duration; resolved here since it needs the unlocked
-		// calendar's settings (the bootstrap is cached, so no extra fetch).
+		// A timed event with no explicit end defaults to the calendar's default
+		// duration; resolved here since it needs the unlocked calendar's settings.
 		end := end
 		if !endProvided {
 			defaulted, derr := applyDefaultDuration(start, access.Settings)
@@ -189,10 +181,8 @@ type GetEventInput struct {
 	Calendar string // calendar ID or name; "" = default, else first
 	TZ       string
 	WithICS  bool // also reconstruct the raw iCalendar (BuildICS)
-	// NoSeries, when WithICS is set on a recurring event, limits the export
-	// to the single addressed VEVENT instead of the whole series (master +
-	// edited occurrences). It is a no-op (a warning is logged) for a
-	// non-recurring event.
+	// NoSeries (with WithICS on a recurring event) limits the export to the single
+	// addressed VEVENT instead of the whole series; no-op (warns) for non-recurring.
 	NoSeries bool
 }
 
@@ -209,10 +199,9 @@ type GotEvent struct {
 // requested but no card could be decrypted (GotEvent.ICS is empty).
 var ErrICSUndecryptable = errors.New("event could not be decrypted into iCalendar")
 
-// GetEvent fetches, decrypts and (optionally) reconstructs the ICS of a
-// single event in the addressed calendar. The event must live in the
-// resolved calendar (default/first unless Calendar is given); a missing
-// event returns an error advising --calendar.
+// GetEvent fetches, decrypts and (optionally) reconstructs the ICS of a single
+// event. It must live in the resolved calendar (default/first unless Calendar
+// is given); a missing event returns an error advising --calendar.
 func (s *Service) GetEvent(ctx context.Context, in GetEventInput) (*GotEvent, error) {
 	if in.EventID == "" {
 		return nil, errors.New("event ID is required")
@@ -248,17 +237,10 @@ func (s *Service) GetEvent(ctx context.Context, in GetEventInput) (*GotEvent, er
 	})
 }
 
-// buildEventICS produces the iCalendar export for a fetched event. Unless
-// noSeries is set, a recurring event (the addressed row is the master or any
-// of its edited occurrences) is expanded into the whole series: one VCALENDAR
-// with the master VEVENT plus a VEVENT per edited occurrence. The injected
-// COLOR/VALARMs are the EFFECTIVE values (the row's own, else the calendar
-// default), matching what the Proton clients display.
-//
-// The returned degraded flag is true when any row could not be decrypted, so
-// the caller can drive the one-shot key-refresh retry; a build that yields no
-// content surfaces as an empty string (frontends map that to
-// ErrICSUndecryptable).
+// buildEventICS produces the iCalendar export. Unless noSeries is set, a recurring
+// event expands into the whole series (one VCALENDAR, master + a VEVENT per edited
+// occurrence) with EFFECTIVE COLOR/VALARMs. The degraded flag is true when any row
+// failed to decrypt (caller drives the key-refresh retry); no content yields "".
 func (s *Service) buildEventICS(ctx context.Context, noSeries bool, info calendar.Info, access *calendar.Access, raw *caltypes.RawEvent, ev *event.Event) (ics string, degraded bool, err error) {
 	single := func() (string, bool, error) {
 		out, ierr := event.BuildICS(raw, access.KR, s.effectiveExtras(ev, info, access.Settings))
@@ -304,9 +286,8 @@ func (s *Service) buildEventICS(ctx context.Context, noSeries bool, info calenda
 	return out, degraded || anyFailed || errors.Is(ierr, event.ErrDecryptDegraded), nil
 }
 
-// effectiveExtras resolves the COLOR/VALARM data injected into an exported
-// VEVENT to the values that actually apply (the event's own when set, else the
-// calendar default), mirroring the Proton clients.
+// effectiveExtras resolves the injected COLOR/VALARM data to the values that
+// actually apply (event's own when set, else calendar default).
 func (s *Service) effectiveExtras(ev *event.Event, info calendar.Info, set calendar.Settings) event.RowExtras {
 	return event.RowExtras{
 		Color:         eventview.EffectiveColor(ev, info),
@@ -333,10 +314,9 @@ type GotCalendar struct {
 	IsDefault bool
 }
 
-// GetCalendar resolves a single calendar by selector (ID or name; "" = the
-// configured default, else first), unlocks it to read its default settings
-// (reminders/duration), and reports whether it is the configured default.
-// The bootstrap fetch is cached, so repeat calls add no network round-trips.
+// GetCalendar resolves a calendar by selector ("" = configured default, else
+// first), unlocks it to read default settings, and reports whether it is the
+// configured default. The bootstrap fetch is cached.
 func (s *Service) GetCalendar(ctx context.Context, selector string) (*GotCalendar, error) {
 	// The server-side default ID determines IsDefault. A failure to read it
 	// is non-fatal: the calendar is simply not marked default.
@@ -357,10 +337,9 @@ func anyDecryptFailed(listed []event.Listed) bool {
 	})
 }
 
-// UpdateEventInput describes a partial update with user-shaped strings.
-// Text fields are pointers so frontends can choose their presence
-// semantics: the CLI sets them on flag presence (an empty string clears the
-// field), the MCP server only for non-empty values.
+// UpdateEventInput describes a partial update with user-shaped strings. Text
+// fields are pointers so frontends choose presence semantics (CLI sets on flag
+// presence, empty clears; MCP only for non-empty values).
 type UpdateEventInput struct {
 	EventID     string
 	Summary     *string
@@ -373,21 +352,17 @@ type UpdateEventInput struct {
 	Recurrence  Recurrence
 	Calendar    string
 	TZ          string
-	// Reminders: nil = keep current; non-nil overrides (the frontend resolves
-	// the keep/inherit/none/custom intent). Reusing the event package's
-	// tri-state type keeps the mapping a straight pass.
+	// Reminders: nil = keep current; non-nil overrides (frontend resolves the
+	// keep/inherit/none/custom intent into the event tri-state type).
 	Reminders *event.RemindersUpdate
-	// Color: nil = keep current; non-nil overrides. Proton has no color
-	// "inherit" sentinel - reverting to the calendar default means setting
-	// the event color to the calendar's own color, which UpdateEvent resolves
-	// (it knows the resolved calendar), so this carries the intent rather than
-	// a literal hex.
+	// Color: nil = keep current; non-nil overrides. Proton has no color "inherit"
+	// sentinel - reverting means setting the calendar's own color, which UpdateEvent
+	// resolves, so this carries the intent rather than a literal hex.
 	Color *ColorUpdate
 }
 
 // ColorUpdate is the calsvc-level color change intent. Inherit reverts to the
-// calendar's color (resolved at apply time); otherwise Hex is the canonical
-// palette color to set.
+// calendar's color (resolved at apply time); else Hex is the palette color to set.
 type ColorUpdate struct {
 	Inherit bool
 	Hex     string
@@ -404,9 +379,8 @@ func (in UpdateEventInput) validate() error {
 	return nil
 }
 
-// updateTZName picks the timezone to pass on updates: the explicit
-// override when given, else the default timezone only when a new start or
-// end is being set, else "" (keep the event's stored timezone).
+// updateTZName picks the update timezone: the explicit override, else the default
+// only when a new start/end is set, else "" (keep the event's stored timezone).
 func updateTZName(override, defaultTZ string, timesGiven bool) string {
 	if override != "" {
 		return override
@@ -417,9 +391,8 @@ func updateTZName(override, defaultTZ string, timesGiven bool) string {
 	return ""
 }
 
-// UpdateEvent validates, resolves and applies a partial update (smart:
-// series semantics and single-occurrence edits are handled per
-// event.SmartUpdate).
+// UpdateEvent validates, resolves and applies a partial update; series and
+// single-occurrence semantics are handled per event.SmartUpdate.
 func (s *Service) UpdateEvent(ctx context.Context, in UpdateEventInput) (*event.UpdateOutcome, error) {
 	if err := in.validate(); err != nil {
 		return nil, err
@@ -459,9 +432,8 @@ func (s *Service) UpdateEvent(ctx context.Context, in UpdateEventInput) (*event.
 	}
 
 	return withAccessResult(ctx, s, in.Calendar, func(info calendar.Info, access *calendar.Access) (*event.UpdateOutcome, bool, error) {
-		// Resolve the color intent now that the calendar is known: "inherit"
-		// maps to the calendar's own color (Proton has no clear/null for
-		// color; reverting means setting the calendar color explicitly).
+		// Resolve the color intent now the calendar is known: "inherit" maps to
+		// the calendar's own color (Proton has no clear/null for color).
 		if in.Color != nil {
 			hex := in.Color.Hex
 			if in.Color.Inherit {
@@ -470,9 +442,8 @@ func (s *Service) UpdateEvent(ctx context.Context, in UpdateEventInput) (*event.
 			opts.Color = &event.ColorUpdate{Value: hex}
 		}
 
-		// Recurrence options need the event's all-day-ness for the UNTIL
-		// form, so fetch the raw row first - only in that case (the
-		// occurrence path never builds an RRULE).
+		// Recurrence options need the event's all-day-ness for the UNTIL form,
+		// so fetch the raw row first - only here (the occurrence path builds no RRULE).
 		if in.Occurrence == "" && !in.Recurrence.Empty() {
 			raw, err := event.Get(ctx, s.client, info.ID, in.EventID)
 			if err != nil {
@@ -520,9 +491,8 @@ func (s *Service) DeleteEvent(ctx context.Context, in DeleteEventInput) (*event.
 	return withAccessResult(ctx, s, in.Calendar, func(_ calendar.Info, access *calendar.Access) (*event.DeleteResult, bool, error) {
 		r, err := event.SmartDelete(ctx, s.client, access, in.EventID, occurrenceTS)
 		if err != nil {
-			// Occurrence deletion merges an EXDATE into the master and
-			// so needs full decryption; ErrDecryptDegraded retries with
-			// fresh key material via withAccess.
+			// Occurrence deletion EXDATEs the master so needs full decryption;
+			// ErrDecryptDegraded retries with fresh key material via withAccess.
 			return nil, false, fmt.Errorf("deleting event: %w", err)
 		}
 		return r, false, nil

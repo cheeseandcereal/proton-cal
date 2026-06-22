@@ -47,8 +47,7 @@ rule and a matching weekday).`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			in.EventID = args[0]
 
-			// Flag-presence semantics: a flag given as an empty string
-			// clears the field; an omitted flag keeps it.
+			// Flag-presence semantics: empty string clears, omitted keeps.
 			if cmd.Flags().Changed("summary") {
 				in.Summary = &summary
 			}

@@ -445,13 +445,9 @@ func TestExpandOccurrences(t *testing.T) {
 		}
 	})
 
-	// DST SPIKE TEST. Outcome: rrule-go DOES preserve wall-clock time
-	// across DST transitions. Its iterator builds each candidate occurrence
-	// with time.Date(y, m, d, hh, mm, ss, 0, loc) in DTSTART's location, so
-	// the local wall-clock fields are held fixed and the UTC offset is
-	// re-derived per occurrence. No workaround (e.g. iterating in a
-	// fixed-offset wall-clock domain) is needed: anchoring DTSTART in the
-	// event's StartTimezone is sufficient.
+	// DST spike test. rrule-go DOES preserve wall-clock time across DST: it
+	// builds each occurrence with time.Date(...) in DTSTART's location, holding
+	// wall fields fixed. Anchoring DTSTART in StartTimezone is sufficient.
 	t.Run("DST spike: weekly 09:00 LA across 2026-03-08 transition", func(t *testing.T) {
 		la := "America/Los_Angeles"
 		// DTSTART in winter: Sun 2026-03-01 09:00 PST (UTC-8) = 17:00 UTC.

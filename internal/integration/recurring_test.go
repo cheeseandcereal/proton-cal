@@ -11,15 +11,10 @@ import (
 	"github.com/cheeseandcereal/proton-cal/internal/recurrence"
 )
 
-// TestRecurringLifecycle exercises the recurrence orchestration against the
-// live API, using occurrence start timestamps from ListWindow exactly as a
-// CLI user would from the listing output:
-//
-//	a. create a daily COUNT=5 series and expand 5 occurrences,
-//	b. delete ONE middle occurrence (EXDATE on the master),
-//	c. single-edit a DIFFERENT occurrence (exception row),
-//	d. significant master update cleans the now-invalid exception,
-//	e. delete the whole series (master + all same-UID rows).
+// TestRecurringLifecycle exercises recurrence orchestration live: create a daily
+// COUNT=5 series, delete a middle occurrence (EXDATE), single-edit another
+// (exception row), do a significant master update that cleans the now-invalid
+// exception, then delete the whole series (master + all same-UID rows).
 func TestRecurringLifecycle(t *testing.T) {
 	ctx := context.Background()
 	s := setup(t)
@@ -67,9 +62,8 @@ func TestRecurringLifecycle(t *testing.T) {
 		t.Errorf("fresh series already has Exdates: %v", master.Exdates)
 	}
 
-	// The listing window generously covers all 5 daily occurrences even
-	// across a DST shift (daily recurrence preserves local wall time, so
-	// unix spacing may be 23h or 25h around a transition).
+	// Window covers all 5 occurrences even across a DST shift (daily recurrence
+	// keeps local wall time, so unix spacing may be 23h/25h at a transition).
 	winStart := start.Add(-24 * time.Hour)
 	winEnd := start.Add(7 * 24 * time.Hour)
 
@@ -109,9 +103,8 @@ func TestRecurringLifecycle(t *testing.T) {
 		t.Errorf("occurrence delete must not touch the RRULE: got %q, want %q", masterEv.RRule, rrule)
 	}
 
-	// c. Single-edit a DIFFERENT occurrence (the third): an exception row
-	// is created; the listing shows 3 master-summary occurrences plus the
-	// edited one carrying a RecurrenceID.
+	// c. Single-edit the third occurrence: an exception row (carrying a
+	// RecurrenceID) is created alongside the 3 remaining master occurrences.
 	editedOcc := occStarts[2]
 	editedSummary := summary + " (edited occurrence)"
 	outcome, err := event.SmartUpdate(ctx, client, access, masterID, event.UpdateOptions{

@@ -28,14 +28,11 @@ type cacheEntry struct {
 	Data      json.RawMessage `json:"data"`
 }
 
-// Cache is an on-disk, flock-guarded store of raw API response bodies
-// (bootstrap data: key material and the calendar list - never event
-// content). Entries are scoped to one session+endpoint: a cache written by
-// a different login or base URL is discarded wholesale. Expiry policy is
-// the caller's job; the cache only records fetch times.
-//
-// All failures are deliberately quiet (a broken cache must never break the
-// app): reads miss and writes are best-effort.
+// Cache is an on-disk, flock-guarded store of raw bootstrap response bodies
+// (key material and calendar list - never event content), scoped to one
+// session+base-URL (foreign scopes discarded wholesale). The caller owns
+// expiry; all failures are deliberately quiet so a broken cache never breaks
+// the app (reads miss, writes are best-effort).
 type Cache struct {
 	dir   string
 	scope string
@@ -79,10 +76,9 @@ func (c *Cache) Get(key string) (data json.RawMessage, fetchedAt time.Time, ok b
 	return e.Data, e.FetchedAt, ok
 }
 
-// Put stores a response body under key (fetched now), persisting
-// best-effort: the write merges with the current on-disk doc under the
-// lock so concurrent processes caching different keys do not clobber each
-// other.
+// Put stores a response body under key (fetched now), best-effort: the write
+// merges with the on-disk doc under the lock so concurrent processes caching
+// different keys do not clobber each other.
 func (c *Cache) Put(key string, data json.RawMessage) {
 	c.update(func(doc *cacheDoc) {
 		doc.Entries[key] = cacheEntry{FetchedAt: time.Now().UTC(), Data: data}
@@ -100,8 +96,7 @@ func (c *Cache) Delete(keys ...string) {
 }
 
 // update applies fn to the on-disk doc under the lock and refreshes the
-// in-memory snapshot. Best-effort: errors leave the snapshot updated so
-// the running process stays coherent.
+// in-memory snapshot. Best-effort: on error the snapshot stays updated.
 func (c *Cache) update(fn func(doc *cacheDoc)) {
 	unlock, err := lock(c.lockPath())
 	if err != nil {

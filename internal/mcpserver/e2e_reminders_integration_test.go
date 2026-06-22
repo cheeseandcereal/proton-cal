@@ -9,9 +9,8 @@ import (
 	"github.com/cheeseandcereal/proton-cal/internal/caljson"
 )
 
-// TestE2EMCPRemindersAndColor creates an event with reminders + color via the
-// MCP handler, checks the structured create reply and a get_event read-back,
-// then exercises reminders_mode=none and color-inherit via clear_fields.
+// TestE2EMCPRemindersAndColor creates an event with reminders+color via the MCP
+// handler, then exercises reminders_mode=none and color-inherit via clear_fields.
 func TestE2EMCPRemindersAndColor(t *testing.T) {
 	s, cal := liveServer(t)
 	ctx := context.Background()

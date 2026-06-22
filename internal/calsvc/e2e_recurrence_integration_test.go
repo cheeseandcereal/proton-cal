@@ -25,9 +25,8 @@ func occurrencesForUID(t *testing.T, svc *Service, calSel, uid string, from stri
 	return starts
 }
 
-// TestE2ERecurrenceVariants creates several recurrence shapes through the
-// service layer and asserts the expanded occurrence counts, catching drift
-// in how the structured options are translated to RRULEs the server accepts.
+// TestE2ERecurrenceVariants creates several recurrence shapes and asserts the
+// expanded counts, catching drift in option-to-RRULE translation.
 func TestE2ERecurrenceVariants(t *testing.T) {
 	svc, cal := liveService(t)
 	ctx := context.Background()

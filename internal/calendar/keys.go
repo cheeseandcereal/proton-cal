@@ -16,9 +16,7 @@ import (
 )
 
 // Settings holds a calendar's default reminder/duration settings (the
-// CalendarSettings object from the v2 bootstrap). The clients apply the
-// default notifications to events that carry none of their own (part-day for
-// timed events, full-day for all-day events).
+// CalendarSettings from the v2 bootstrap), applied to events carrying none.
 type Settings struct {
 	DefaultEventDuration        int                     `json:"DefaultEventDuration"`
 	DefaultPartDayNotifications []caltypes.Notification `json:"DefaultPartDayNotifications"`
@@ -35,9 +33,8 @@ func (s Settings) DefaultNotifications(allDay bool) []caltypes.Notification {
 	return s.DefaultPartDayNotifications
 }
 
-// DefaultDuration returns the calendar's default event duration and whether it
-// is usable. A non-positive DefaultEventDuration (the API's "unset" state)
-// reports ok=false so callers can fall back (e.g. requiring an explicit end).
+// DefaultDuration returns the default event duration and whether it is usable;
+// a non-positive value (the API's "unset" state) reports ok=false.
 func (s Settings) DefaultDuration() (time.Duration, bool) {
 	if s.DefaultEventDuration <= 0 {
 		return 0, false
@@ -73,9 +70,8 @@ func NewKeychain(client papi.API, unlocked *auth.Unlocked) *Keychain {
 	}
 }
 
-// BootstrapPath returns GET /calendar/v2/{id}/bootstrap, which returns the
-// calendar's keys, passphrase, members and settings in one call (replacing
-// the three separate v1 /keys, /passphrase and /members fetches).
+// BootstrapPath returns GET /calendar/v2/{id}/bootstrap, which returns keys,
+// passphrase, members and settings in one call.
 func BootstrapPath(calendarID string) string {
 	return "/calendar/v2/" + calendarID + "/bootstrap"
 }
@@ -109,10 +105,8 @@ type calendarKey struct {
 }
 
 // FetchSettings reads a calendar's default settings from the bootstrap
-// endpoint WITHOUT unlocking any keys. It is for operations (e.g. metadata or
-// settings updates) that need the settings for display but not the calendar
-// key material, avoiding the cost and the key-unlock failure modes of a full
-// Unlock.
+// endpoint WITHOUT unlocking keys, for ops needing settings but not key
+// material (avoiding the cost and unlock failure modes of a full Unlock).
 func FetchSettings(ctx context.Context, client papi.API, calendarID string) (Settings, error) {
 	var boot bootstrapResponse
 	if err := client.Get(ctx, BootstrapPath(calendarID), nil, &boot); err != nil {
@@ -121,19 +115,10 @@ func FetchSettings(ctx context.Context, client papi.API, calendarID string) (Set
 	return boot.Settings, nil
 }
 
-// Unlock returns the calendar's unlocked private keyring plus the member
-// context and default settings needed for signing/writing/display, caching
-// per calendar ID.
-//
-// A single GET /calendar/v2/{id}/bootstrap returns keys, passphrase, members
-// and settings; the unlock chain (member resolution → passphrase decrypt →
-// calendar key unlock) is then pure CPU. The member identity is taken from
-// the List-resolved Info when present, else resolved from the bootstrap
-// members.
-//
-// The unlock work runs outside the cache lock so concurrent unlocks of
-// different calendars do not serialize; concurrent unlocks of the SAME
-// calendar may both do the work (idempotent; last write wins).
+// Unlock returns the calendar's unlocked keyring plus member context and
+// settings, caching per calendar ID. One bootstrap GET feeds the pure-CPU
+// unlock chain (member resolution, passphrase decrypt, key unlock); work runs
+// outside the cache lock, so same-calendar unlocks may both run (idempotent).
 func (k *Keychain) Unlock(ctx context.Context, info Info) (*Access, error) {
 	calendarID := info.ID
 
@@ -183,22 +168,17 @@ func (k *Keychain) Unlock(ctx context.Context, info Info) (*Access, error) {
 	return access, nil
 }
 
-// Invalidate drops any cached Access for the given calendar so the next
-// Unlock re-fetches the bootstrap (keys, members and settings). Used after a
-// write that changes a calendar's settings, so a subsequent read in the same
-// session does not return stale cached settings.
+// Invalidate drops the cached Access so the next Unlock re-fetches the
+// bootstrap, avoiding stale settings after a same-session write.
 func (k *Keychain) Invalidate(calendarID string) {
 	k.mu.Lock()
 	delete(k.cache, calendarID)
 	k.mu.Unlock()
 }
 
-// resolveMember finds OUR member entry among the given members: the one
-// whose Email matches one of our addresses' emails case-insensitively (the
-// members list may include other users on shared calendars), falling back to
-// the first member. Returns empty strings when there are no members at all
-// (lenient by design; passphrase selection then falls back to the first
-// member passphrase).
+// resolveMember finds OUR member entry by case-insensitive email match (the
+// list may include other users on shared calendars), falling back to the first
+// member, or empty strings when there are none.
 func (k *Keychain) resolveMember(members []apiMember) (memberID, addressID string) {
 	ourEmails := make(map[string]bool, len(k.unlocked.Addresses))
 	for _, addr := range k.unlocked.Addresses {
@@ -215,11 +195,9 @@ func (k *Keychain) resolveMember(members []apiMember) (memberID, addressID strin
 	return "", ""
 }
 
-// decryptPassphrase decrypts our member's passphrase entry (falling back
-// to the first entry) by trying every unlocked address keyring - the
-// passphrase may be encrypted to any of them. The detached signature is
-// intentionally not verified (lenient by design; its absence or failure is
-// non-fatal).
+// decryptPassphrase decrypts our member's passphrase entry (else the first) by
+// trying every unlocked address keyring, since any may be the recipient. The
+// detached signature is intentionally not verified (lenient by design).
 func (k *Keychain) decryptPassphrase(calendarID, memberID string, pass passphraseBlock) ([]byte, error) {
 	entries := pass.MemberPassphrases
 	var mp *memberPassphrase
@@ -251,9 +229,8 @@ func (k *Keychain) decryptPassphrase(calendarID, memberID string, pass passphras
 	return nil, fmt.Errorf("no address key could decrypt the passphrase for calendar %s", calendarID)
 }
 
-// unlockCalendarKeys unlocks each calendar private key with the decrypted
-// passphrase, collecting all that unlock into one keyring. It errors when
-// none unlock.
+// unlockCalendarKeys unlocks the calendar private keys with the passphrase
+// into one keyring, erroring when none unlock.
 func unlockCalendarKeys(calendarID string, keys []calendarKey, passphrase []byte) (*crypto.KeyRing, error) {
 	armored := make([]string, 0, len(keys))
 	for _, ck := range keys {

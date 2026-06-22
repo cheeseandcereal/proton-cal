@@ -21,9 +21,8 @@ func newEventsCmd() *cobra.Command {
 		Short: "List upcoming events (recurring events expanded into occurrences)",
 		Args:  requireArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			// The list head shows date/time + summary; the rest are labeled
-			// sub-lines. By default a curated subset (location, description,
-			// conference, color) is shown; --fields/--all override it.
+			// Default to a curated subset of detail sub-lines; --fields/--all
+			// override it.
 			sel := listDefaultFields()
 			if all || len(fields) > 0 {
 				var err error

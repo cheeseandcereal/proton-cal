@@ -24,9 +24,8 @@ func calListBody(t *testing.T, cals ...[2]string) string {
 	return string(b)
 }
 
-// detachedWithAPI builds a Service whose calendar-list endpoints are served
-// by the given fake (no cache decorator: api == freshAPI == fake), so the
-// resolution logic can be exercised without a session.
+// detachedWithAPI builds a Service backed by the given fake (no cache decorator)
+// so resolution logic can be exercised without a session.
 func detachedWithAPI(cfg config.Config, fake *fakeRawAPI) *Service {
 	return &Service{cfg: cfg, api: fake, freshAPI: fake}
 }
@@ -133,9 +132,8 @@ func TestResolveCalendarNoMatch(t *testing.T) {
 	}
 }
 
-// When the in-memory list is stale (missing a calendar) and no cache
-// decorator marks it fresh, resolveCalendar performs one fresh fetch and
-// then succeeds against the updated list.
+// When the in-memory list is stale and not marked fresh, resolveCalendar does
+// one fresh fetch and then succeeds against the updated list.
 func TestResolveCalendarStaleRefetch(t *testing.T) {
 	fake := &fakeRawAPI{bodies: map[string]string{
 		calendar.APIPath: calListBody(t, [2]string{"id1", "Personal"}, [2]string{"id2", "Work"}),

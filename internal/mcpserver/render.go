@@ -25,9 +25,8 @@ func renderCalendars(cals []calendar.Info, defaultID string) string {
 	return strings.Join(lines, "\n")
 }
 
-// renderCalendarDetail renders the get_calendar reply: header + ID, color,
-// the calendar's default reminders (timed/all-day) and default event duration,
-// and a default-calendar marker.
+// renderCalendarDetail renders the get_calendar reply: header, color, default
+// reminders, default duration and a default-calendar marker.
 func renderCalendarDetail(c calendar.Info, set calendar.Settings, isDefault bool) string {
 	lines := eventview.CalendarHeaderLines(c, "") // no default marker here
 	if c.Color != "" {
@@ -84,10 +83,8 @@ func renderOccurrence(l event.Listed, loc *time.Location, set calendar.Settings,
 	return line
 }
 
-// renderEventExtras renders the enrichment lines (organizer, attendees,
-// conferencing, reminders) shared by list_events and get_event, with the
-// effective reminders resolved from the calendar defaults. Returns "" when
-// the event has none. Each line is indented two spaces.
+// renderEventExtras renders shared enrichment lines (organizer, attendees,
+// conferencing, reminders); reminders use calendar defaults. Returns "" if none.
 func renderEventExtras(ev *event.Event, set calendar.Settings, cal calendar.Info) string {
 	var lines []string
 	if ev.Organizer != nil {

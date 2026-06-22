@@ -13,10 +13,9 @@ import (
 	"github.com/cheeseandcereal/proton-cal/internal/papi"
 )
 
-// The in-memory go-proton-api test server implements neither the "locked"
-// scope restriction on GET /core/v4/keys/salts nor PUT /core/v4/users/unlock
-// (or /lock), so the unlockScope fallback in Login is NOT exercised here; it
-// is kept isolated in unlockScope and covered by live integration runs.
+// The in-memory test server implements neither the "locked" scope nor the
+// unlock endpoints, so Login's unlockScope fallback is NOT exercised here; it
+// is covered by live integration runs.
 
 // scriptPrompter is a scripted fake Prompter. Answers are looked up by
 // prompt label; unexpected prompts fail the flow.
@@ -47,9 +46,8 @@ const (
 	testPass = "pass"
 )
 
-// startServer points the config dir at a temp dir, starts a plain-HTTP test
-// server with one user, and writes a config.toml targeting it. It returns
-// the created address ID.
+// startServer starts a plain-HTTP test server with one user (config dir in a
+// temp dir, config.toml targeting it) and returns the created address ID.
 func startServer(t *testing.T) (addrID string) {
 	t.Helper()
 	t.Setenv(config.EnvConfigDir, t.TempDir())

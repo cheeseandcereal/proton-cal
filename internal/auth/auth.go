@@ -36,13 +36,10 @@ import (
 	"github.com/cheeseandcereal/proton-cal/internal/papi"
 )
 
-// Login runs the full interactive login flow and persists the session
-// (tokens + salted key passphrase). It returns the username that logged in;
-// persisting it (and other config) is the caller's responsibility.
-//
-// The flow handles captcha human verification (manual token paste) and TOTP
-// two-factor authentication. FIDO2-only 2FA and email-code human
-// verification are not supported.
+// Login runs the interactive login flow and persists the session (tokens +
+// salted key passphrase), returning the logged-in username for the caller to
+// persist. Handles captcha (manual token paste) and TOTP; FIDO2-only 2FA and
+// email-code verification are unsupported.
 func Login(ctx context.Context, prompter Prompter, cfg config.Config) (string, error) {
 	username, password, err := promptCredentials(prompter, cfg.Username)
 	if err != nil {
@@ -58,10 +55,9 @@ func Login(ctx context.Context, prompter Prompter, cfg config.Config) (string, e
 	}
 	defer pc.Close()
 
-	// Persist tokens now: the raw client below reads them, and any token
-	// refresh during the remaining steps must land in the store. (This is
-	// why the session is written twice: the salted key passphrase is not
-	// derivable until the salts have been fetched WITH a working session.)
+	// Persist tokens now so the raw client below reads them and any refresh
+	// lands in the store; written again later since the salted key passphrase
+	// needs salts fetched with a working session.
 	store, err := config.NewSessionStore()
 	if err != nil {
 		return "", fmt.Errorf("opening session store: %w", err)
@@ -108,8 +104,8 @@ func Login(ctx context.Context, prompter Prompter, cfg config.Config) (string, e
 	return username, nil
 }
 
-// promptCredentials returns the username (the configured one, prompting
-// only when unset) and the freshly prompted password.
+// promptCredentials returns the configured username (prompting only when
+// unset) and a freshly prompted password.
 func promptCredentials(prompter Prompter, configured string) (username, password string, err error) {
 	username = configured
 	if username == "" {
@@ -133,9 +129,8 @@ func promptCredentials(prompter Prompter, configured string) (username, password
 	return username, password, nil
 }
 
-// authenticate performs the SRP login (with the captcha human-verification
-// fallback) and TOTP two-factor authentication, returning an authenticated
-// client.
+// authenticate performs SRP login (with captcha fallback) and TOTP 2FA,
+// returning an authenticated client.
 func authenticate(ctx context.Context, m *proton.Manager, prompter Prompter, username, password string) (*proton.Client, proton.Auth, error) {
 	pc, a, err := m.NewClientWithLogin(ctx, username, []byte(password))
 	if err != nil {
@@ -165,9 +160,8 @@ func authenticate(ctx context.Context, m *proton.Manager, prompter Prompter, use
 	return pc, a, nil
 }
 
-// promptKeyPassword returns the password that unlocks the user keys: in
-// two-password mode the mailbox password (prompted), otherwise the login
-// password.
+// promptKeyPassword returns the key-unlock password: the prompted mailbox
+// password in two-password mode, else the login password.
 func promptKeyPassword(prompter Prompter, mode proton.PasswordMode, loginPassword string) (string, error) {
 	if mode != proton.TwoPasswordMode {
 		return loginPassword, nil
@@ -183,8 +177,8 @@ func promptKeyPassword(prompter Prompter, mode proton.PasswordMode, loginPasswor
 }
 
 // fetchSalts fetches the key salts. On insufficient scope it gains the
-// "locked" scope via an SRP proof to /core/v4/users/unlock, retries once,
-// and drops the elevated scope again before returning (best effort).
+// "locked" scope (SRP proof to /core/v4/users/unlock), retries once, then
+// drops the scope again (best effort).
 func fetchSalts(ctx context.Context, pc *proton.Client, m *proton.Manager, raw *papi.Client, username, password string) (proton.Salts, error) {
 	salts, err := pc.GetSalts(ctx)
 	if err == nil {
@@ -206,15 +200,11 @@ func fetchSalts(ctx context.Context, pc *proton.Client, m *proton.Manager, raw *
 	return salts, nil
 }
 
-// WithLockedScope gains the elevated "locked" scope (by proving knowledge of
-// the LOGIN password via SRP to PUT /core/v4/users/unlock), runs fn, then
-// drops the scope again (PUT /core/v4/users/lock, best effort) regardless of
-// fn's outcome. It is the reusable form of the unlock/lock dance that
-// sensitive operations (e.g. deleting a calendar) require on a restored
-// session, whose token otherwise lacks the scope (Proton code 9101).
-//
-// The password is always the login password, even in two-password mode. A
-// wrong password surfaces as a server-proof mismatch from unlockScope.
+// WithLockedScope gains the elevated "locked" scope (SRP proof of the LOGIN
+// password to PUT /core/v4/users/unlock), runs fn, then drops it again (PUT
+// /core/v4/users/lock, best effort). Sensitive ops on a restored session need
+// this since its token lacks the scope (Proton code 9101); password is always
+// the login password and a wrong one surfaces as a server-proof mismatch.
 func WithLockedScope(ctx context.Context, m *proton.Manager, raw *papi.Client, username, password string, fn func() error) error {
 	if err := unlockScope(ctx, m, raw, username, password); err != nil {
 		return fmt.Errorf("unlocking session scope: %w", err)
@@ -225,8 +215,7 @@ func WithLockedScope(ctx context.Context, m *proton.Manager, raw *papi.Client, u
 }
 
 // deriveAndVerifyKeyPass derives the salted key passphrase from the key
-// password and the primary user key's salt, and verifies it actually
-// unlocks key material before it is persisted.
+// password and primary key salt, verifying it unlocks key material before use.
 func deriveAndVerifyKeyPass(user proton.User, addrs []proton.Address, salts proton.Salts, keyPassword string) ([]byte, error) {
 	primaryKeyID, err := primaryUserKeyID(user)
 	if err != nil {
@@ -254,9 +243,8 @@ func deriveAndVerifyKeyPass(user proton.User, addrs []proton.Address, salts prot
 	return saltedKeyPass, nil
 }
 
-// persistKeyPass adds the salted key passphrase to the stored session.
-// Tokens may have rotated since the initial save (the auth handler persists
-// rotations), so this is a read-modify-write.
+// persistKeyPass adds the salted key passphrase to the stored session via a
+// read-modify-write, since tokens may have rotated since the initial save.
 func persistKeyPass(store *config.SessionStore, saltedKeyPass []byte) error {
 	sess, err := store.Load()
 	if err != nil {
@@ -308,20 +296,17 @@ func Logout(ctx context.Context) error {
 	return nil
 }
 
-// hvDetails is the shape of proton.APIError.Details on a human verification
-// error (code 9001). It is a superset of proton.APIHVDetails: the API also
-// returns the URL of the hosted verification page.
+// hvDetails is proton.APIError.Details on a human verification error (code
+// 9001): a superset of proton.APIHVDetails adding the hosted page URL.
 type hvDetails struct {
 	HumanVerificationMethods []string
 	HumanVerificationToken   string
 	WebURL                   string `json:"WebUrl"`
 }
 
-// loginWithHumanVerification handles a failed login attempt: if loginErr is a
-// human verification request (code 9001) offering the captcha method, it
-// walks the user through the manual captcha token paste flow and retries
-// the login with the token.
-// Any other error is returned wrapped.
+// loginWithHumanVerification handles a captcha human-verification request
+// (code 9001) by walking the user through the manual token paste and retrying;
+// any other error is returned wrapped.
 func loginWithHumanVerification(ctx context.Context, m *proton.Manager, prompter Prompter, username, password string, loginErr error) (*proton.Client, proton.Auth, error) {
 	var apiErr *proton.APIError
 	if !errors.As(loginErr, &apiErr) || !apiErr.IsHVError() {
@@ -352,11 +337,9 @@ func loginWithHumanVerification(ctx context.Context, m *proton.Manager, prompter
 		return nil, proton.Auth{}, err
 	}
 
-	// Retry the login with the pasted token. go-proton-api derives the HV
-	// headers from APIHVDetails: x-pm-human-verification-token from Token,
-	// and x-pm-human-verification-token-type from Methods joined with ","
-	// (see hv.go addHVToRequest). Pass exactly {"captcha"} so the type
-	// header is "captcha".
+	// Retry with the pasted token. go-proton-api builds the HV headers from
+	// APIHVDetails (token from Token, type from Methods joined by ","), so
+	// pass exactly {"captcha"} to get type header "captcha".
 	pc, a, err := m.NewClientWithLoginWithHVToken(ctx, username, []byte(password), &proton.APIHVDetails{
 		Methods: []string{"captcha"},
 		Token:   token,
@@ -394,22 +377,17 @@ func captchaToken(prompter Prompter, verifyURL string) (string, error) {
 	return token, nil
 }
 
-// isInsufficientScope reports whether err indicates the access token lacks
-// the scope for the attempted endpoint (Proton code 9101). The check is
-// code-based only: a bare HTTP 403 can also mean a genuine permission
-// problem and must not trigger the SRP unlock dance.
+// isInsufficientScope reports whether the token lacks scope (Proton code
+// 9101). Code-based only: a bare HTTP 403 can be a real permission problem and
+// must not trigger the SRP unlock dance.
 func isInsufficientScope(err error) bool {
 	return papi.IsCode(err, papi.CodeInsufficientScope)
 }
 
-// unlockScope gains the elevated "locked" scope by proving knowledge of the
-// LOGIN password via SRP to PUT /core/v4/users/unlock (always the login
-// password, even in two-password mode). go-proton-api does not implement
-// this endpoint, so the raw papi client is used. The server proof is
-// verified before returning.
-//
-// The in-memory test server implements neither the scope restriction nor
-// this endpoint, so this path is only exercised by live integration runs.
+// unlockScope gains the "locked" scope via SRP proof of the LOGIN password to
+// PUT /core/v4/users/unlock (raw papi client, since go-proton-api lacks this
+// endpoint), verifying the server proof. Only exercised by live integration
+// runs; the in-memory test server implements neither scope nor endpoint.
 func unlockScope(ctx context.Context, m *proton.Manager, raw *papi.Client, username, password string) error {
 	info, err := m.AuthInfo(ctx, proton.AuthInfoReq{Username: username})
 	if err != nil {

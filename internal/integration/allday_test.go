@@ -10,10 +10,9 @@ import (
 	"github.com/cheeseandcereal/proton-cal/internal/event"
 )
 
-// TestAllDayLifecycle exercises the all-day event lifecycle: create a
-// single-day VALUE=DATE event (exclusive iCal end) -> server reports
-// FullDay with midnight-UTC anchored times -> a field-only update keeps it
-// all-day (historically regression-prone) -> delete.
+// TestAllDayLifecycle exercises the all-day lifecycle: create a VALUE=DATE event
+// (exclusive iCal end) -> server reports FullDay with midnight-UTC times -> a
+// field-only update keeps it all-day -> delete.
 func TestAllDayLifecycle(t *testing.T) {
 	ctx := context.Background()
 	setup(t)

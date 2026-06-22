@@ -11,11 +11,9 @@ import (
 	"github.com/cheeseandcereal/proton-cal/internal/caltypes"
 )
 
-// UpdateCalendarInput describes a partial update to a calendar's metadata
-// and/or default settings, plus an optional request to make it the account
-// default. Pointer fields are "change this"; nil means "leave unchanged". An
-// empty string is a meaningful clear for Description; Name/Color must be
-// non-empty.
+// UpdateCalendarInput describes a partial update to a calendar's metadata/settings
+// plus an optional make-default request. Pointer fields nil = leave unchanged; an
+// empty string clears Description, but Name/Color must be non-empty.
 type UpdateCalendarInput struct {
 	Selector string
 
@@ -43,18 +41,16 @@ func (in UpdateCalendarInput) hasSettings() bool {
 		in.FullDayReminders != nil || in.MakesUserBusy != nil
 }
 
-// UpdateCalendar applies the requested metadata/settings/default changes to a
-// calendar and returns its refreshed detail. Only owned (normal) calendars
-// can be modified. The changes are applied in order (metadata, settings,
-// default); a later failure is reported but earlier successful changes stand.
+// UpdateCalendar applies metadata/settings/default changes and returns refreshed
+// detail. Only owned (normal) calendars can be modified. Applied in order
+// (metadata, settings, default); a later failure leaves earlier changes standing.
 func (s *Service) UpdateCalendar(ctx context.Context, in UpdateCalendarInput) (*GotCalendar, error) {
 	if !in.hasMetadata() && !in.hasSettings() && !in.MakeDefault {
 		return nil, errors.New("nothing to update")
 	}
 
-	// Resolve color to a canonical palette hex up front (fail before any
-	// network write on a bad color). There is no "inherit"/default color for
-	// a calendar, so the "default" sentinel is rejected.
+	// Resolve color to a canonical palette hex up front (fail before any write).
+	// A calendar has no inheritable default, so the "default" sentinel is rejected.
 	var colorHex *string
 	if in.Color != nil {
 		if *in.Color == "" || calcolor.IsDefault(*in.Color) {
@@ -105,10 +101,8 @@ func (s *Service) UpdateCalendar(ctx context.Context, in UpdateCalendarInput) (*
 		s.invalidateCache(calendar.UserSettingsPath)
 	}
 
-	// Return refreshed detail without a key unlock (the touched caches are
-	// now invalidated, so these reads are fresh). resolveCalendar re-fetches
-	// the (invalidated) list for the updated metadata; FetchSettings reads
-	// the bootstrap settings directly.
+	// Return refreshed detail without a key unlock: the touched caches are now
+	// invalidated, so resolveCalendar and FetchSettings read fresh.
 	refreshed, err := s.resolveCalendar(ctx, info.ID)
 	if err != nil {
 		return nil, err
@@ -125,27 +119,23 @@ func (s *Service) UpdateCalendar(ctx context.Context, in UpdateCalendarInput) (*
 	}, nil
 }
 
-// DeleteCalendarInput describes a calendar deletion. Password is the login
-// password, required only for deleting an owned (normal) calendar (which
-// needs the elevated "locked" scope); it is ignored for managed (holidays)
-// calendars. The caller (CLI/MCP) resolves the password (prompt or flag/arg).
+// DeleteCalendarInput describes a calendar deletion. Password (the login password)
+// is required only for owned (normal) calendars, which need the elevated "locked"
+// scope; it is ignored for managed (holidays) calendars.
 type DeleteCalendarInput struct {
 	Selector string
 	Password string
 }
 
-// ResolveCalendarInfo resolves a selector to a calendar's Info (ID, name,
-// type, member identity) without unlocking keys. Frontends use it for a
-// pre-delete dry run (showing what would be deleted) and to decide whether a
-// password is needed.
+// ResolveCalendarInfo resolves a selector to a calendar's Info without unlocking
+// keys. Used for pre-delete dry runs and to decide whether a password is needed.
 func (s *Service) ResolveCalendarInfo(ctx context.Context, selector string) (calendar.Info, error) {
 	return s.resolveCalendar(ctx, selector)
 }
 
-// DeleteCalendar removes a calendar. Owned (normal) calendars require the
-// elevated scope, obtained by re-proving the login password via SRP;
-// backend-managed (holidays) calendars use the managed route and need no
-// password. Subscribed calendars cannot be deleted this way.
+// DeleteCalendar removes a calendar. Owned (normal) calendars need the elevated
+// scope (re-prove the login password via SRP); managed (holidays) use the managed
+// route without a password. Subscribed calendars cannot be deleted this way.
 func (s *Service) DeleteCalendar(ctx context.Context, in DeleteCalendarInput) error {
 	info, err := s.resolveCalendar(ctx, in.Selector)
 	if err != nil {

@@ -19,24 +19,14 @@ const (
 	typeNotify = 1
 )
 
-// MaxReminders is the cap on how many reminders one event may carry. Proton
-// rejects very large lists; this gives a friendly error before the request.
-// Conservative pending a live-verified exact limit.
+// MaxReminders caps reminders per event: Proton rejects large lists, so this
+// errors first. Conservative pending a live-verified exact limit.
 const MaxReminders = 10
 
-// Parse turns one user reminder spec into a caltypes.Notification.
-//
-// Accepted forms (case-insensitive prefix):
-//   - shorthand offset: "15m", "1h", "1h30m", "2d", "1w" (and combinations),
-//     meaning "that long before the event start";
-//   - an optional type prefix "notify:" (default) or "email:", e.g.
-//     "email:1h";
-//   - a raw iCal duration trigger passed through verbatim: "-PT15M", "-P1D"
-//     (must start with "-P" or "+P").
-//
-// For all-day events a trigger is measured from the event's midnight start,
-// so shorthand like "1d" becomes "-P1D" (midnight the day before); Proton's
-// "day before at 09:00" style is only expressible via a raw trigger.
+// Parse turns one user reminder spec into a caltypes.Notification. Accepts a
+// shorthand offset (e.g. "1h30m", before start), an optional "notify:"/"email:"
+// prefix, or a raw iCal trigger verbatim ("-PT15M", must start with "-P").
+// For all-day events triggers measure from midnight start (so "1d" -> "-P1D").
 func Parse(spec string) (caltypes.Notification, error) {
 	s := strings.TrimSpace(spec)
 	if s == "" {
@@ -66,9 +56,8 @@ func Parse(spec string) (caltypes.Notification, error) {
 	return caltypes.Notification{Type: typ, Trigger: trigger}, nil
 }
 
-// ParseList parses and validates a list of reminder specs, enforcing the
-// per-event cap. An empty input yields a nil slice (callers decide whether
-// that means "none" or "inherit").
+// ParseList parses and validates reminder specs, enforcing the per-event cap.
+// Empty input yields nil (callers decide "none" vs "inherit").
 func ParseList(specs []string) ([]caltypes.Notification, error) {
 	if len(specs) == 0 {
 		return nil, nil

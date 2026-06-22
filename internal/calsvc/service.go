@@ -30,15 +30,13 @@ import (
 )
 
 // Service bundles the authenticated state shared by calendar operations.
-// Construct with New; a Service is safe for concurrent use (the MCP server
-// shares one across tool calls).
+// Construct with New; safe for concurrent use (the MCP server shares one).
 type Service struct {
 	cfg    config.Config
 	client *papi.Client
 
-	// api is the read path for bootstrap endpoints: the caching decorator
-	// when the cache is enabled, else the raw client. cacheAPI is the
-	// same decorator (nil when caching is disabled); freshAPI bypasses
+	// api is the bootstrap read path (caching decorator when enabled, else raw
+	// client). cacheAPI is that decorator (nil if disabled); freshAPI bypasses
 	// cache reads but still populates the cache.
 	api      papi.API
 	cacheAPI *cachedAPI
@@ -55,10 +53,9 @@ type Service struct {
 	keychain *calendar.Keychain
 }
 
-// New loads the config and restores an authenticated Service from the
-// persisted session. A missing session yields a friendly "run login" error.
-// noCache disables the on-disk bootstrap cache (fetches stay fresh; the
-// cache file is neither read nor written). Call Close when done.
+// New restores an authenticated Service from the persisted session (missing
+// session yields a "run login" error). noCache disables the on-disk bootstrap
+// cache. Call Close when done.
 func New(noCache bool) (*Service, error) {
 	cfg, err := config.Load()
 	if err != nil {
@@ -89,18 +86,15 @@ func New(noCache bool) (*Service, error) {
 	return s, nil
 }
 
-// NewDetached returns a Service with config only - no session or client.
-// It exists for tests exercising the validation paths, which fail before
-// any network use; domain operations on a detached Service will panic.
+// NewDetached returns a Service with config only - no session or client. For
+// tests exercising validation paths; domain operations on it will panic.
 func NewDetached(cfg config.Config) *Service {
 	return &Service{cfg: cfg}
 }
 
-// NewWithAPI builds a Service whose read endpoints are served by the given
-// papi.API (used as both the cached and fresh read path) and with no session
-// client. It is a test seam for exercising resolution and read-only operations
-// across packages without a live session; operations needing the underlying
-// *papi.Client (key unlock, scope elevation) will still panic.
+// NewWithAPI builds a Service whose reads are served by the given papi.API (both
+// cached and fresh path), with no session client. A test seam for resolution and
+// read-only ops; operations needing the *papi.Client (key unlock) will panic.
 func NewWithAPI(cfg config.Config, api papi.API) *Service {
 	return &Service{cfg: cfg, api: api, freshAPI: api}
 }
@@ -122,18 +116,14 @@ func (s *Service) EffectiveTimezone(override string) string {
 }
 
 // DefaultCalendarID returns the account's server-side default calendar ID
-// (Proton's own default, the source of truth for default markers and for
-// resolving an unspecified calendar selector). The fetch is cached
-// (GET /settings/calendar) so repeat calls add no network round-trips. An
-// empty result means no default is set.
+// (source of truth for default markers and unspecified selectors); cached fetch,
+// empty = no default set.
 func (s *Service) DefaultCalendarID(ctx context.Context) (string, error) {
 	return calendar.DefaultCalendarID(ctx, s.api)
 }
 
-// Calendars fetches the calendar list fresh (the user asked for the truth:
-// a long-running MCP server must see calendars created after startup, and
-// `proton-cal calendars` is the natural cache-staleness escape hatch). The
-// result still updates both the in-memory and on-disk caches.
+// Calendars fetches the calendar list fresh (so a long-running MCP server sees
+// newly created calendars; the cache-staleness escape hatch), still updating both caches.
 func (s *Service) Calendars(ctx context.Context) ([]calendar.Info, error) {
 	return s.fetchCalendars(ctx, s.freshAPI)
 }
@@ -155,11 +145,9 @@ func (s *Service) fetchCalendars(ctx context.Context, api papi.API) ([]calendar.
 	return cals, nil
 }
 
-// resolveCalendar resolves a calendar selector (ID or name; "" = the
-// server-side default calendar, else the first calendar) against the cached
-// calendar list (in-memory, then disk), falling back to one fresh fetch
-// when a cached list does not match (the calendar may have been created or
-// renamed since).
+// resolveCalendar resolves a selector ("" = server-side default, else first)
+// against the cached list (in-memory, then disk), falling back to one fresh
+// fetch when a cached list does not match (calendar created/renamed since).
 func (s *Service) resolveCalendar(ctx context.Context, selector string) (calendar.Info, error) {
 	s.calMu.Lock()
 	cals := s.cals
@@ -175,9 +163,8 @@ func (s *Service) resolveCalendar(ctx context.Context, selector string) (calenda
 		fresh = s.cacheAPI == nil || !s.cacheAPI.servedAny(calendar.APIPath)
 	}
 
-	// The server default is only consulted when no selector is given; avoid
-	// the extra fetch otherwise. A failure to read it is non-fatal — Resolve
-	// then falls back to the first calendar.
+	// The server default is consulted only when no selector is given. A failure
+	// to read it is non-fatal — Resolve then falls back to the first calendar.
 	defaultID := ""
 	if selector == "" {
 		defaultID, _ = s.DefaultCalendarID(ctx)
@@ -196,9 +183,8 @@ func (s *Service) resolveCalendar(ctx context.Context, selector string) (calenda
 	return info, err
 }
 
-// access resolves the calendar selector and unlocks that calendar's keys,
-// unlocking the account keys on first use. Calendar resolution and the
-// account-key unlock are independent (different endpoints) and run
+// access resolves the selector and unlocks that calendar's keys (account keys
+// on first use). Resolution and the account-key unlock are independent and run
 // concurrently; the calendar key unlock then needs both.
 func (s *Service) access(ctx context.Context, selector string) (calendar.Info, *calendar.Access, error) {
 	var info calendar.Info
@@ -236,10 +222,9 @@ func (s *Service) access(ctx context.Context, selector string) (calendar.Info, *
 	return info, acc, nil
 }
 
-// keychainLazy unlocks the account keys on first use and returns the
-// session keychain. When the unlock fails and the key material was served
-// from cache, it invalidates and retries once with fresh data (password
-// changes rotate the account keys).
+// keychainLazy unlocks the account keys on first use and returns the keychain.
+// On unlock failure with cached key material, invalidates and retries once with
+// fresh data (password changes rotate the account keys).
 func (s *Service) keychainLazy(ctx context.Context) (*calendar.Keychain, error) {
 	s.kcMu.Lock()
 	defer s.kcMu.Unlock()
@@ -258,11 +243,9 @@ func (s *Service) keychainLazy(ctx context.Context) (*calendar.Keychain, error) 
 	return s.keychain, nil
 }
 
-// healCalendarKeys reports whether a failed calendar-key operation is
-// worth retrying because cached key material may be stale; when so it
-// invalidates that material (account + calendar tiers - liberal: at most
-// one extra bootstrap) and drops the keychain so the retry rebuilds it
-// from fresh responses.
+// healCalendarKeys reports whether a failed calendar-key op is worth retrying
+// because cached key material may be stale; when so it invalidates that material
+// (account + calendar tiers) and drops the keychain so the retry rebuilds fresh.
 func (s *Service) healCalendarKeys(calendarID string) bool {
 	if s.cacheAPI == nil {
 		return false
@@ -278,10 +261,9 @@ func (s *Service) healCalendarKeys(calendarID string) bool {
 	return true
 }
 
-// staleCalendarList reports whether err plausibly means the operation hit
-// a calendar that no longer exists while the calendar list was served from
-// cache (deleted and possibly recreated elsewhere); when so it invalidates
-// the cached list so a retry re-resolves freshly.
+// staleCalendarList reports whether err (a 404/422) plausibly means a cached
+// calendar no longer exists; when so it invalidates the cached list so a retry
+// re-resolves freshly.
 func (s *Service) staleCalendarList(err error) bool {
 	if s.cacheAPI == nil || !s.cacheAPI.servedAny(calendar.APIPath) {
 		return false
@@ -305,9 +287,8 @@ func (s *Service) invalidateCache(keys ...string) {
 	}
 }
 
-// invalidateCalendarKeys drops the cached unlocked Access (and the cached
-// bootstrap response) for one calendar, so a subsequent unlock/settings read
-// re-fetches fresh. Used after a settings write.
+// invalidateCalendarKeys drops the cached Access and bootstrap response for one
+// calendar so a subsequent unlock/settings read re-fetches fresh.
 func (s *Service) invalidateCalendarKeys(calendarID string) {
 	s.invalidateCache(calendar.BootstrapPath(calendarID))
 	s.kcMu.Lock()
@@ -318,9 +299,8 @@ func (s *Service) invalidateCalendarKeys(calendarID string) {
 	}
 }
 
-// invalidateCalendarList drops the cached calendar list (disk + in-memory) so
-// the next resolution re-fetches it (e.g. after a name/color change or a
-// calendar deletion).
+// invalidateCalendarList drops the cached calendar list (disk + in-memory) so the
+// next resolution re-fetches it (e.g. after a name/color change or deletion).
 func (s *Service) invalidateCalendarList() {
 	s.invalidateCache(calendar.APIPath)
 	s.calMu.Lock()
@@ -328,9 +308,8 @@ func (s *Service) invalidateCalendarList() {
 	s.calMu.Unlock()
 }
 
-// loginUsername resolves the username used for SRP re-authentication: the
-// persisted config value when present, else the account name from the live
-// user record.
+// loginUsername resolves the username for SRP re-authentication: the persisted
+// config value, else the account name from the live user record.
 func (s *Service) loginUsername(ctx context.Context) (string, error) {
 	if s.cfg.Username != "" {
 		return s.cfg.Username, nil
@@ -345,17 +324,10 @@ func (s *Service) loginUsername(ctx context.Context) (string, error) {
 	return user.Name, nil
 }
 
-// withAccess runs fn with resolved calendar access, retrying once when the
-// failure is plausibly caused by stale cached bootstrap data:
-//
-//   - fn failed with event.ErrDecryptDegraded and the key material was
-//     cached: refetch keys, rebuild access, retry.
-//   - fn failed with a 404/422 API error and the calendar list was cached:
-//     refresh the list; retry only when the selector now resolves to a
-//     DIFFERENT calendar (deleted + recreated elsewhere), since otherwise
-//     the failure had nothing to do with staleness.
-//
-// Fresh-data failures are final: no retry loops.
+// withAccess runs fn with resolved access, retrying once on stale cached data:
+// ErrDecryptDegraded with cached keys refetches keys and retries; a 404/422 with
+// a cached list refreshes it and retries only if the selector now resolves to a
+// DIFFERENT calendar. Fresh-data failures are final.
 func (s *Service) withAccess(ctx context.Context, selector string, fn func(info calendar.Info, access *calendar.Access) error) error {
 	info, access, err := s.access(ctx, selector)
 	if err != nil {
@@ -382,13 +354,9 @@ func (s *Service) withAccess(ctx context.Context, selector string, fn func(info 
 	return fn(info2, access2)
 }
 
-// withAccessResult runs fn with resolved calendar access and returns its
-// result, plumbing the common "out pointer + retry" boilerplate. fn returns
-// the result value plus a degraded flag: when degraded is true on the first
-// attempt, the result is provisionally kept but ErrDecryptDegraded is raised
-// so withAccess heals stale keys and retries; a still-degraded second pass is
-// accepted and its (best-effort) result returned. Non-degrade errors are
-// final.
+// withAccessResult runs fn with resolved access and returns its result. fn's
+// degraded flag on the first attempt raises ErrDecryptDegraded so withAccess
+// heals keys and retries; a still-degraded second pass is accepted best-effort.
 func withAccessResult[T any](
 	ctx context.Context,
 	s *Service,

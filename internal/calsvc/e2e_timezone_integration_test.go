@@ -8,11 +8,8 @@ import (
 	"time"
 )
 
-// TestE2ETimezoneWallTimeStable creates a daily series anchored at a local
-// wall time in a DST-observing zone, spanning a DST transition, and asserts
-// that every occurrence keeps the same local wall time (09:00) even though
-// the unix spacing across the transition is 23h or 25h. This guards the
-// timezone handling end to end against API/library drift.
+// TestE2ETimezoneWallTimeStable asserts a daily series across a DST transition
+// keeps the same local wall time (09:00) even though unix spacing is 23h/25h.
 func TestE2ETimezoneWallTimeStable(t *testing.T) {
 	svc, cal := liveService(t)
 	ctx := context.Background()
@@ -68,9 +65,8 @@ func TestE2ETimezoneWallTimeStable(t *testing.T) {
 	}
 }
 
-// nextDSTTransition returns the first instant at/after `from` where the
-// zone's UTC offset changes (a DST transition), or the zero time if none is
-// found within ~400 days.
+// nextDSTTransition returns the first instant at/after `from` where the zone's
+// UTC offset changes, or the zero time if none within ~400 days.
 func nextDSTTransition(loc *time.Location, from time.Time) time.Time {
 	prev := from.In(loc)
 	_, prevOff := prev.Zone()

@@ -15,10 +15,9 @@ import (
 	"github.com/cheeseandcereal/proton-cal/internal/config"
 )
 
-// detachedFactory returns a serviceFactory backed by a detached Service:
-// validation and arg-parsing paths run to completion (they fail before any
-// network use), while a successful domain call would panic on the nil
-// client - so these tests only assert on the pre-network behavior.
+// detachedFactory returns a factory backed by a detached Service: validation
+// and arg-parsing run fully (fail before network), but a domain call panics on
+// the nil client, so these tests assert only pre-network behavior.
 func detachedFactory() (*calsvc.Service, error) {
 	return calsvc.NewDetached(config.Config{Timezone: "UTC"}), nil
 }
@@ -63,9 +62,8 @@ func TestCLICreateValidationErrors(t *testing.T) {
 		args []string
 		want string
 	}{
-		// "timed missing end" is no longer a pre-network error: the end now
-		// defaults to the calendar's duration, resolved after the calendar is
-		// unlocked (covered by calsvc.TestApplyDefaultDuration).
+		// "timed missing end" is no longer a pre-network error: end defaults to
+		// the calendar duration (covered by calsvc.TestApplyDefaultDuration).
 		{"bad start", []string{"create", "event", "Lunch", "--start", "nope", "--end", "2026-06-15 10:00"}, "invalid date"},
 		{"rrule conflicts repeat", []string{"create", "event", "X", "--start", "2026-06-15 09:00", "--end", "2026-06-15 10:00", "--rrule", "FREQ=DAILY", "--repeat", "daily"}, "rrule cannot be combined"},
 		{"modifiers require repeat", []string{"create", "event", "X", "--start", "2026-06-15 09:00", "--end", "2026-06-15 10:00", "--count", "3"}, "require repeat"},
@@ -201,9 +199,8 @@ func TestRenderCalendarsEmpty(t *testing.T) {
 	}
 }
 
-// TestCLIGetParentNoSubcommand verifies the bare "get" command (no
-// subcommand) errors as a usage error: usage goes to stderr (naming its
-// subcommands), stdout stays empty, and ErrReported is returned.
+// TestCLIGetParentNoSubcommand verifies bare "get" is a usage error: usage to
+// stderr, stdout empty, ErrReported returned.
 func TestCLIGetParentNoSubcommand(t *testing.T) {
 	out, errOut, err := runCLI(t, nil, "get")
 	if !errors.Is(err, ErrReported) {
@@ -220,9 +217,8 @@ func TestCLIGetParentNoSubcommand(t *testing.T) {
 	}
 }
 
-// The restructured create/update/delete are parents: a bare invocation (no
-// subcommand) is a usage error that prints usage to stderr and exits
-// non-zero, rather than treating an arg as an event.
+// create/update/delete are parents: a bare invocation is a usage error (usage
+// to stderr, non-zero), not treating an arg as an event.
 func TestCLIMutationParentsNoSubcommand(t *testing.T) {
 	for _, parent := range []string{"create", "update", "delete"} {
 		out, errOut, err := runCLI(t, nil, parent)
@@ -253,9 +249,8 @@ func TestCLIBareRootNoSubcommand(t *testing.T) {
 	}
 }
 
-// TestCLILeafMissingArg verifies leaf commands that require a positional
-// argument emit a usage error (Error: + usage on stderr, empty stdout,
-// ErrReported) when invoked without it.
+// TestCLILeafMissingArg verifies leaf commands missing a required positional
+// arg emit a usage error (stderr usage, empty stdout, ErrReported).
 func TestCLILeafMissingArg(t *testing.T) {
 	for _, args := range [][]string{
 		{"get", "event"},
@@ -303,10 +298,8 @@ func TestCLIHelpFlagSucceeds(t *testing.T) {
 	}
 }
 
-// TestCLIRuntimeErrorNoUsage verifies a genuine runtime error (here, the
-// service failing to build) after successful arg validation is NOT treated
-// as a usage error: no usage block, and the error is returned verbatim (not
-// ErrReported) so main prints it.
+// TestCLIRuntimeErrorNoUsage verifies a runtime error after valid args is NOT a
+// usage error: no usage block, error returned verbatim (not ErrReported).
 func TestCLIRuntimeErrorNoUsage(t *testing.T) {
 	boom := errors.New("service unavailable")
 	factory := func() (*calsvc.Service, error) { return nil, boom }

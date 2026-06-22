@@ -28,15 +28,10 @@ func masterLocation(ev *caltypes.RawEvent) (*time.Location, error) {
 	return loc, nil
 }
 
-// masterRule parses a master row's RRULE anchored at its DTSTART.
-//
-// It returns the rule, the event duration in seconds, and the location the
-// rule iterates in. Timed masters get a DTSTART in the event's start
-// timezone, so rrule-go iterates in that zone and preserves the local
-// wall-clock time across DST transitions (verified by the DST spike test).
-// All-day masters get a DTSTART anchored in UTC: their RRULEs use floating
-// DATE-form UNTIL values, which are then interpreted at midnight UTC,
-// matching the instants Proton stores for all-day events (midnight UTC).
+// masterRule parses a master's RRULE anchored at its DTSTART, returning the
+// rule, duration (seconds), and iteration location. Timed masters iterate in
+// the start timezone (preserving wall-clock across DST); all-day masters
+// anchor in UTC, matching the midnight-UTC instants Proton stores.
 func masterRule(ev *caltypes.RawEvent) (*rrule.RRule, int64, *time.Location, error) {
 	duration := ev.EndTime - ev.StartTime
 	var loc *time.Location
@@ -70,9 +65,8 @@ func windowDt(ts int64, loc *time.Location) time.Time {
 	return time.Unix(ts, 0).In(loc)
 }
 
-// expandMaster expands one master row into occurrences overlapping
-// [start, end), skipping EXDATEd and shadowed starts, capped at
-// maxOccurrencesPerMaster.
+// expandMaster expands one master into occurrences overlapping [start, end),
+// skipping EXDATEd/shadowed starts, capped at maxOccurrencesPerMaster.
 func expandMaster(ev *caltypes.RawEvent, start, end int64, shadowed map[int64]bool) ([]Occurrence, error) {
 	rule, duration, loc, err := masterRule(ev)
 	if err != nil {
@@ -123,17 +117,11 @@ func appendIfOverlapping(results []Occurrence, ev *caltypes.RawEvent, start, end
 	return results
 }
 
-// ExpandOccurrences expands a mixed list of raw event rows over the window
-// [start, end).
-//
-// Plain rows and exception rows (non-zero RecurrenceID) pass through with
-// their own times when they overlap the window. Master rows (non-empty
-// RRule) are expanded, skipping EXDATEd starts and starts shadowed by a
-// same-UID exception row, capped at maxOccurrencesPerMaster. A malformed
-// RRULE never crashes the listing: the master falls back to passing through
-// as a single row.
-//
-// Results are sorted by occurrence start, then event ID.
+// ExpandOccurrences expands mixed raw rows over [start, end). Plain and
+// exception rows (non-zero RecurrenceID) pass through on overlap; masters are
+// expanded, skipping EXDATEd and same-UID-exception-shadowed starts (capped at
+// maxOccurrencesPerMaster). A malformed RRULE passes through as a single row
+// rather than crashing the listing. Results are sorted by start, then event ID.
 func ExpandOccurrences(events []*caltypes.RawEvent, start, end int64) []Occurrence {
 	shadowed := make(map[string]map[int64]bool)
 	for _, ev := range events {
@@ -155,9 +143,7 @@ func ExpandOccurrences(events []*caltypes.RawEvent, start, end int64) []Occurren
 		case ev.RRule != "":
 			occs, err := expandMaster(ev, start, end, shadowed[ev.UID])
 			if err != nil {
-				// A master whose RRULE
-				// cannot be expanded falls back to passing through
-				// as a single row instead of failing the listing.
+				// Unexpandable RRULE: pass through as a single row.
 				results = appendIfOverlapping(results, ev, start, end)
 				continue
 			}
@@ -177,15 +163,10 @@ func ExpandOccurrences(events []*caltypes.RawEvent, start, end int64) []Occurren
 }
 
 // ResolveOccurrence resolves an original-occurrence start timestamp for
-// single-occurrence operations.
-//
-// related are raw rows sharing the master's UID (the master itself may be
-// included; rows without a RecurrenceID are skipped). It returns the
-// existing exception row when the occurrence was already single-edited, or
-// (nil, nil) when occurrenceTS is a live generated occurrence of the
-// master's RRULE. It returns an error when the master is not recurring,
-// the occurrence was already deleted (EXDATE), or the timestamp matches no
-// occurrence.
+// single-occurrence operations. related are same-UID rows. Returns the
+// existing exception row if already single-edited, (nil, nil) if occurrenceTS
+// is a live generated occurrence, or an error when the master is not recurring,
+// the occurrence was EXDATE-deleted, or the timestamp matches none.
 func ResolveOccurrence(master *caltypes.RawEvent, related []*caltypes.RawEvent, occurrenceTS int64) (*caltypes.RawEvent, error) {
 	if master.RRule == "" {
 		return nil, fmt.Errorf("event %s is not a recurring event", master.ID)

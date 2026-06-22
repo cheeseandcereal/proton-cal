@@ -80,9 +80,8 @@ func TestOccurrenceAllDayUsesUTC(t *testing.T) {
 	}
 }
 
-// occurrence_start_ts is meaningful only for expanded occurrences (the
-// `events` listing); the single-event view (`get event`) renders the stored
-// row, so the field must be omitted there rather than emitting a bogus 0.
+// occurrence_start_ts is meaningful only for expanded occurrences; the
+// single-event view must omit it rather than emit a bogus 0.
 func TestOccurrenceStartTSPresenceByView(t *testing.T) {
 	l := listedTimed()
 	l.Occurrence.Event.RRule = "FREQ=DAILY"

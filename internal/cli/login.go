@@ -23,8 +23,7 @@ func newLoginCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			// Remember the username and (on first login) the detected
-			// timezone for subsequent commands.
+			// Remember the username and, on first login, the detected timezone.
 			cfg.Username = username
 			if cfg.Timezone == "" {
 				cfg.Timezone = config.DetectTimezone()

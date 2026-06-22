@@ -11,18 +11,15 @@ import (
 	"github.com/cheeseandcereal/proton-cal/internal/calsvc"
 )
 
-// outWriter and errWriter are the package's output sinks. They default to
-// the process stdio but are swapped by tests (see export_test.go) so command
-// output can be captured in-process. All command rendering goes through
-// these, never os.Stdout/os.Stderr directly.
+// outWriter and errWriter are the package's output sinks (swapped by tests
+// to capture output). All command rendering goes through these.
 var (
 	outWriter io.Writer = os.Stdout
 	errWriter io.Writer = os.Stderr
 )
 
-// serviceFactory builds the authenticated service a command runs against.
-// It is a package var so tests can inject a detached or live Service without
-// touching the real session; production uses newService.
+// serviceFactory builds the authenticated service a command runs against;
+// a package var so tests can inject one without touching the real session.
 var serviceFactory = newService
 
 // newService restores the authenticated service from the saved session,
@@ -39,9 +36,8 @@ func newService() (*calsvc.Service, error) {
 // outputJSON reports whether the global --output flag selected JSON.
 func outputJSON() bool { return outputFormat == "json" }
 
-// humanOut returns the stream for human-readable output: errWriter when JSON
-// output is active (outWriter is reserved for the JSON document), outWriter
-// otherwise.
+// humanOut returns the human-readable output stream: errWriter under JSON
+// (outWriter is reserved for the JSON document), otherwise outWriter.
 func humanOut() io.Writer {
 	if outputJSON() {
 		return errWriter
@@ -49,9 +45,8 @@ func humanOut() io.Writer {
 	return outWriter
 }
 
-// colorEnabled reports whether ANSI color should be emitted: only for the
-// human text view on a real terminal, with NO_COLOR unset and --no-color
-// not given. JSON and ICS output is never colorized.
+// colorEnabled reports whether ANSI color should be emitted: only the human
+// text view on a real terminal, with NO_COLOR unset and --no-color not given.
 func colorEnabled() bool {
 	if noColor || outputJSON() || os.Getenv("NO_COLOR") != "" {
 		return false

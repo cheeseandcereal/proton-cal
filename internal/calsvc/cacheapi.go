@@ -15,26 +15,22 @@ import (
 	"github.com/cheeseandcereal/proton-cal/internal/papi"
 )
 
-// Cache TTLs. Liberal by design: the cached responses are bootstrap data
-// whose validity is verified cryptographically by use - stale key material
-// fails loudly and self-heals (invalidate + refetch + retry), and calendar
-// resolution refreshes on miss. Event content is NEVER cached.
+// Cache TTLs. Liberal: bootstrap data verified cryptographically by use - stale
+// key material fails loudly and self-heals (invalidate + refetch + retry).
+// Event content is NEVER cached.
 const (
-	// keyMaterialTTL covers users, addresses, calendar passphrases, keys
-	// and members: effectively immutable outside password resets / key
-	// rotations, all of which surface as unlock or decrypt failures.
+	// keyMaterialTTL covers users/addresses/passphrases/keys/members: immutable
+	// outside password resets/key rotations, which surface as unlock/decrypt failures.
 	keyMaterialTTL = 30 * 24 * time.Hour
-	// calendarListTTL covers GET /calendar/v1. Staleness is cosmetic or
-	// recoverable: unknown selectors refresh the list, and `calendars`
-	// always fetches fresh.
+	// calendarListTTL covers GET /calendar/v1; staleness is cosmetic/recoverable
+	// (unknown selectors refresh the list).
 	calendarListTTL = 7 * 24 * time.Hour
 )
 
 var calKeyMaterialRe = regexp.MustCompile(`^/calendar/v2/[^/]+/bootstrap$`)
 
-// cacheTTL returns the TTL for a cacheable GET path; ok is false for
-// everything that must never be cached (event content, writes, anything
-// unrecognized).
+// cacheTTL returns the TTL for a cacheable GET path; ok is false for anything
+// that must never be cached (event content, writes, unrecognized paths).
 func cacheTTL(path string) (time.Duration, bool) {
 	switch {
 	case path == auth.UsersPath || path == auth.AddressesPath:
@@ -61,11 +57,9 @@ func calendarKeyCacheKeys(calendarID string) []string {
 	return []string{calendar.BootstrapPath(calendarID)}
 }
 
-// cachedAPI decorates a papi.API with a read-through response cache for
-// the bootstrap endpoints. Only parameterless GETs on recognized paths are
-// cached; Put always passes through. It records which keys were served
-// from cache during this run, so self-healing only retries when stale
-// cached data could actually be the cause of a failure.
+// cachedAPI decorates a papi.API with a read-through cache for bootstrap
+// endpoints. Only parameterless GETs on recognized paths are cached. It records
+// which keys were served from cache so self-healing retries only on possibly-stale data.
 type cachedAPI struct {
 	inner      papi.API
 	cache      *config.Cache

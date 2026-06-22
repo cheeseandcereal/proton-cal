@@ -24,9 +24,8 @@ import (
 )
 
 const (
-	// summaryPrefix tags every event the suite creates. The sweep test
-	// (TestZSweep) deletes any leftover event whose decrypted summary
-	// contains it; nothing without the tag is ever touched.
+	// summaryPrefix tags every event the suite creates; TestZSweep deletes only
+	// leftovers whose summary contains it. Nothing untagged is ever touched.
 	summaryPrefix = "proton-cal-test"
 
 	// eventOffsetDays is how far in the future test events live.
@@ -45,9 +44,8 @@ type testConfig struct {
 	Calendars []string `toml:"calendars"`
 }
 
-// suite is the shared, lazily-initialized plumbing for all tests. It uses
-// the REAL user config dir (a previous `proton-cal login` is required) and
-// never writes to the session beyond go-proton-api's own token refreshes.
+// suite is the shared, lazily-initialized plumbing for all tests. Uses the REAL
+// user config dir (a prior `proton-cal login` is required).
 type suite struct {
 	tc       testConfig
 	cfg      config.Config
@@ -67,9 +65,8 @@ var (
 	sharedSuite *suite
 )
 
-// setup returns the shared suite, skipping the calling test when the suite
-// is unconfigured (no config.toml / no stored session) and failing it on
-// hard setup errors.
+// setup returns the shared suite, skipping when unconfigured (no config.toml /
+// session) and failing on hard setup errors.
 func setup(t *testing.T) *suite {
 	t.Helper()
 	setupOnce.Do(initSuite)
@@ -181,8 +178,7 @@ func (s *suite) accessFor(t *testing.T, info calendar.Info) *calendar.Access {
 }
 
 // newAccess returns the client and unlocked access for the FIRST configured
-// calendar (one calendar is enough for the write-path tests), skipping when
-// the suite is not configured.
+// calendar (enough for write-path tests), skipping when unconfigured.
 func newAccess(t *testing.T) (*papi.Client, *calendar.Access) {
 	t.Helper()
 	s := setup(t)
@@ -203,20 +199,17 @@ func randomHex(n int) string {
 	return hex.EncodeToString(b)
 }
 
-// futureWindow returns a [start, start+1h) slot ~30 days out: the next
-// half-hour boundary plus a random whole-minute scatter inside a 2-hour
-// window, so concurrent runs do not collide. Times are whole minutes, so
-// unix timestamps round-trip exactly through the second-precise iCal
-// serialization.
+// futureWindow returns a [start, start+1h) slot ~30 days out with a random
+// whole-minute scatter so concurrent runs don't collide. Whole minutes keep
+// timestamps round-tripping exactly through iCal serialization.
 func futureWindow() (start, end time.Time) {
 	base := time.Now().UTC().AddDate(0, 0, eventOffsetDays).Truncate(30 * time.Minute).Add(30 * time.Minute)
 	start = base.Add(time.Duration(mrand.IntN(120)) * time.Minute)
 	return start, start.Add(time.Hour)
 }
 
-// trackEvent registers a best-effort SmartDelete cleanup for an event the
-// test created. Call the returned func once the event is known deleted so
-// the cleanup does not double-delete.
+// trackEvent registers a best-effort SmartDelete cleanup. Call the returned
+// func once the event is known deleted to avoid double-delete.
 func trackEvent(t *testing.T, client *papi.Client, access *calendar.Access, eventID string) (markDeleted func()) {
 	t.Helper()
 	var done bool
@@ -245,9 +238,8 @@ func getDecrypted(t *testing.T, client *papi.Client, access *calendar.Access, ev
 	return ev
 }
 
-// listUID expands [start, end) via ListWindow and returns only the
-// occurrences backed by rows with the given iCal UID, failing the test if
-// Results keep ListWindow's order (sorted by occurrence start).
+// listUID expands [start, end) and returns occurrences with the given UID,
+// keeping ListWindow's order (sorted by occurrence start).
 func listUID(t *testing.T, client *papi.Client, access *calendar.Access, uid string, start, end time.Time, tzName string) []event.Listed {
 	t.Helper()
 	listed, err := event.ListWindow(context.Background(), client, access.KR, access.CalendarID, start.Unix(), end.Unix(), tzName)

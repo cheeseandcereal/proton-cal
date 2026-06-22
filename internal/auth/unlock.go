@@ -35,11 +35,9 @@ const (
 	AddressesPath = "/core/v4/addresses"
 )
 
-// UnlockKeys restores key material using the salted key passphrase stored
-// at login: it fetches the user and addresses (concurrently) via api and
-// unlocks the user/address keyrings with proton.Unlock. A session without a
-// stored salted key passphrase yields an error directing the user to run
-// `proton-cal login`.
+// UnlockKeys restores key material using the stored salted key passphrase:
+// fetches user/addresses via api and unlocks the keyrings. A session without
+// a stored passphrase errors, directing the user to run `proton-cal login`.
 func UnlockKeys(ctx context.Context, store *config.SessionStore, api papi.API) (*Unlocked, error) {
 	sess, err := store.Load()
 	if err != nil {
@@ -100,9 +98,7 @@ func FetchKeyData(ctx context.Context, api papi.API) (proton.User, []proton.Addr
 }
 
 // PrimaryAddrKR returns the unlocked keyring for addressID, falling back to
-// any unlocked address keyring when that address is unknown or its keys
-// could not be unlocked. It returns an error when no address keyrings are
-// unlocked at all.
+// any unlocked address keyring; errors when none are unlocked at all.
 func (u *Unlocked) PrimaryAddrKR(addressID string) (*crypto.KeyRing, error) {
 	if kr, ok := u.AddrKRs[addressID]; ok {
 		return kr, nil

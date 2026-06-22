@@ -14,12 +14,8 @@ import (
 	"github.com/cheeseandcereal/proton-cal/internal/eventview"
 )
 
-// eventDetailRows builds the labeled body rows of an event (location,
-// description, organizer, attendees, conference, reminders, color), in a
-// consistent order, for whichever fields sel selects. It is shared by the
-// events-list sub-lines and the get-event detail view so labels and ordering
-// stay identical. It does NOT include the head fields (summary/start/end) or
-// the --all-only technical fields (rrule/uid/calendar_id/id).
+// eventDetailRows builds an event's labeled body rows for sel's fields, in a
+// consistent order shared by the events-list and get-event views.
 func eventDetailRows(ev *event.Event, sel fieldSet, set calendar.Settings, cal calendar.Info) []labeled {
 	var rows []labeled
 	if sel.has(fieldLocation) && ev.Location != "" {
@@ -54,13 +50,8 @@ func eventDetailRows(ev *event.Event, sel fieldSet, set calendar.Settings, cal c
 	return rows
 }
 
-// occurrenceHeaderRows builds the header (summary + recurrence marker) and the
-// labeled sub-rows (Time, the selected detail fields, an optional occurrence
-// start, and ID) for one listed occurrence in the `proton-cal calendars`
-// style. Splitting this out lets the list renderer align every event's
-// sub-rows to one shared column width. Times are rendered in loc (all-day
-// dates in UTC, their canonical anchor zone). sel selects which detail fields
-// appear; set/cal resolve the effective reminders and color.
+// occurrenceHeaderRows builds the header and labeled sub-rows for one listed
+// occurrence (times in loc, all-day dates in UTC) for the list renderer.
 func occurrenceHeaderRows(l event.Listed, loc *time.Location, sel fieldSet, set calendar.Settings, cal calendar.Info) (header string, rows []labeled) {
 	raw := l.Occurrence.Event
 	ev := l.Event
@@ -78,10 +69,8 @@ func occurrenceHeaderRows(l event.Listed, loc *time.Location, sel fieldSet, set 
 	return header, rows
 }
 
-// occurrenceListLines renders a whole window of listed occurrences with a
-// single, consistent label-column width: every event's sub-field values line
-// up at the same column regardless of which fields each event has, for easier
-// scanning. Returns the lines for all events in order.
+// occurrenceListLines renders a window of listed occurrences with one shared
+// label-column width so every event's sub-field values align.
 func occurrenceListLines(items []event.Listed, loc *time.Location, sel fieldSet, set calendar.Settings, cal calendar.Info) []string {
 	headers := make([]string, len(items))
 	rowsPer := make([][]labeled, len(items))
@@ -103,13 +92,9 @@ func occurrenceListLines(items []event.Listed, loc *time.Location, sel fieldSet,
 	return lines
 }
 
-// eventTimeRange formats an event's start/end for human display. The timezone
-// is shown once, at the end. The end's date is included only when it differs
-// from the start's date (so a same-day event reads "... 09:00 - 09:30 MST").
-//
-// All-day events use their UTC-anchored dates; the iCal end is exclusive, so
-// the inclusive last day is end-1day, and the end date is shown only for a
-// multi-day span.
+// eventTimeRange formats an event's start/end for display: timezone shown
+// once at the end, end date only when it differs from the start. All-day uses
+// UTC-anchored dates; the iCal end is exclusive, so last day is end-1day.
 func eventTimeRange(start, end time.Time, allDay bool, loc *time.Location) string {
 	if allDay {
 		s := start.UTC()
@@ -129,10 +114,8 @@ func eventTimeRange(start, end time.Time, allDay bool, loc *time.Location) strin
 	return fmt.Sprintf("%s - %s %s", s.Format("2006-01-02 15:04"), e.Format("2006-01-02 15:04"), e.Format("MST"))
 }
 
-// eventDetailLines renders a single fetched event as aligned "Label: value"
-// lines. sel selects which fields appear (the default curated set, an
-// explicit --fields subset, or everything with --all); set/cal resolve the
-// effective reminders and color.
+// eventDetailLines renders a single event as aligned "Label: value" lines for
+// the fields sel selects; set/cal resolve the effective reminders and color.
 func eventDetailLines(ev *event.Event, loc *time.Location, sel fieldSet, set calendar.Settings, cal calendar.Info) []string {
 	b := rowBuilder{sel: sel}
 	b.addIf(fieldSummary, "Summary", eventview.SummaryOr(ev))
@@ -152,8 +135,7 @@ func eventDetailLines(ev *event.Event, loc *time.Location, sel fieldSet, set cal
 		b.add("Edits occurrence", calsvc.FormatOccurrenceStart(ev.RecurrenceID.Unix(), ev.AllDay, loc))
 	}
 
-	// Body fields (location/description/organizer/attendees/conference/
-	// reminders/color), shared with the events-list sub-lines.
+	// Body fields, shared with the events-list sub-lines.
 	b.addRows(eventDetailRows(ev, sel, set, cal)...)
 
 	// --all-only fields.
@@ -171,9 +153,8 @@ type labeled struct {
 	value string
 }
 
-// rowBuilder accumulates labeled rows gated by a fieldSet, factoring out the
-// "append iff the field is selected and the value is non-empty" pattern shared
-// by the event and calendar detail renderers.
+// rowBuilder accumulates labeled rows gated by a fieldSet ("append iff
+// selected and non-empty"), shared by the event and calendar renderers.
 type rowBuilder struct {
 	sel  fieldSet
 	rows []labeled
@@ -196,9 +177,8 @@ func (b *rowBuilder) addRows(rows ...labeled) {
 	b.rows = append(b.rows, rows...)
 }
 
-// alignColumnCap caps the alignment column so one outlier label (e.g. a long
-// "Conference (Provider)") does not push every value far to the right.
-// Labels longer than the cap simply get a single space before their value.
+// alignColumnCap caps the alignment column so one outlier label doesn't push
+// every value far right; labels over the cap get a single space before value.
 const alignColumnCap = 14
 
 // labelWidth returns the alignment column width for rows: the widest label
@@ -219,10 +199,9 @@ func alignLabeled(rows []labeled) []string {
 	return alignLabeledWidth(rows, labelWidth(rows))
 }
 
-// alignLabeledWidth renders labeled rows as "Label: value" aligning the colons
-// to the given column width (so callers can share one width across several
-// row groups). Swatch escape sequences in values are not measured for width
-// (they are zero visible columns at the value position).
+// alignLabeledWidth renders labeled rows as "Label: value" aligning colons to
+// the given width (so callers can share one across row groups). Swatch escape
+// sequences in values are not measured for width.
 func alignLabeledWidth(rows []labeled, width int) []string {
 	lines := make([]string, 0, len(rows))
 	for _, r := range rows {
@@ -235,8 +214,8 @@ func alignLabeledWidth(rows []labeled, width int) []string {
 // token a user passes to --fields, and matches the JSON key for that field.
 type fieldKey string
 
-// Event field keys. The string values match the eventJSON tags so --fields
-// shares one vocabulary with the JSON output.
+// Event field keys; string values match the eventJSON tags so --fields shares
+// one vocabulary with JSON output.
 const (
 	fieldSummary     fieldKey = "summary"
 	fieldStart       fieldKey = "start"
@@ -277,9 +256,8 @@ type fieldRow struct {
 	inDefault bool // shown in the curated default view (without --all)
 }
 
-// eventFieldRegistry is the ordered set of selectable event fields. Every
-// field is in the default view except the technical ones (rrule/uid/
-// calendar_id), which require --all.
+// eventFieldRegistry is the ordered set of selectable event fields. All are
+// in the default view except rrule/uid/calendar_id, which require --all.
 var eventFieldRegistry = []fieldRow{
 	{fieldSummary, true},
 	{fieldStart, true},
@@ -298,11 +276,8 @@ var eventFieldRegistry = []fieldRow{
 	{fieldID, true},
 }
 
-// listDefaultFields is the curated sub-line set shown under each event in the
-// events list when no --fields/--all is given: location, description and
-// conference. Color is omitted by default (request it with --fields color or
-// --all). The header carries the summary and the Time/ID rows are always
-// added, so none of those need to be selected here.
+// listDefaultFields is the curated events-list sub-line set when no
+// --fields/--all is given: location, description, conference (color omitted).
 func listDefaultFields() fieldSet {
 	return fieldSet{
 		fieldLocation:    true,
@@ -333,10 +308,9 @@ type fieldSet map[fieldKey]bool
 
 func (s fieldSet) has(k fieldKey) bool { return s[k] }
 
-// selectFields resolves a --fields/--all request against a registry. With no
-// requested fields, it returns the default (or, with all, every) field. An
-// explicit request is honored verbatim (and --all is ignored). Unknown field
-// names produce an error listing the valid names.
+// selectFields resolves a --fields/--all request against a registry: no
+// request yields the default (or every, with all) field; an explicit request
+// is honored verbatim. Unknown names error, listing the valid names.
 func selectFields(registry []fieldRow, requested []string, all bool) (fieldSet, error) {
 	valid := make(map[fieldKey]bool, len(registry))
 	for _, f := range registry {
@@ -379,8 +353,7 @@ func fieldNames(registry []fieldRow) []string {
 }
 
 // calendarDetailLines renders a single calendar as aligned "Label: value"
-// lines, with a color swatch on the Color row and the default reminders
-// resolved from the calendar settings. sel selects which fields appear.
+// lines for the fields sel selects, with a swatch on the Color row.
 func calendarDetailLines(c calendar.Info, set calendar.Settings, isDefault bool, sel fieldSet) []string {
 	b := rowBuilder{sel: sel}
 	b.addIf(calFieldName, "Name", c.Name)

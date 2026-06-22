@@ -20,16 +20,14 @@ type Prompter interface {
 	Notify(msg string)
 }
 
-// terminalPrompter is a Prompter over stdin/stderr. Hidden input uses
-// golang.org/x/term; when stdin is not a terminal it falls back to a visible
-// read after warning the user.
+// terminalPrompter is a Prompter over stdin/stderr, falling back to a visible
+// read (with a warning) for hidden input when stdin is not a terminal.
 type terminalPrompter struct {
 	in *bufio.Reader
 }
 
-// NewTerminalPrompter returns a Prompter over stdin/stderr using
-// golang.org/x/term for hidden input (falling back to a visible read with a
-// warning when stdin is not a terminal).
+// NewTerminalPrompter returns a Prompter over stdin/stderr (hidden input via
+// golang.org/x/term, with a visible fallback when stdin is not a terminal).
 func NewTerminalPrompter() Prompter {
 	return &terminalPrompter{in: bufio.NewReader(os.Stdin)}
 }

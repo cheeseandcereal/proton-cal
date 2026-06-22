@@ -25,10 +25,9 @@ func textResult(text string) *mcp.CallToolResult {
 // input at (a non-nil "" pointer clears the field; see calsvc.UpdateEventInput).
 var emptyString string
 
-// applyClearFields sets the named fields to "clear" on the update input. JSON
-// args can't express "explicitly empty", so clearing is opt-in here; the text
-// fields map to a non-nil empty-string pointer, and "color" reverts to the
-// calendar color. Unknown names error.
+// applyClearFields marks named fields to clear on the update input (JSON can't
+// express "explicitly empty"): text fields -> empty-string pointer, color ->
+// inherit calendar color. Unknown names error.
 func applyClearFields(in *calsvc.UpdateEventInput, fields []string) error {
 	for _, f := range fields {
 		switch f {
@@ -55,9 +54,8 @@ const (
 	reminderModeCustom  = "custom"
 )
 
-// resolveUpdateReminders turns the reminders_mode arg plus the reminders list
-// into an *event.RemindersUpdate (nil = keep). An empty mode with a non-empty
-// list is treated as "custom" for convenience.
+// resolveUpdateReminders turns reminders_mode plus the list into an
+// *event.RemindersUpdate (nil = keep). Empty mode with a non-empty list = custom.
 func resolveUpdateReminders(mode string, specs []string) (*event.RemindersUpdate, error) {
 	if mode == reminderModeKeep && len(specs) > 0 {
 		mode = reminderModeCustom
@@ -363,9 +361,8 @@ func (s *server) updateEvent(ctx context.Context, _ *mcp.CallToolRequest, args u
 		return nil, nil, err
 	}
 
-	// Non-empty = change: pointers are built only for non-empty values, since
-	// JSON args cannot distinguish "absent" from "empty". Explicit clearing
-	// goes through clear_fields below (the CLI keys off flag presence instead).
+	// JSON can't distinguish "absent" from "empty": pointers are built only for
+	// non-empty values; explicit clearing goes through clear_fields below.
 	in := calsvc.UpdateEventInput{
 		EventID:    args.EventID,
 		Start:      args.Start,

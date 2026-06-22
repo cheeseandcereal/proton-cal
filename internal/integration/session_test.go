@@ -4,9 +4,8 @@ package integration
 
 import "testing"
 
-// TestSession asserts that the stored session works against the live API:
-// suite setup already ran auth.UnlockKeys (which fetches the user and
-// addresses), so a populated Unlocked proves the round-trip.
+// TestSession asserts the stored session works live: setup ran auth.UnlockKeys
+// (fetching user and addresses), so a populated Unlocked proves the round-trip.
 func TestSession(t *testing.T) {
 	s := setup(t)
 

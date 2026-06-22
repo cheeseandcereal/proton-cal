@@ -154,9 +154,8 @@ func TestE2ECLICalendarsJSON(t *testing.T) {
 	}
 }
 
-// TestE2ECLIFieldClearTriState validates the CLI's flag-presence clearing
-// semantics live: `update --location ""` clears the field, while an update
-// that omits --location preserves it.
+// TestE2ECLIFieldClearTriState validates flag-presence clearing live:
+// `update --location ""` clears the field, omitting --location preserves it.
 func TestE2ECLIFieldClearTriState(t *testing.T) {
 	factory, cal := liveFactory(t)
 	start, end := e2eFutureSlot()

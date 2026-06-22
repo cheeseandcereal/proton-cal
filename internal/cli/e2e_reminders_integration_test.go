@@ -62,9 +62,8 @@ func TestE2ECLIRemindersAndColor(t *testing.T) {
 		t.Errorf("get JSON reminders/color = %+v / %q", got.Notifications, got.Color)
 	}
 
-	// Remove reminders (--no-reminders) and revert color (--color default,
-	// which sets the event to the calendar's own color since Proton has no
-	// clear).
+	// Remove reminders and revert color (--color default sets the calendar's
+	// own color, since Proton has no clear).
 	calInfo, err := e2eSvc.GetCalendar(context.Background(), cal)
 	if err != nil {
 		t.Fatalf("GetCalendar: %v", err)

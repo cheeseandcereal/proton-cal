@@ -122,11 +122,9 @@ func newCalFixtures(t *testing.T) *calFixtures {
 	}
 }
 
-// bootstrap is a tweakable GET /calendar/v2/{id}/bootstrap body. The zero
-// value is the happy path: an unrelated sharing member then ours (mixed-case
-// email exercises case-insensitive matching); the other member's passphrase
-// first (encrypted to a key we don't hold) then ours; a malformed key first
-// (must be skipped) then the real locked calendar key; plus settings.
+// bootstrap is a tweakable bootstrap body. Zero value is the happy path,
+// seeding seams: a mixed-case other member (case-insensitive match), a foreign
+// passphrase before ours, and a malformed key (skipped) before the real one.
 func (f *calFixtures) bootstrap() map[string]any {
 	return map[string]any{
 		"Members": []map[string]any{

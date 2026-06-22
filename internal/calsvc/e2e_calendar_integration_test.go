@@ -9,10 +9,9 @@ import (
 	"github.com/cheeseandcereal/proton-cal/internal/caltypes"
 )
 
-// TestE2EUpdateCalendar drives the calendar update path live against the
-// configured test calendar: it changes name, color, default duration and the
-// timed-reminder set, flips the account default to it and back, and restores
-// every original value. It is fully self-cleaning (no sweep needed).
+// TestE2EUpdateCalendar drives the calendar update path live: changes name,
+// color, duration, reminders and the account default, then restores all.
+// Fully self-cleaning (no sweep needed).
 func TestE2EUpdateCalendar(t *testing.T) {
 	svc, calSel := liveService(t)
 	ctx := context.Background()

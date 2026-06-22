@@ -135,9 +135,7 @@ func TestBuildSeriesICSPartialDecrypt(t *testing.T) {
 	calKR, _ := testKeys(t)
 	master := fabricateRaw(t, "m1", "uidS", 1000, 2000, "UTC", "FREQ=WEEKLY", 0, nil, "Weekly", 0)
 	ex := fabricateRaw(t, "e1", "uidS", 1000, 2000, "UTC", "", 1_700_000_000, nil, "edited", 1)
-	// Make the exception undecryptable: drop its signed cards (only encrypted
-	// remain) so with a key it still cannot be read... actually keep the key
-	// but corrupt the row by removing all cards.
+	// Make the exception undecryptable by removing all its cards.
 	ex.SharedEvents = nil
 	ex.CalendarEvents = nil
 	ex.AttendeesEvents = nil

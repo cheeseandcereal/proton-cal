@@ -31,8 +31,7 @@ func addCreateReminderColorFlags(cmd *cobra.Command, f *reminderColorFlags) {
 }
 
 // addUpdateReminderColorFlags registers the update-side flags, including the
-// extra reminder states (inherit/none). Color "default" reverts to the
-// calendar color.
+// extra reminder states (inherit/none) and color "default".
 func addUpdateReminderColorFlags(cmd *cobra.Command, f *reminderColorFlags) {
 	cmd.Flags().StringArrayVar(&f.reminder, "reminder", nil,
 		"replace reminders, repeatable: 15m, 1h30m, 2d, 1w (prefix email:; default notify)")
@@ -66,9 +65,8 @@ func (f *reminderColorFlags) validateExclusive(cmd *cobra.Command) error {
 	return nil
 }
 
-// createColor resolves the create-side color to a canonical palette hex
-// ("" when no --color was given or "default" was passed - a created event
-// with a null Color already inherits the calendar color).
+// createColor resolves the create-side color to a palette hex ("" for no
+// --color or "default": a null Color already inherits the calendar color).
 func (f *reminderColorFlags) createColor() (string, error) {
 	if f.color == "" || calcolor.IsDefault(f.color) {
 		return "", nil
@@ -76,10 +74,8 @@ func (f *reminderColorFlags) createColor() (string, error) {
 	return calcolor.Resolve(f.color)
 }
 
-// createReminders resolves the create-side reminder list + set flag:
-//   - no flags        -> (nil, false): inherit the calendar default
-//   - --no-reminders  -> (nil, true):  explicitly none
-//   - --reminder ...  -> (list, true): custom
+// createReminders resolves the create-side reminder list + set flag: no flags
+// -> inherit (nil,false); --no-reminders -> none (nil,true); --reminder -> custom.
 func (f *reminderColorFlags) createReminders() (list []caltypes.Notification, set bool, err error) {
 	if f.noReminders {
 		return nil, true, nil
@@ -113,10 +109,8 @@ func (f *reminderColorFlags) updateReminders() (*event.RemindersUpdate, error) {
 	}
 }
 
-// updateColor resolves the update-side color intent into a *calsvc.ColorUpdate
-// (nil = keep current). --color default reverts to the calendar color; any
-// other --color value sets a palette color. validateExclusive must have run
-// first so the color value is already known-valid.
+// updateColor resolves the update-side color into a *calsvc.ColorUpdate (nil =
+// keep; "default" reverts to calendar color). Requires validateExclusive first.
 func (f *reminderColorFlags) updateColor(cmd *cobra.Command) (*calsvc.ColorUpdate, error) {
 	if !cmd.Flags().Changed("color") {
 		return nil, nil

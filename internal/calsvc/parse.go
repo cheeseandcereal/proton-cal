@@ -58,9 +58,8 @@ func parseOccurrence(value, tzName string) (int64, error) {
 	return t.Unix(), nil
 }
 
-// FormatOccurrenceStart renders an occurrence's original start in the form
-// the occurrence arguments accept back: the date (all-day events are
-// anchored at midnight UTC) or the wall time in loc.
+// FormatOccurrenceStart renders an occurrence's original start in the form the
+// occurrence arguments accept back: the date (all-day, midnight UTC) or wall time in loc.
 func FormatOccurrenceStart(ts int64, allDay bool, loc *time.Location) string {
 	t := time.Unix(ts, 0)
 	if allDay {
@@ -69,13 +68,10 @@ func FormatOccurrenceStart(ts int64, allDay bool, loc *time.Location) string {
 	return t.In(loc).Format("2006-01-02 15:04")
 }
 
-// resolveCreateTimes resolves the create start/end times. All-day: start
-// is a date; end is an optional INCLUSIVE date (default = start) converted
-// to the exclusive iCal end by +24h, erroring when it lands at or before
-// the start (endProvided is always true). Timed: both parse as wall times in
-// tzName; when endStr is empty, end is left zero and endProvided is false so
-// the caller can default it to the calendar's duration once the calendar is
-// resolved (see applyDefaultDuration).
+// resolveCreateTimes resolves create start/end times. All-day: dates, INCLUSIVE
+// end (default = start) converted to exclusive iCal end by +24h (endProvided
+// always true). Timed: wall times in tzName; empty endStr leaves end zero and
+// endProvided false so the caller defaults it (see applyDefaultDuration).
 func resolveCreateTimes(startStr, endStr string, allDay bool, tzName string) (start, end time.Time, endProvided bool, err error) {
 	if allDay {
 		start, err = parseDate(startStr)
@@ -110,9 +106,8 @@ func resolveCreateTimes(startStr, endStr string, allDay bool, tzName string) (st
 	return start, end, true, nil
 }
 
-// applyDefaultDuration returns the end for a timed event whose end was omitted,
-// using the calendar's default event duration. When the calendar defines no
-// usable default, the explicit end remains required.
+// applyDefaultDuration returns the end for a timed event with omitted end, using
+// the calendar's default duration; errors when no usable default exists.
 func applyDefaultDuration(start time.Time, set calendar.Settings) (time.Time, error) {
 	dur, ok := set.DefaultDuration()
 	if !ok {
@@ -136,10 +131,8 @@ func (r Recurrence) Empty() bool {
 	return r.Repeat == "" && r.RawRRule == "" && r.Count == 0 && r.Until == "" && (r.Every == 0 || r.Every == 1)
 }
 
-// buildRRule combines the options into an RRULE value ("" = none),
-// validating the combinations:
-//   - RawRRule is exclusive with the structured options and is sanitized.
-//   - Every/Count/Until require Repeat.
+// buildRRule combines the options into an RRULE value ("" = none): RawRRule is
+// exclusive with (and sanitizes) the structured options; Every/Count/Until require Repeat.
 func (r Recurrence) buildRRule(tzName string, allDay bool) (string, error) {
 	if r.RawRRule != "" {
 		if r.Repeat != "" || r.Count != 0 || r.Until != "" || (r.Every != 0 && r.Every != 1) {

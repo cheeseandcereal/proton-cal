@@ -13,14 +13,9 @@ func FormatUTC(t time.Time) string {
 	return t.UTC().Format("20060102T150405Z")
 }
 
-// Parse parses the three iCalendar date(-time) forms produced by Proton
-// clients:
-//
-//	20060102T150405Z  — UTC
-//	20060102T150405   — local wall time in loc
-//	20060102          — DATE, anchored at UTC midnight
-//
-// Returns ok=false for anything malformed (tolerant parsing).
+// Parse parses the three iCalendar forms Proton clients emit: "...T150405Z"
+// (UTC), "...T150405" (wall time in loc), "20060102" (DATE, UTC midnight).
+// Returns ok=false for anything malformed.
 func Parse(v string, loc *time.Location) (time.Time, bool) {
 	switch {
 	case len(v) == 16 && v[15] == 'Z':

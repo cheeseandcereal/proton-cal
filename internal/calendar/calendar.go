@@ -19,9 +19,8 @@ import (
 // APIPath is the route prefix of the Proton Calendar API.
 const APIPath = "/calendar/v1"
 
-// UserSettingsPath is the per-account calendar user-settings endpoint. It
-// carries DefaultCalendarID (the server-side default calendar) among other
-// preferences. GET reads it; PUT writes a partial update.
+// UserSettingsPath is the per-account calendar user-settings endpoint
+// carrying DefaultCalendarID. GET reads it; PUT writes a partial update.
 const UserSettingsPath = "/settings/calendar"
 
 // userSettingsResponse is the wire shape of GET /settings/calendar.
@@ -32,8 +31,7 @@ type userSettingsResponse struct {
 }
 
 // DefaultCalendarID fetches the account's server-side default calendar ID
-// (empty when none is set). This is the source of truth for which calendar is
-// "the default" — both for display and for resolving an unspecified selector.
+// (empty when unset); the source of truth for display and selector defaults.
 func DefaultCalendarID(ctx context.Context, client papi.API) (string, error) {
 	var resp userSettingsResponse
 	if err := client.Get(ctx, UserSettingsPath, nil, &resp); err != nil {
@@ -52,9 +50,8 @@ func SetDefaultCalendarID(ctx context.Context, client papi.API, calendarID strin
 	return nil
 }
 
-// apiCalendar is one entry of GET /calendar/v1. Display metadata
-// (Name/Description/Color) lives on the per-user member entry (verified
-// live; older API responses had them top-level, supported as fallback).
+// apiCalendar is one entry of GET /calendar/v1. Display metadata lives on the
+// per-user member entry; legacy top-level fields are kept as fallback.
 type apiCalendar struct {
 	ID          string      `json:"ID"`
 	Type        int         `json:"Type"` // 0 = normal, 1 = subscribed (2 observed: holidays)
@@ -130,9 +127,8 @@ func List(ctx context.Context, client papi.API) ([]Info, error) {
 	return infos, nil
 }
 
-// newInfo resolves one calendar list entry. The modern API carries
-// Name/Description/Color on the per-user member entry (the list endpoint
-// returns only OUR member); legacy responses had them top-level.
+// newInfo resolves one calendar list entry, taking display metadata from our
+// per-user member entry with legacy top-level fields as fallback.
 func newInfo(cal apiCalendar) Info {
 	var member apiMember
 	if len(cal.Members) > 0 {
@@ -159,11 +155,9 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-// Resolve picks a calendar. A non-empty selector matches by exact ID, then
-// by case-insensitive unique name. An empty selector falls back to the
-// server-side default calendar (defaultID, an exact ID match) when it names a
-// listed calendar, else to the first calendar. Errors are user-actionable
-// (no calendars / no match / ambiguous name listing the candidates).
+// Resolve picks a calendar: a non-empty selector matches by exact ID then
+// unique case-insensitive name; an empty selector uses defaultID (if listed)
+// else the first calendar. Errors cover none/no-match/ambiguous cases.
 func Resolve(cals []Info, selector, defaultID string) (Info, error) {
 	if len(cals) == 0 {
 		return Info{}, errors.New("no calendars found on this account")

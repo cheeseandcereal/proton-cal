@@ -98,9 +98,8 @@ func pinUID(t *testing.T, uid string) {
 	t.Cleanup(func() { NewUID = old })
 }
 
-// fixtureExtras are optional card properties for fabricating events shaped
-// like web-client output (non-default status/transparency, original
-// creation time, a comment).
+// fixtureExtras are optional card properties for fabricating web-client-shaped
+// events (non-default status/transparency, creation time, comment).
 type fixtureExtras struct {
 	status  string // default CONFIRMED
 	transp  string // default OPAQUE
@@ -109,8 +108,7 @@ type fixtureExtras struct {
 }
 
 // fabricateRaw builds a server-side RawEvent encrypted with our fixtures,
-// mirroring what a previous Create (or the web client, with extras) would
-// have stored.
+// mirroring what a previous Create or the web client would have stored.
 func fabricateRaw(t *testing.T, id, uid string, start, end int64, tz string, rrule string, recurrenceID int64, exdates []int64, summary string, sequence int, extras ...fixtureExtras) *caltypes.RawEvent {
 	t.Helper()
 	calKR, addrKR := testKeys(t)
@@ -128,9 +126,8 @@ func fabricateRaw(t *testing.T, id, uid string, start, end int64, tz string, rru
 		"DTSTART;TZID=" + tz + ":20260615T090000",
 		"DTEND;TZID=" + tz + ":20260615T093000",
 	}
-	// Exception rows carry a RECURRENCE-ID in their shared-signed card (the
-	// original occurrence start), formatted in the card's timezone. This
-	// mirrors real data so BuildICS/BuildSeriesICS surface it per VEVENT.
+	// Exception rows carry a RECURRENCE-ID (original occurrence start) in the
+	// shared-signed card, mirroring real data so BuildICS surfaces it per VEVENT.
 	if recurrenceID != 0 {
 		loc, lerr := time.LoadLocation(tz)
 		if lerr != nil {
@@ -324,10 +321,8 @@ func TestDecryptEnrichesAttendeesConferenceRowFields(t *testing.T) {
 		"ATTENDEE;X-PM-TOKEN=tok123;RSVP=TRUE;ROLE=REQ-PARTICIPANT;PARTSTAT=NEEDS-ACTION;CN=adacrowd:mailto:adacrowd@amazon.com",
 		"END:VEVENT", "END:VCALENDAR",
 	}, "\r\n")
-	// Re-encrypt the conference URL into the shared encrypted card by
-	// rebuilding it alongside the existing summary content.
-	// DESCRIPTION carries the user's text plus Proton's embedded
-	// conference block (separator-bracketed), exactly as Proton stores it.
+	// Re-encrypt the conference URL into the shared card. DESCRIPTION carries the
+	// user's text plus Proton's separator-bracketed conference block, as stored.
 	const sep = "~-~-~-~-~-~-~%~!~%~!~%~!~%~!~%~!~%~!~%~!~%~!~%~!~%~!~%~!~%~!~%~!~-~-~-~-~-~-~"
 	desc := "Some Test description\\n" + sep +
 		"\\nJoin Proton Meet: https://meet.proton.me/join/id-MQYTXG4HKC#pwd-secret123\\n" + sep
@@ -469,11 +464,9 @@ func TestMarshalNotificationsTriState(t *testing.T) {
 
 // ---------- Query ----------
 
-// fakeEventsServer serves the windowed /events endpoint: it partitions the
-// given rows across the four Type buckets and the More-paginated pages, and
-// only returns a row when the requested [Start,End] window overlaps the row's
-// [StartTime,EndTime]. It records the (Type,Page) keys it served. A nil
-// bucketOf assigns every row to queryTypePartDayInside.
+// fakeEventsServer serves the windowed /events endpoint: partitions rows across
+// the four Type buckets and paginated pages, returning a row only when the
+// window overlaps its [StartTime,EndTime]. nil bucketOf uses queryTypePartDayInside.
 type fakeEventsServer struct {
 	rows     []*caltypes.RawEvent
 	bucketOf func(*caltypes.RawEvent) int
@@ -539,9 +532,8 @@ func TestQueryWindowAndDedup(t *testing.T) {
 	rows := []*caltypes.RawEvent{
 		{ID: "in-window", StartTime: 150, EndTime: 250},
 		{ID: "outside", StartTime: 5_000_000, EndTime: 6_000_000},
-		// Recurring master starting before the window, served under the
-		// FullDayBefore bucket - must survive even though it does not overlap
-		// [100,1000) by its own times.
+		// Recurring master before the window (FullDayBefore bucket) must survive
+		// even though its own times don't overlap [100,1000).
 		{ID: "master", StartTime: 5, EndTime: 10, RRule: "FREQ=DAILY", FullDay: 1},
 	}
 	bucket := func(ev *caltypes.RawEvent) int {
@@ -560,9 +552,8 @@ func TestQueryWindowAndDedup(t *testing.T) {
 	for _, ev := range got {
 		ids = append(ids, ev.ID)
 	}
-	// "outside" never overlaps any padded window; "in-window" and "master"
-	// do (master via the before-window bucket). Sorted by StartTime:
-	// master(5) first.
+	// "outside" never overlaps; "in-window" and "master" do (master via the
+	// before-window bucket). Sorted by StartTime: master(5) first.
 	if len(ids) != 2 || ids[0] != "master" || ids[1] != "in-window" {
 		t.Errorf("ids = %v, want [master in-window]", ids)
 	}
@@ -1006,11 +997,9 @@ func TestUpdateStartBumpsSequenceAndClearRRule(t *testing.T) {
 	}
 }
 
-// TestUpdatePreservesUnknownProperties is the regression guard for the
-// data-loss bug: updating one field must not drop conferencing, organizer,
-// attendees or any third-party property the writer doesn't model. The update
-// patches existing cards in place rather than rebuilding from a fixed field
-// set.
+// TestUpdatePreservesUnknownProperties guards a data-loss bug: updating one
+// field must not drop conferencing/organizer/attendees or unmodeled properties,
+// since the update patches existing cards in place.
 func TestUpdatePreservesUnknownProperties(t *testing.T) {
 	pinNow(t, time.Date(2026, 6, 2, 12, 0, 0, 0, time.UTC))
 	calKR, addrKR := testKeys(t)
@@ -1406,9 +1395,8 @@ func TestSyncErrorSurfacesCodeAndMessage(t *testing.T) {
 	}
 }
 
-// TestUpdatePreservesWebClientFields guards the update round-trip against
-// silently resetting card properties this tool does not edit: a
-// web-client-set STATUS/TRANSP, the original CREATED, and the COMMENT.
+// TestUpdatePreservesWebClientFields guards against silently resetting card
+// properties this tool doesn't edit: STATUS/TRANSP, original CREATED, COMMENT.
 func TestUpdatePreservesWebClientFields(t *testing.T) {
 	pinNow(t, time.Date(2026, 6, 2, 12, 0, 0, 0, time.UTC))
 	calKR, _ := testKeys(t)

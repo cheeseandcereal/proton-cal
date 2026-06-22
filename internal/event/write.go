@@ -18,11 +18,9 @@ import (
 var jsonNull = json.RawMessage("null")
 var jsonEmptyArray = json.RawMessage("[]")
 
-// sealCards builds the sync Event body for a CREATE: it signs the two
-// plaintext cards and encrypts+signs the two encrypted cards with fresh
-// session keys encrypted to the calendar public key, emitting their key
-// packets. Updates do not go through here - they patch the existing cards in
-// place and reuse the event's session keys (see buildUpdateBody).
+// sealCards builds the sync Event body for a CREATE: signs the plaintext cards
+// and encrypts+signs the encrypted cards with fresh session keys (to the calendar
+// public key), emitting key packets. Updates patch in place (see buildUpdateBody).
 func sealCards(frags ical.Fragments, addrKR, calKR *crypto.KeyRing, notifications, color json.RawMessage) (*eventBody, error) {
 	// Sign plaintext parts with the address key.
 	sharedSignedSig, err := pgp.SignDetached(frags.SharedSigned, addrKR)
@@ -126,9 +124,8 @@ func Create(ctx context.Context, client papi.API, access *calendar.Access, opts 
 	return created, nil
 }
 
-// update fetches the event, patches the existing cards in place (reusing the
-// event's session keys; no new key packets) and PUTs it. Returns the updated
-// raw event when the server echoes it (may be nil on success).
+// update fetches the event, patches its cards in place (reusing session keys, no
+// new key packets) and PUTs it. Returns the echoed raw event (may be nil on success).
 func update(ctx context.Context, client papi.API, access *calendar.Access, eventID string, opts UpdateOptions) (*caltypes.RawEvent, error) {
 	raw, err := Get(ctx, client, access.CalendarID, eventID)
 	if err != nil {
@@ -142,10 +139,8 @@ func update(ctx context.Context, client papi.API, access *calendar.Access, event
 		return nil, fmt.Errorf("updating event %s: %w", eventID, ErrDecryptDegraded)
 	}
 
-	// Patch the existing cards in place, preserving every property the
-	// update does not touch (conferencing, organizer, attendees, third-party
-	// X- props, COMMENT, etc.). Rebuilding from a fixed field set would
-	// silently drop them.
+	// Patch cards in place, preserving every untouched property (conferencing,
+	// organizer, attendees, X- props, COMMENT); rebuilding would silently drop them.
 	body, err := buildUpdateBody(raw, current, opts, access)
 	if err != nil {
 		return nil, err
@@ -165,19 +160,16 @@ func update(ctx context.Context, client papi.API, access *calendar.Access, event
 	return updated, nil
 }
 
-// buildUpdateBody re-seals an event for update by patching the existing
-// decrypted cards in place: only the properties the update touches are
-// changed, every other property (conferencing, organizer, attendees,
-// third-party X- props, COMMENT, ...) is preserved verbatim. The event's
-// existing session keys are reused; the body carries no key packets.
+// buildUpdateBody re-seals an event by patching the decrypted cards in place:
+// only touched properties change, all others preserved verbatim. Reuses the
+// event's session keys; the body carries no key packets.
 func buildUpdateBody(raw *caltypes.RawEvent, current *Event, opts UpdateOptions, access *calendar.Access) (*eventBody, error) {
 	sharedSK, err := pgp.DecryptSessionKey(raw.SharedKeyPacket, access.KR)
 	if err != nil {
 		return nil, fmt.Errorf("extracting shared session key: %w", err)
 	}
-	// Some events (e.g. created by the Proton web app) carry no encrypted
-	// calendar card, and therefore no calendar key packet. Only events with
-	// a calendar key packet have an encrypted calendar card to reseal.
+	// Some events (e.g. Proton web app) carry no encrypted calendar card and thus
+	// no calendar key packet; only those with a key packet have one to reseal.
 	var calSK *crypto.SessionKey
 	if raw.CalendarKeyPacket != "" {
 		calSK, err = pgp.DecryptSessionKey(raw.CalendarKeyPacket, access.KR)
@@ -205,13 +197,9 @@ func buildUpdateBody(raw *caltypes.RawEvent, current *Event, opts UpdateOptions,
 		attParts = []caltypes.EventPart{}
 	}
 
-	// Preserve the event's existing personal/row data exactly as the web
-	// client does on update (formatData): re-send Notifications, Color and
-	// the clear Attendees rows. Notifications must keep their tri-state -
-	// null (inherit the calendar default), [] (explicitly none) or the
-	// custom array - so an update that does not touch them neither wipes
-	// reminders nor silently re-enables the calendar default. An explicit
-	// opts.Reminders / opts.Color overrides the carried-over value.
+	// Re-send existing Notifications/Color/Attendees (formatData) so an untouched
+	// update preserves them. Notifications must keep their tri-state: null (inherit
+	// default), [] (none), or the custom array. opts.Reminders/Color override.
 	notifyVals, notifySet := raw.Notifications, raw.NotificationsSet
 	if opts.Reminders != nil {
 		if opts.Reminders.Inherit {
@@ -248,9 +236,8 @@ func buildUpdateBody(raw *caltypes.RawEvent, current *Event, opts UpdateOptions,
 	}, nil
 }
 
-// marshalNotifications preserves the event's notification tri-state on the
-// wire: null when the event inherits the calendar default (!set), [] when
-// reminders are explicitly none (set, empty), or the custom array.
+// marshalNotifications preserves the wire tri-state: null = inherit default (!set),
+// [] = explicitly none (set, empty), else the custom array.
 func marshalNotifications(ns []caltypes.Notification, set bool) (json.RawMessage, error) {
 	if !set {
 		return jsonNull, nil
@@ -261,9 +248,8 @@ func marshalNotifications(ns []caltypes.Notification, set bool) (json.RawMessage
 	return json.Marshal(ns)
 }
 
-// marshalAttendees renders the clear Attendees rows for an update body
-// (token + live status + verbatim comment), mirroring the web client. An
-// event with no attendees serializes as an empty array.
+// marshalAttendees renders the clear Attendees rows for an update body (token +
+// live status + verbatim comment); no attendees serializes as an empty array.
 func marshalAttendees(tokens []caltypes.AttendeeToken) (json.RawMessage, error) {
 	if len(tokens) == 0 {
 		return jsonEmptyArray, nil
@@ -275,10 +261,9 @@ func marshalAttendees(tokens []caltypes.AttendeeToken) (json.RawMessage, error) 
 	return json.Marshal(out)
 }
 
-// resealCard re-signs (plaintext parts) and re-encrypts (encrypted parts,
-// reusing sessionKey) every part of one card slice, applying signedPatch to
-// the signed/clear part and encPatch to the encrypted part. Part order and
-// types are preserved. Cards with no encrypted part ignore sessionKey.
+// resealCard re-signs plaintext parts and re-encrypts encrypted parts (reusing
+// sessionKey), applying signedPatch/encPatch respectively. Part order and types
+// are preserved; cards with no encrypted part ignore sessionKey.
 func resealCard(parts []caltypes.EventPart, keyPacketB64 string, sessionKey *crypto.SessionKey, access *calendar.Access, signedPatch, encPatch ical.CardPatch) ([]caltypes.EventPart, error) {
 	out := make([]caltypes.EventPart, 0, len(parts))
 	for _, part := range parts {
@@ -308,10 +293,9 @@ func resealCard(parts []caltypes.EventPart, keyPacketB64 string, sessionKey *cry
 	return out, nil
 }
 
-// sharedCardPatches translates an UpdateOptions into the property edits for
-// the two shared cards. The signed card owns the structural properties
-// (DTSTART/DTEND/RRULE/EXDATE/SEQUENCE); the encrypted card owns the
-// user-visible text (SUMMARY/DESCRIPTION/LOCATION).
+// sharedCardPatches translates UpdateOptions into edits for the two shared cards:
+// signed owns structural props (DTSTART/DTEND/RRULE/EXDATE/SEQUENCE), encrypted
+// owns text (SUMMARY/DESCRIPTION/LOCATION).
 func sharedCardPatches(current *Event, opts UpdateOptions) (signed, enc ical.CardPatch) {
 	signed = ical.CardPatch{Set: map[string]string{}, Delete: map[string]bool{}}
 	enc = ical.CardPatch{Set: map[string]string{}, Delete: map[string]bool{}}

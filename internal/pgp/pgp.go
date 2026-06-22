@@ -21,10 +21,8 @@ import (
 	"github.com/ProtonMail/gopenpgp/v2/crypto"
 )
 
-// SignDetached creates an armored detached signature over plaintext bytes.
-// The plaintext is signed as binary-mode literal data (signature type 0x00,
-// gopenpgp's default for crypto.NewPlainMessage), matching what the Proton
-// web client produces.
+// SignDetached creates an armored detached signature over plaintext bytes,
+// signed as binary-mode literal data (sig type 0x00), matching the web client.
 func SignDetached(plaintext string, signingKR *crypto.KeyRing) (string, error) {
 	sig, err := signingKR.SignDetached(crypto.NewPlainMessage([]byte(plaintext)))
 	if err != nil {
@@ -37,12 +35,10 @@ func SignDetached(plaintext string, signingKR *crypto.KeyRing) (string, error) {
 	return armored, nil
 }
 
-// EncryptAndSign encrypts plaintext to the recipient (calendar) keyring with
-// a fresh AES-256 session key and signs the plaintext (not the ciphertext)
-// with the signing (address) keyring. It returns the base64-encoded key
-// packet (PKESK), the base64-encoded data packet (SEIPD), and the armored
-// detached signature. The signature is detached: it is not embedded inside
-// the encrypted message.
+// EncryptAndSign encrypts plaintext to the calendar keyring with a fresh
+// AES-256 session key and signs the plaintext (not ciphertext) with the address
+// keyring. Returns base64 key packet (PKESK), base64 data packet (SEIPD) and
+// the armored detached signature.
 func EncryptAndSign(plaintext string, recipientKR, signingKR *crypto.KeyRing) (keyPacketB64, dataPacketB64, armoredSig string, err error) {
 	// GenerateSessionKey uses the default cipher, which is AES-256
 	// (constants.AES256) in gopenpgp v2.
@@ -78,11 +74,9 @@ func DecryptSessionKey(keyPacketB64 string, calKR *crypto.KeyRing) (*crypto.Sess
 	return sk, nil
 }
 
-// EncryptWithSessionKeyAndSign encrypts plaintext with an existing session
-// key, producing only a base64-encoded data packet (no key packet), and
-// signs the plaintext with the signing keyring. This is used for event
-// updates, which must reuse the event's original session keys because the
-// server keeps the original key packets.
+// EncryptWithSessionKeyAndSign encrypts plaintext with an existing session key
+// (data packet only, no key packet) and signs the plaintext. Used for updates,
+// which MUST reuse the original session key since the server keeps the key packet.
 func EncryptWithSessionKeyAndSign(plaintext string, sk *crypto.SessionKey, signingKR *crypto.KeyRing) (dataPacketB64, armoredSig string, err error) {
 	armoredSig, err = SignDetached(plaintext, signingKR)
 	if err != nil {
@@ -97,15 +91,9 @@ func EncryptWithSessionKeyAndSign(plaintext string, sk *crypto.SessionKey, signi
 	return base64.StdEncoding.EncodeToString(dataPacket), armoredSig, nil
 }
 
-// DecryptPart decrypts one encrypted event part: a base64-encoded data
-// packet combined with the event's base64-encoded key packet, using the
-// calendar keyring. It is lenient and performs no signature verification:
-// events authored by other calendar members cannot be verified with our
-// keys, and signatures are ignored on read.
-//
-// If keyPacketB64 is empty, the data packet is treated as a complete PGP
-// message (some parts are stored as full messages rather than split
-// packets).
+// DecryptPart decrypts one event part (base64 data packet + key packet) with the
+// calendar keyring. No signature verification: other members' signatures can't be
+// verified with our keys. Empty keyPacketB64 means the data packet is a full message.
 func DecryptPart(dataPacketB64, keyPacketB64 string, calKR *crypto.KeyRing) (string, error) {
 	dataPacket, err := base64.StdEncoding.DecodeString(dataPacketB64)
 	if err != nil {
@@ -133,10 +121,8 @@ func DecryptPart(dataPacketB64, keyPacketB64 string, calKR *crypto.KeyRing) (str
 	return string(plain.GetBinary()), nil
 }
 
-// DecryptArmored decrypts an armored PGP message with the given keyring,
-// returning the raw plaintext bytes. Like all read paths in this package it
-// performs no signature verification (lenient by design; detached
-// signatures on calendar passphrases are ignored).
+// DecryptArmored decrypts an armored PGP message, returning raw plaintext bytes.
+// No signature verification (lenient, like all read paths in this package).
 func DecryptArmored(armored string, kr *crypto.KeyRing) ([]byte, error) {
 	msg, err := crypto.NewPGPMessageFromArmored(armored)
 	if err != nil {
@@ -150,10 +136,8 @@ func DecryptArmored(armored string, kr *crypto.KeyRing) ([]byte, error) {
 	return plain.GetBinary(), nil
 }
 
-// UnlockKeyRing unlocks armored private keys with a shared passphrase and
-// collects all that unlock into one keyring. Lenient: keys that fail to
-// parse, unlock or register are skipped; it errors only when no key
-// unlocks at all.
+// UnlockKeyRing unlocks armored private keys with a shared passphrase into one
+// keyring. Lenient: keys that fail are skipped; errors only if none unlock.
 func UnlockKeyRing(armoredKeys []string, passphrase []byte) (*crypto.KeyRing, error) {
 	kr, err := crypto.NewKeyRing(nil)
 	if err != nil {

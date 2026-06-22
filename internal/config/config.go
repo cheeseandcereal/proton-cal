@@ -33,8 +33,7 @@ const (
 )
 
 // DefaultBaseURL is the Proton API endpoint used unless overridden in
-// config.toml. This host is verified to work with app version "Other"
-// (see docs/crypto.md).
+// config.toml (verified to work with app version "Other"; see docs/crypto.md).
 const DefaultBaseURL = "https://mail-api.proton.me"
 
 // Config is the user-editable configuration stored in config.toml.
@@ -112,9 +111,8 @@ func Save(cfg Config) error {
 	return writeFileAtomic(filepath.Join(dir, configFile), buf.Bytes())
 }
 
-// Session holds everything needed to use the API after login: the session
-// tokens and the derived salted key passphrase (which unlocks user/address
-// keys without the account password).
+// Session holds the API session tokens plus the derived salted key passphrase
+// (which unlocks user/address keys without the account password).
 type Session struct {
 	UID           string `json:"uid"`
 	AccessToken   string `json:"access_token"`
@@ -221,9 +219,8 @@ func (s *SessionStore) Clear() error {
 	return nil
 }
 
-// lock acquires an exclusive advisory lock on path, returning an unlock
-// func. Cross-platform via gofrs/flock (flock on unix, LockFileEx on
-// Windows).
+// lock acquires an exclusive advisory lock on path, returning an unlock func.
+// Cross-platform via gofrs/flock (flock on unix, LockFileEx on Windows).
 func lock(path string) (func(), error) {
 	fl := flock.New(path)
 	if err := fl.Lock(); err != nil {
@@ -232,10 +229,8 @@ func lock(path string) (func(), error) {
 	return func() { _ = fl.Unlock() }, nil
 }
 
-// writeFileAtomic writes data to path atomically and durably
-// (temp file in the same directory, fsync, rename) via natefinch/atomic.
-// Fresh files are created mode 0600 (os.CreateTemp's default); existing
-// files keep their permissions.
+// writeFileAtomic writes data atomically and durably via natefinch/atomic.
+// Fresh files are mode 0600; existing files keep their permissions.
 func writeFileAtomic(path string, data []byte) error {
 	return atomic.WriteFile(path, bytes.NewReader(data))
 }

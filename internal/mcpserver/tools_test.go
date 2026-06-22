@@ -12,9 +12,8 @@ import (
 	"github.com/cheeseandcereal/proton-cal/internal/config"
 )
 
-// stubServer returns a server whose bootstrap yields a detached service
-// with the given config (no session/client). Only good for exercising
-// paths that fail before touching the network.
+// stubServer returns a server whose bootstrap yields a detached service (no
+// session/client). Only for paths that fail before touching the network.
 func stubServer(cfg config.Config) *server {
 	return &server{bootstrap: func() (*calsvc.Service, error) {
 		return calsvc.NewDetached(cfg), nil
@@ -28,9 +27,8 @@ func failingServer(err error) *server {
 	}}
 }
 
-// apiStubServer returns a server whose service reads from canned GET bodies
-// (e.g. a calendar list), so resolution-dependent paths run offline. Writes
-// and key-unlock operations still panic.
+// apiStubServer returns a server whose service reads canned GET bodies so
+// resolution-dependent paths run offline. Writes and key-unlock still panic.
 func apiStubServer(cfg config.Config, bodies map[string]string) *server {
 	return &server{bootstrap: func() (*calsvc.Service, error) {
 		return calsvc.NewWithAPI(cfg, mcpFakeAPI{bodies: bodies}), nil
@@ -54,10 +52,8 @@ func (mcpFakeAPI) Put(context.Context, string, any, any) error  { return nil }
 func (mcpFakeAPI) Post(context.Context, string, any, any) error { return nil }
 func (mcpFakeAPI) Delete(context.Context, string, any) error    { return nil }
 
-// A timed event with no end no longer errors before the network: the end
-// defaults to the calendar's duration, resolved after the calendar unlocks
-// (covered by calsvc.TestApplyDefaultDuration). A bad start still fails in the
-// detached path, which is what this exercises.
+// A timed event with no end no longer errors pre-network (end defaults to
+// calendar duration); a bad start still fails in the detached path tested here.
 func TestCreateEventBadStart(t *testing.T) {
 	s := stubServer(config.Config{Timezone: "UTC"})
 	_, _, err := s.createEvent(context.Background(), nil, createEventArgs{

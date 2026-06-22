@@ -17,12 +17,10 @@ import (
 
 const pageSize = 100
 
-// eventBody is the Event object of a sync payload. Field presence is
-// significant (see docs/api.md): the content arrays must serialize as []
-// (never null). Notifications/Color/Attendees mirror the web client's
-// formatData: on create they are null/null/[]; on update they carry the
-// event's existing values so the sync call does not reset them (sending
-// null/[] would clear reminders and attendee RSVP rows).
+// eventBody is the Event object of a sync payload. Field presence is significant
+// (see docs/api.md): content arrays must serialize as [] (never null).
+// Notifications/Color/Attendees mirror formatData: null/null/[] on create; on
+// update they carry existing values so the sync doesn't clear reminders/RSVP rows.
 type eventBody struct {
 	Permissions           int                  `json:"Permissions"`
 	SharedKeyPacket       string               `json:"SharedKeyPacket,omitempty"`
@@ -36,8 +34,7 @@ type eventBody struct {
 }
 
 // attendeeClear is one entry of the clear Attendees array on an update body
-// (token + live RSVP status), mirroring the web client's formatData. Comment
-// is preserved verbatim as raw JSON (null when absent).
+// (token + live RSVP status); Comment preserved verbatim as raw JSON (null when absent).
 type attendeeClear struct {
 	Token   string          `json:"Token"`
 	Status  int             `json:"Status"`
@@ -73,9 +70,8 @@ type syncResp struct {
 	} `json:"Responses"`
 }
 
-// firstError returns the failure carried by the response: the first
-// per-event reply's error when one is present, the top-level code
-// otherwise, nil on success.
+// firstError returns the response's failure: the first per-event reply's error,
+// else the top-level code, nil on success.
 func (r *syncResp) firstError() error {
 	if len(r.Responses) == 0 {
 		// Deletes return only a top-level code.
@@ -94,9 +90,8 @@ func (r *syncResp) firstError() error {
 	return nil
 }
 
-// firstEvent interprets the first per-event reply: (echoed event, nil) on
-// success (the event may be nil - updates do not always echo it), or the
-// error from firstError.
+// firstEvent interprets the first per-event reply: (echoed event, nil) on success
+// (event may be nil - updates don't always echo it), or the error from firstError.
 func (r *syncResp) firstEvent() (*caltypes.RawEvent, error) {
 	if err := r.firstError(); err != nil {
 		return nil, err
@@ -117,16 +112,14 @@ func putSync(ctx context.Context, client papi.API, calendarID string, payload sy
 
 type eventsResponse struct {
 	Events []*caltypes.RawEvent `json:"Events"`
-	// More is the cursor flag on windowed (Type-scoped) queries: 1 means
-	// another page follows, 0 means this is the last. Total is set only on
-	// the legacy unscoped query and is unused here.
+	// More is the page cursor on Type-scoped queries (1 = another page follows).
+	// Total is set only on the legacy unscoped query and is unused here.
 	More  int `json:"More"`
 	Total int `json:"Total"`
 }
 
-// Windowed-query constants. The /events endpoint only honours Start/End when
-// a Type is supplied (see docs/api.md "Reading events and pagination"); the
-// web client issues one paginated stream per Type, all four in parallel.
+// Windowed-query constants. /events honours Start/End only when a Type is
+// supplied (see docs/api.md); one paginated stream per Type, all four in parallel.
 const (
 	// queryTypePartDayInside selects timed events starting inside the window.
 	queryTypePartDayInside = 0
@@ -135,21 +128,16 @@ const (
 	queryTypePartDayBefore = 1
 	// queryTypeFullDayInside selects all-day events starting inside the window.
 	queryTypeFullDayInside = 2
-	// queryTypeFullDayBefore selects all-day events starting before the window
-	// but extending/recurring into it. This is what surfaces recurring masters
-	// whose first occurrence predates the window (live-verified against a
-	// Birthdays calendar of past-dated FREQ=YEARLY masters).
+	// queryTypeFullDayBefore selects all-day events starting before the window but
+	// extending/recurring into it; surfaces recurring masters predating the window.
 	queryTypeFullDayBefore = 3
 
-	// maxWindowSeconds is the largest Start..End span the server accepts;
-	// wider spans are rejected with code 2000 "Time window is too big"
-	// (live-probed cap: exactly 93 days = 93*86400; 8035201s is rejected).
+	// maxWindowSeconds is the largest Start..End span the server accepts (93 days);
+	// wider spans are rejected with code 2000 "Time window is too big".
 	maxWindowSeconds = 93 * 86400
 
-	// windowPadSeconds widens each end of the requested window by a day
-	// before querying. The server buckets events by timezone-local
-	// start/end, so a day of slack avoids missing all-day or boundary rows
-	// near the edges (mirrors the web client's +/-1 day search padding).
+	// windowPadSeconds widens each window end by a day: the server buckets by
+	// timezone-local start/end, so slack avoids missing all-day/boundary rows.
 	windowPadSeconds = 86400
 )
 
@@ -166,13 +154,10 @@ var queryTypes = [...]int{
 // (all to one host over HTTP/2; modest to stay clear of rate limits).
 const maxConcurrentChunks = 6
 
-// query fetches the raw event rows a calendar exposes for the window
-// [start, end). The endpoint ignores Start/End unless a Type is supplied, so
-// it issues one paginated stream per Type (queryTypes) concurrently,
-// splitting over-wide windows into maxWindowSeconds chunks and padding each
-// end by windowPadSeconds for timezone slack. Rows are deduplicated by ID and
-// sorted by StartTime; recurring masters always survive (occurrence-level
-// filtering and expansion happen later). See docs/api.md.
+// query fetches the raw rows a calendar exposes for [start, end): one paginated
+// stream per Type concurrently, splitting over-wide windows into maxWindowSeconds
+// chunks with windowPadSeconds slack. Rows are deduped by ID and sorted by
+// StartTime; recurring masters always survive (expansion happens later). See docs/api.md.
 func query(ctx context.Context, client papi.API, calendarID string, start, end int64, tzName string) ([]*caltypes.RawEvent, error) {
 	if end <= start {
 		return nil, nil
@@ -276,12 +261,9 @@ func Get(ctx context.Context, client papi.API, calendarID, eventID string) (*cal
 	return &bare, nil
 }
 
-// GetByUID fetches all raw rows sharing an iCal UID (master + exceptions);
-// the UID query param filters server-side (verified live). It paginates on the
-// More cursor so a series with more than one page of edited occurrences is
-// returned in full; if the server does not set More on UID-filtered queries
-// (it is documented only for Type-scoped queries), the loop still terminates
-// after the first (and only) page.
+// GetByUID fetches all raw rows sharing an iCal UID (master + exceptions),
+// filtered server-side and paginated on the More cursor so multi-page series
+// are returned in full.
 func GetByUID(ctx context.Context, client papi.API, calendarID, uid string) ([]*caltypes.RawEvent, error) {
 	var all []*caltypes.RawEvent
 	for page := 0; ; page++ {

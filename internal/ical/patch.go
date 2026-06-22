@@ -7,37 +7,25 @@ import (
 	"time"
 )
 
-// CardPatch describes property-level edits applied to a single decrypted
-// VEVENT card, preserving every other line verbatim. It is the basis for
-// faithful updates: instead of rebuilding a card from a known set of fields
-// (which silently drops conferencing, attendees, organizer and any
-// third-party properties), the original card text is kept and only the named
-// properties are changed.
+// CardPatch describes property-level edits to a decrypted VEVENT card,
+// preserving every other line verbatim (so conferencing, attendees, organizer
+// and third-party properties survive a rebuild-from-fields would drop).
 type CardPatch struct {
-	// Set replaces (or inserts, when absent) a single-valued property. The
-	// key is the upper-case property NAME; the value is the full logical
-	// content line WITHOUT the name (i.e. everything after "NAME"), e.g.
-	// ":new value" or ";TZID=...:20260101T090000". An empty/zero entry is
-	// invalid; use Delete to remove.
+	// Set replaces or inserts a single-valued property: key is the upper-case
+	// NAME, value is the line after NAME, e.g. ":new value" or ";TZID=...:...".
 	Set map[string]string
 	// Delete removes every line whose property name is listed (single- or
 	// multi-valued). Applied before Set and Append.
 	Delete map[string]bool
-	// Append adds new logical lines verbatim (already including the property
-	// name and value, unfolded), e.g. for additional EXDATEs. Exact-duplicate
-	// lines already present in the card are skipped.
+	// Append adds verbatim logical lines (name+value, unfolded), e.g. extra
+	// EXDATEs; exact duplicates already in the card are skipped.
 	Append []string
 }
 
-// PatchCard applies a CardPatch to a decrypted VEVENT card and returns the
-// re-wrapped card text (VCALENDAR/VEVENT wrapper, CRLF separators, no
-// VERSION/PRODID, no trailing CRLF - matching BuildFragments output, so the
-// result can be re-signed/re-encrypted like a freshly built fragment).
-//
-// Property order is preserved: a Set on an existing property replaces it in
-// place; a Set on an absent property is appended after the last existing
-// top-level property. Nested components (e.g. VALARM) and all unlisted
-// properties are kept verbatim.
+// PatchCard applies a CardPatch and returns re-wrapped card text matching
+// BuildFragments output (no VERSION/PRODID, no trailing CRLF), so it can be
+// re-signed/encrypted. Property order is preserved (Set replaces in place or
+// appends); nested components and unlisted properties are kept verbatim.
 func PatchCard(card string, patch CardPatch) string {
 	lines := unfoldLines(card)
 
@@ -102,9 +90,8 @@ func PatchCard(card string, patch CardPatch) string {
 // for TEXT properties (SUMMARY/DESCRIPTION/LOCATION).
 func EscapeText(s string) string { return escapeText(s) }
 
-// DateValue formats a date(-time) property body (everything after the
-// property name) for the given zone/all-day form, e.g. ";TZID=...:2026..." or
-// ":20260101T090000Z". It mirrors the forms BuildFragments emits.
+// DateValue formats a date(-time) property body (after the name) for the
+// zone/all-day form, mirroring the forms BuildFragments emits.
 func DateValue(t time.Time, tzName string, allDay bool) (string, error) {
 	line, err := dtProp("X", t, tzName, allDay)
 	if err != nil {

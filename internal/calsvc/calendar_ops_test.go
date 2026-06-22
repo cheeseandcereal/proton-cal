@@ -10,9 +10,8 @@ import (
 	"github.com/cheeseandcereal/proton-cal/internal/config"
 )
 
-// recordingAPI serves canned GET bodies and records write calls (method, path,
-// body), so update/delete routing and partial bodies can be asserted without a
-// session. It satisfies papi.API.
+// recordingAPI serves canned GET bodies and records write calls so routing and
+// partial bodies can be asserted without a session. Satisfies papi.API.
 type recordingAPI struct {
 	bodies map[string]string // GET path -> JSON body
 	puts   []recordedWrite

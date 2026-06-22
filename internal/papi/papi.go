@@ -95,9 +95,8 @@ type Client struct {
 	sess config.Session // cached tokens; zero until first use
 }
 
-// New wires a Client over an existing proton.Client. It registers the
-// auth/deauth handlers that persist token rotations to the store (and keep
-// the in-memory token cache fresh) - callers must not register their own.
+// New wires a Client over an existing proton.Client, registering auth/deauth
+// handlers that persist token rotations. Callers must not register their own.
 func New(pc *proton.Client, store *config.SessionStore, baseURL string) *Client {
 	c := &Client{
 		pc:      pc,
@@ -146,9 +145,8 @@ func (c *Client) Close() {
 // Proton exposes the typed go-proton-api client.
 func (c *Client) Proton() *proton.Client { return c.pc }
 
-// Manager exposes the owned go-proton-api Manager (nil unless the client was
-// built via FromSession, which is the only constructor that owns one). It is
-// needed for the SRP scope-elevation handshake (Manager.AuthInfo).
+// Manager exposes the owned go-proton-api Manager (nil unless built via
+// FromSession). Needed for the SRP scope-elevation handshake (Manager.AuthInfo).
 func (c *Client) Manager() *proton.Manager { return c.m }
 
 // Store exposes the session store the client persists tokens to.
@@ -164,9 +162,8 @@ func (c *Client) SessionUID() (string, error) {
 	return sess.UID, nil
 }
 
-// session returns the cached tokens, loading them from the store on first
-// use (the store hits the disk under an advisory lock; the cache avoids
-// paying that on every request - rotations update it via the auth handler).
+// session returns the cached tokens, loading from the store on first use; the
+// cache avoids a locked disk read per request (rotations update it via the handler).
 func (c *Client) session() (config.Session, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -233,9 +230,8 @@ func (c *Client) Delete(ctx context.Context, path string, out any) error {
 }
 
 // Do performs a raw authenticated request. On 401 it re-reads the persisted
-// session (another process may have refreshed it) and otherwise triggers the
-// typed client's token refresh (once) and retries; on 429 it honours
-// Retry-After.
+// session, else triggers the typed client's refresh (once) and retries; on 429
+// it honours Retry-After.
 func (c *Client) Do(ctx context.Context, method, path string, query url.Values, body, out any) error {
 	refreshed := false
 	for attempt := 0; ; attempt++ {
@@ -251,9 +247,8 @@ func (c *Client) Do(ctx context.Context, method, path string, query url.Values, 
 		switch {
 		case status == http.StatusUnauthorized && !refreshed:
 			refreshed = true
-			// A concurrent process may have rotated the tokens already:
-			// prefer the persisted session when it differs from what we
-			// just used.
+			// Another process may have rotated tokens; prefer the persisted
+			// session when it differs from what we just used.
 			if disk, derr := c.store.Load(); derr == nil && disk.Valid() && disk.AccessToken != sess.AccessToken {
 				c.setSession(disk)
 				continue

@@ -10,13 +10,9 @@ import (
 	"github.com/cheeseandcereal/proton-cal/internal/eventview"
 )
 
-// TestE2ERemindersInherit verifies the reminder inheritance tri-state end to
-// end: an event created through the service carries no reminders of its own
-// (the API is sent Notifications=null), so its EFFECTIVE reminders must equal
-// the calendar's default set for its kind. A field-only update must not
-// freeze a copy of the defaults onto the event (NotificationsSet stays
-// false), preserving inheritance. This guards the behavior the Proton
-// clients rely on against API/library drift.
+// TestE2ERemindersInherit verifies reminder inheritance end to end: a created
+// event sends Notifications=null, so effective reminders equal the calendar
+// default; a field-only update must keep NotificationsSet false (no freeze).
 func TestE2ERemindersInherit(t *testing.T) {
 	svc, cal := liveService(t)
 	ctx := context.Background()
