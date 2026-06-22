@@ -729,6 +729,63 @@ func TestCreatePayloadShape(t *testing.T) {
 	}
 }
 
+func TestCreateWithRemindersAndColor(t *testing.T) {
+	pinNow(t, time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC))
+	pinUID(t, "fixed-uid-2")
+	rec := newSyncRecorder()
+	client := newTestClient(t, rec)
+	access := testAccess(t)
+
+	start := time.Date(2026, 6, 15, 9, 0, 0, 0, time.UTC)
+	_, err := Create(context.Background(), client, access, CreateOptions{
+		Summary: "Reminders", Start: start, End: start.Add(time.Hour), TZName: "UTC",
+		Reminders: []caltypes.Notification{
+			{Type: 1, Trigger: "-PT15M"},
+			{Type: 0, Trigger: "-PT1H"},
+		},
+		RemindersSet: true,
+		Color:        "#EC3E7C",
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	evBody := rec.bodies()[0]["Events"].([]any)[0].(map[string]any)["Event"].(map[string]any)
+
+	notifs, ok := evBody["Notifications"].([]any)
+	if !ok || len(notifs) != 2 {
+		t.Fatalf("Notifications = %#v, want 2-element array", evBody["Notifications"])
+	}
+	n0 := notifs[0].(map[string]any)
+	if n0["Type"] != float64(1) || n0["Trigger"] != "-PT15M" {
+		t.Errorf("first notification = %#v", n0)
+	}
+	if evBody["Color"] != "#EC3E7C" {
+		t.Errorf("Color = %#v, want #EC3E7C", evBody["Color"])
+	}
+}
+
+func TestCreateExplicitNoReminders(t *testing.T) {
+	pinNow(t, time.Date(2026, 6, 1, 12, 0, 0, 0, time.UTC))
+	pinUID(t, "fixed-uid-3")
+	rec := newSyncRecorder()
+	client := newTestClient(t, rec)
+	access := testAccess(t)
+
+	start := time.Date(2026, 6, 15, 9, 0, 0, 0, time.UTC)
+	// RemindersSet true, empty list -> explicit [] (none).
+	if _, err := Create(context.Background(), client, access, CreateOptions{
+		Summary: "NoReminders", Start: start, End: start.Add(time.Hour), TZName: "UTC",
+		RemindersSet: true,
+	}); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	evBody := rec.bodies()[0]["Events"].([]any)[0].(map[string]any)["Event"].(map[string]any)
+	arr, ok := evBody["Notifications"].([]any)
+	if !ok || len(arr) != 0 {
+		t.Errorf("Notifications = %#v, want empty array", evBody["Notifications"])
+	}
+}
+
 // ---------- Update ----------
 
 // serveExisting wires GET event/{id} + UID listing for a fabricated event.
@@ -809,6 +866,107 @@ func TestUpdateSummaryOnlyReusesSessionKeyAndKeepsSequence(t *testing.T) {
 	if !strings.Contains(plain, "SUMMARY:New title") {
 		t.Errorf("decrypted updated part:\n%s", plain)
 	}
+}
+
+func TestUpdateRemindersAndColorTriState(t *testing.T) {
+	pinNow(t, time.Date(2026, 6, 2, 12, 0, 0, 0, time.UTC))
+	start := time.Date(2026, 6, 15, 7, 0, 0, 0, time.UTC).Unix()
+
+	// notificationsOf extracts the Notifications field from a recorded body.
+	notificationsOf := func(rec *syncRecorder) any {
+		return rec.bodies()[0]["Events"].([]any)[0].(map[string]any)["Event"].(map[string]any)["Notifications"]
+	}
+	colorOf := func(rec *syncRecorder) any {
+		return rec.bodies()[0]["Events"].([]any)[0].(map[string]any)["Event"].(map[string]any)["Color"]
+	}
+
+	// withCustom returns a fresh raw carrying a custom reminder + color.
+	withCustom := func(t *testing.T) *caltypes.RawEvent {
+		raw := fabricateRaw(t, "ev1", "uid1", start, start+1800, "UTC", "", 0, nil, "T", 1)
+		raw.Notifications = []caltypes.Notification{{Type: 1, Trigger: "-PT30M"}}
+		raw.NotificationsSet = true
+		raw.Color = "#415DF0"
+		return raw
+	}
+
+	t.Run("keep re-sends existing", func(t *testing.T) {
+		rec := newSyncRecorder()
+		serveExisting(rec, withCustom(t))
+		client := newTestClient(t, rec)
+		s := "renamed"
+		if _, err := update(context.Background(), client, testAccess(t), "ev1", UpdateOptions{Summary: &s}); err != nil {
+			t.Fatalf("update: %v", err)
+		}
+		arr, ok := notificationsOf(rec).([]any)
+		if !ok || len(arr) != 1 {
+			t.Errorf("keep: Notifications = %#v, want the existing 1-element array", notificationsOf(rec))
+		}
+		if colorOf(rec) != "#415DF0" {
+			t.Errorf("keep: Color = %#v, want preserved #415DF0", colorOf(rec))
+		}
+	})
+
+	t.Run("inherit -> null", func(t *testing.T) {
+		rec := newSyncRecorder()
+		serveExisting(rec, withCustom(t))
+		client := newTestClient(t, rec)
+		if _, err := update(context.Background(), client, testAccess(t), "ev1", UpdateOptions{
+			Reminders: &RemindersUpdate{Inherit: true},
+		}); err != nil {
+			t.Fatalf("update: %v", err)
+		}
+		if notificationsOf(rec) != nil {
+			t.Errorf("inherit: Notifications = %#v, want null", notificationsOf(rec))
+		}
+	})
+
+	t.Run("none -> empty array", func(t *testing.T) {
+		rec := newSyncRecorder()
+		serveExisting(rec, withCustom(t))
+		client := newTestClient(t, rec)
+		if _, err := update(context.Background(), client, testAccess(t), "ev1", UpdateOptions{
+			Reminders: &RemindersUpdate{List: nil}, // !Inherit, empty -> []
+		}); err != nil {
+			t.Fatalf("update: %v", err)
+		}
+		arr, ok := notificationsOf(rec).([]any)
+		if !ok || len(arr) != 0 {
+			t.Errorf("none: Notifications = %#v, want empty array", notificationsOf(rec))
+		}
+	})
+
+	t.Run("custom + color override", func(t *testing.T) {
+		rec := newSyncRecorder()
+		serveExisting(rec, withCustom(t))
+		client := newTestClient(t, rec)
+		if _, err := update(context.Background(), client, testAccess(t), "ev1", UpdateOptions{
+			Reminders: &RemindersUpdate{List: []caltypes.Notification{{Type: 0, Trigger: "-PT2H"}}},
+			Color:     &ColorUpdate{Value: "#112233"},
+		}); err != nil {
+			t.Fatalf("update: %v", err)
+		}
+		arr, ok := notificationsOf(rec).([]any)
+		if !ok || len(arr) != 1 || arr[0].(map[string]any)["Trigger"] != "-PT2H" {
+			t.Errorf("custom: Notifications = %#v", notificationsOf(rec))
+		}
+		if colorOf(rec) != "#112233" {
+			t.Errorf("color override = %#v, want #112233", colorOf(rec))
+		}
+	})
+
+	t.Run("color inherit -> null", func(t *testing.T) {
+		rec := newSyncRecorder()
+		serveExisting(rec, withCustom(t))
+		client := newTestClient(t, rec)
+		if _, err := update(context.Background(), client, testAccess(t), "ev1", UpdateOptions{
+			Color: &ColorUpdate{Value: ""},
+		}); err != nil {
+			t.Fatalf("update: %v", err)
+		}
+		if colorOf(rec) != nil {
+			t.Errorf("color inherit: Color = %#v, want null", colorOf(rec))
+		}
+	})
 }
 
 func TestUpdateStartBumpsSequenceAndClearRRule(t *testing.T) {

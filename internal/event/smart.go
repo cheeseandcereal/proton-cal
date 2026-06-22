@@ -229,6 +229,22 @@ func seedExceptionRow(master *Event, opts UpdateOptions, occurrenceTS int64) Cre
 	if tz == "" {
 		tz = icaltime.OrUTC(master.StartTimezone)
 	}
+	// Seed reminders/color from the master so a fresh single-edit keeps the
+	// series' effective reminders/color (the exception row is a CREATE, which
+	// would otherwise revert to inherit). An explicit opts override wins.
+	reminders, remindersSet := master.Notifications, master.NotificationsSet
+	if opts.Reminders != nil {
+		if opts.Reminders.Inherit {
+			reminders, remindersSet = nil, false
+		} else {
+			reminders, remindersSet = opts.Reminders.List, true
+		}
+	}
+	color := master.Color
+	if opts.Color != nil {
+		color = opts.Color.Value
+	}
+
 	return CreateOptions{
 		Summary:      strOr(opts.Summary, master.Summary),
 		Description:  strOr(opts.Description, master.Description),
@@ -237,6 +253,9 @@ func seedExceptionRow(master *Event, opts UpdateOptions, occurrenceTS int64) Cre
 		End:          end,
 		TZName:       tz,
 		AllDay:       master.AllDay,
+		Reminders:    reminders,
+		RemindersSet: remindersSet,
+		Color:        color,
 		UID:          master.UID,
 		RecurrenceID: &occStart,
 		// The server requires single edits to carry a SEQUENCE >= the

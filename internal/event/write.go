@@ -23,7 +23,7 @@ var jsonEmptyArray = json.RawMessage("[]")
 // session keys encrypted to the calendar public key, emitting their key
 // packets. Updates do not go through here - they patch the existing cards in
 // place and reuse the event's session keys (see buildUpdateBody).
-func sealCards(frags ical.Fragments, addrKR, calKR *crypto.KeyRing) (*eventBody, error) {
+func sealCards(frags ical.Fragments, addrKR, calKR *crypto.KeyRing, notifications, color json.RawMessage) (*eventBody, error) {
 	// Sign plaintext parts with the address key.
 	sharedSignedSig, err := pgp.SignDetached(frags.SharedSigned, addrKR)
 	if err != nil {
@@ -57,9 +57,18 @@ func sealCards(frags ical.Fragments, addrKR, calKR *crypto.KeyRing) (*eventBody,
 		},
 		AttendeesEventContent: []caltypes.EventPart{},
 		Attendees:             jsonEmptyArray,
-		Notifications:         jsonNull,
-		Color:                 jsonNull,
+		Notifications:         notifications,
+		Color:                 color,
 	}, nil
+}
+
+// marshalColor renders a color row value: null when empty (inherit the
+// calendar color), else the JSON string.
+func marshalColor(color string) (json.RawMessage, error) {
+	if color == "" {
+		return jsonNull, nil
+	}
+	return json.Marshal(color)
 }
 
 // Create encrypts and creates an event via the sync endpoint. Returns the
@@ -87,7 +96,15 @@ func Create(ctx context.Context, client papi.API, access *calendar.Access, opts 
 		return nil, fmt.Errorf("building event fragments: %w", err)
 	}
 
-	body, err := sealCards(frags, access.AddrKR, access.KR)
+	notifications, err := marshalNotifications(opts.Reminders, opts.RemindersSet)
+	if err != nil {
+		return nil, fmt.Errorf("encoding notifications: %w", err)
+	}
+	color, err := marshalColor(opts.Color)
+	if err != nil {
+		return nil, fmt.Errorf("encoding color: %w", err)
+	}
+	body, err := sealCards(frags, access.AddrKR, access.KR, notifications, color)
 	if err != nil {
 		return nil, err
 	}
@@ -192,18 +209,28 @@ func buildUpdateBody(raw *caltypes.RawEvent, current *Event, opts UpdateOptions,
 	// client does on update (formatData): re-send Notifications, Color and
 	// the clear Attendees rows. Notifications must keep their tri-state -
 	// null (inherit the calendar default), [] (explicitly none) or the
-	// custom array - so an update neither wipes reminders nor silently
-	// re-enables the calendar default on an event whose reminders were
-	// removed.
-	notifications, err := marshalNotifications(raw.Notifications, raw.NotificationsSet)
+	// custom array - so an update that does not touch them neither wipes
+	// reminders nor silently re-enables the calendar default. An explicit
+	// opts.Reminders / opts.Color overrides the carried-over value.
+	notifyVals, notifySet := raw.Notifications, raw.NotificationsSet
+	if opts.Reminders != nil {
+		if opts.Reminders.Inherit {
+			notifyVals, notifySet = nil, false
+		} else {
+			notifyVals, notifySet = opts.Reminders.List, true
+		}
+	}
+	notifications, err := marshalNotifications(notifyVals, notifySet)
 	if err != nil {
 		return nil, fmt.Errorf("encoding notifications: %w", err)
 	}
-	color := jsonNull
-	if raw.Color != "" {
-		if color, err = json.Marshal(raw.Color); err != nil {
-			return nil, fmt.Errorf("encoding color: %w", err)
-		}
+	colorVal := raw.Color
+	if opts.Color != nil {
+		colorVal = opts.Color.Value
+	}
+	color, err := marshalColor(colorVal)
+	if err != nil {
+		return nil, fmt.Errorf("encoding color: %w", err)
 	}
 	attendees, err := marshalAttendees(raw.Attendees)
 	if err != nil {

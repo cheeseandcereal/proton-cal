@@ -151,12 +151,37 @@ type CreateOptions struct {
 	AllDay      bool
 	RRule       string // verbatim RRULE value ("" = not recurring)
 
+	// Reminders is the event's own reminder set; RemindersSet selects the
+	// tri-state on the wire (mirroring caltypes.RawEvent):
+	//   - RemindersSet false           -> null  (inherit the calendar default)
+	//   - RemindersSet true, len 0      -> []    (explicitly none)
+	//   - RemindersSet true, len>0      -> the custom array
+	Reminders    []caltypes.Notification
+	RemindersSet bool
+	// Color is the per-event color override ("#RRGGBB"); "" = inherit the
+	// calendar color (sent as null).
+	Color string
+
 	// Exception-row fields (single-occurrence edits): UID must equal the
 	// master's UID, RecurrenceID the original occurrence start, Sequence
 	// >= the master's SEQUENCE (server-enforced).
 	UID          string
 	RecurrenceID *time.Time
 	Sequence     int
+}
+
+// RemindersUpdate expresses an update to an event's reminders, distinct from
+// "keep current" (a nil *RemindersUpdate). Inherit reverts to the calendar
+// default (null); otherwise List is the new set (empty = explicitly none).
+type RemindersUpdate struct {
+	Inherit bool
+	List    []caltypes.Notification
+}
+
+// ColorUpdate expresses an update to an event's color, distinct from "keep
+// current" (a nil *ColorUpdate). Value "" means inherit the calendar color.
+type ColorUpdate struct {
+	Value string
 }
 
 // UpdateOptions describes a partial update; nil pointers mean "keep
@@ -172,6 +197,11 @@ type UpdateOptions struct {
 	RRule       *string
 	ClearRRule  bool
 	AddExdates  []time.Time
+	// Reminders/Color: nil = keep the event's current value; non-nil
+	// overrides it (see RemindersUpdate / ColorUpdate). Neither is a
+	// significant change (no SEQUENCE bump).
+	Reminders *RemindersUpdate
+	Color     *ColorUpdate
 }
 
 // Significant reports whether the update carries time/recurrence changes
