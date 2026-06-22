@@ -21,16 +21,16 @@ cover:
 	go tool cover -func=coverage.out | tail -1
 	@echo "HTML: go tool cover -html=coverage.out"
 
-# Integration tests hit the real Proton API; opt-in. See internal/integration.
+# Integration tests hit the real Proton API; opt-in. See pkg/integration.
 # The live e2e tests live alongside the packages they exercise (the calsvc
 # service layer, the MCP tool handlers, the CLI commands in-process) plus the
-# original domain-layer suite under internal/integration.
+# original domain-layer suite under pkg/integration.
 integration:
 	go test -tags integration -count=1 -v \
-		./internal/integration/... \
-		./internal/calsvc/... \
-		./internal/mcpserver/... \
-		./internal/cli/...
+		./pkg/integration/... \
+		./pkg/calsvc/... \
+		./pkg/mcpserver/... \
+		./pkg/cli/...
 
 clean:
 	rm -f proton-cal coverage.out coverage.html

@@ -240,22 +240,22 @@ Or for [opencode](https://opencode.ai) (`opencode.json`):
 ### Architecture
 
 ```
-cmd/proton-cal        entry point
-internal/cli          cobra commands (argument binding + rendering)
-internal/mcpserver    MCP stdio server (tool schemas + rendering)
-internal/calsvc       shared service layer: bootstrap, input parsing,
-                      list/create/update/delete orchestration
-internal/auth         login (SRP/2FA/captcha), key unlocking, salted passphrase
-internal/papi         go-proton-api wrapper + raw calls for endpoints it lacks
-internal/calendar     calendar listing, member resolution, calendar key unlock
-internal/event        event CRUD: decrypt, encrypt, sync payloads, recurrence ops
-internal/pgp          PGP primitives (detached sign, session-key encrypt/reuse)
-internal/ical         iCalendar fragment builder/parser (RFC 5545 escaping)
-internal/icaltime     shared iCalendar date/time codec + timezone helpers
-internal/recurrence   RRULE building/validation + occurrence expansion
-internal/caltypes     event-row wire types shared by recurrence and event
-internal/config       config + session store (flock-guarded, atomic writes)
-internal/integration  opt-in live test suite (build tag `integration`)
+cmd/proton-cal   entry point
+pkg/cli          cobra commands (argument binding + rendering)
+pkg/mcpserver    MCP stdio server (tool schemas + rendering)
+pkg/calsvc       shared service layer: bootstrap, input parsing,
+                 list/create/update/delete orchestration
+pkg/auth         login (SRP/2FA/captcha), key unlocking, salted passphrase
+pkg/papi         go-proton-api wrapper + raw calls for endpoints it lacks
+pkg/calendar     calendar listing, member resolution, calendar key unlock
+pkg/event        event CRUD: decrypt, encrypt, sync payloads, recurrence ops
+pkg/pgp          PGP primitives (detached sign, session-key encrypt/reuse)
+pkg/ical         iCalendar fragment builder/parser (RFC 5545 escaping)
+pkg/icaltime     shared iCalendar date/time codec + timezone helpers
+pkg/recurrence   RRULE building/validation + occurrence expansion
+pkg/caltypes     event-row wire types shared by recurrence and event
+pkg/config       config + session store (flock-guarded, atomic writes)
+pkg/integration  opt-in live test suite (build tag `integration`)
 ```
 
 The [docs/](docs/) directory documents the reverse-engineered Proton API this
@@ -272,11 +272,11 @@ crypto in `packages/shared/lib/calendar/`), and
 
 ### Integration tests
 
-`internal/integration` exercises the real Proton API with a real account and
+`pkg/integration` exercises the real Proton API with a real account and
 is opt-in:
 
 1. `proton-cal login` once.
-2. `cp internal/integration/config.example.toml internal/integration/config.toml`
+2. `cp pkg/integration/config.example.toml pkg/integration/config.toml`
    and list a **dedicated test calendar** (ID or name) - never your main one.
 3. `make integration`
 

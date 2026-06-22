@@ -11,4 +11,4 @@ coverage.html
 .vscode/
 
 # Integration test config (contains real calendar IDs)
-/internal/integration/config.toml
+/pkg/integration/config.toml

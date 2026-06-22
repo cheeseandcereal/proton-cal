@@ -7,7 +7,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/cheeseandcereal/proton-cal/internal/cli"
+	"github.com/cheeseandcereal/proton-cal/pkg/cli"
 )
 
 func main() {
