@@ -170,56 +170,58 @@ func occurrenceLines(l event.Listed, loc *time.Location, sel fieldSet, set calen
 	return lines
 }
 
-// occurrenceJSON maps one listed occurrence to its machine-readable shape.
-// Timed starts/ends are RFC3339 in loc; all-day ones in UTC (their canonical
-// anchor zone, so the date is the event's date).
-func occurrenceJSON(l event.Listed, loc *time.Location, set calendar.Settings, cal calendar.Info) eventJSON {
-	raw := l.Occurrence.Event
-	ev := l.Event
-	renderLoc := loc
+// renderZone is the zone an event's times are formatted in: loc for timed
+// events, UTC for all-day ones (their canonical anchor zone, so the date is
+// the event's date).
+func renderZone(ev *event.Event, loc *time.Location) *time.Location {
 	if ev.AllDay {
-		renderLoc = time.UTC
+		return time.UTC
 	}
-	j := eventJSON{
-		ID:                ev.EventID,
-		UID:               ev.UID,
-		Summary:           ev.Summary,
-		Description:       ev.Description,
-		Location:          ev.Location,
-		Start:             time.Unix(l.Occurrence.Start, 0).In(renderLoc).Format(time.RFC3339),
-		End:               time.Unix(l.Occurrence.End, 0).In(renderLoc).Format(time.RFC3339),
-		AllDay:            ev.AllDay,
-		Recurring:         raw.IsMaster(),
-		EditedOccurrence:  raw.IsException(),
-		OccurrenceStartTS: l.Occurrence.Start,
-		RRule:             ev.RRule,
-		CalendarID:        ev.CalendarID,
-	}
-	enrichEventJSON(&j, ev, set, cal)
-	return j
+	return loc
 }
 
-// eventDetailJSON maps a single fetched event (not an expanded occurrence)
-// to its machine-readable shape. Times are the event's own start/end.
-func eventDetailJSON(ev *event.Event, loc *time.Location, set calendar.Settings, cal calendar.Info) eventJSON {
-	renderLoc := loc
-	if ev.AllDay {
-		renderLoc = time.UTC
-	}
+// baseEventJSON fills the identity/content fields and the enrichment (color,
+// organizer, attendees, conference, reminders) shared by occurrenceJSON and
+// eventDetailJSON. The caller sets the time and recurrence fields, which
+// differ between an expanded occurrence and a single fetched event.
+func baseEventJSON(ev *event.Event, set calendar.Settings, cal calendar.Info) eventJSON {
 	j := eventJSON{
 		ID:          ev.EventID,
 		UID:         ev.UID,
 		Summary:     ev.Summary,
 		Description: ev.Description,
 		Location:    ev.Location,
-		Start:       ev.Start.In(renderLoc).Format(time.RFC3339),
-		End:         ev.End.In(renderLoc).Format(time.RFC3339),
 		AllDay:      ev.AllDay,
-		Recurring:   ev.IsRecurring(),
 		RRule:       ev.RRule,
 		CalendarID:  ev.CalendarID,
 	}
 	enrichEventJSON(&j, ev, set, cal)
+	return j
+}
+
+// occurrenceJSON maps one listed occurrence to its machine-readable shape.
+// Timed starts/ends are RFC3339 in loc; all-day ones in UTC.
+func occurrenceJSON(l event.Listed, loc *time.Location, set calendar.Settings, cal calendar.Info) eventJSON {
+	raw := l.Occurrence.Event
+	ev := l.Event
+	renderLoc := renderZone(ev, loc)
+	j := baseEventJSON(ev, set, cal)
+	j.Start = time.Unix(l.Occurrence.Start, 0).In(renderLoc).Format(time.RFC3339)
+	j.End = time.Unix(l.Occurrence.End, 0).In(renderLoc).Format(time.RFC3339)
+	j.Recurring = raw.IsMaster()
+	j.EditedOccurrence = raw.IsException()
+	j.OccurrenceStartTS = l.Occurrence.Start
+	return j
+}
+
+// eventDetailJSON maps a single fetched event (not an expanded occurrence)
+// to its machine-readable shape. Times are the event's own start/end.
+func eventDetailJSON(ev *event.Event, loc *time.Location, set calendar.Settings, cal calendar.Info) eventJSON {
+	renderLoc := renderZone(ev, loc)
+	j := baseEventJSON(ev, set, cal)
+	j.Start = ev.Start.In(renderLoc).Format(time.RFC3339)
+	j.End = ev.End.In(renderLoc).Format(time.RFC3339)
+	j.Recurring = ev.IsRecurring()
 	return j
 }
 
@@ -228,47 +230,63 @@ func eventDetailJSON(ev *event.Event, loc *time.Location, set calendar.Settings,
 // explicit --fields subset, or everything with --all); set/cal resolve the
 // effective reminders and color.
 func eventDetailLines(ev *event.Event, loc *time.Location, sel fieldSet, set calendar.Settings, cal calendar.Info) []string {
-	renderLoc := loc
-	if ev.AllDay {
-		renderLoc = time.UTC
-	}
+	renderLoc := renderZone(ev, loc)
 
-	var rows []labeled
-	add := func(key fieldKey, label, value string) {
-		if sel.has(key) && value != "" {
-			rows = append(rows, labeled{label, value})
-		}
-	}
-
-	add(fieldSummary, "Summary", eventview.SummaryOr(ev))
+	b := rowBuilder{sel: sel}
+	b.addIf(fieldSummary, "Summary", eventview.SummaryOr(ev))
 	if ev.AllDay {
-		add(fieldStart, "Date", ev.Start.UTC().Format("2006-01-02")+" (all day)")
-		add(fieldEnd, "End", ev.End.UTC().Format("2006-01-02"))
+		b.addIf(fieldStart, "Date", ev.Start.UTC().Format("2006-01-02")+" (all day)")
+		b.addIf(fieldEnd, "End", ev.End.UTC().Format("2006-01-02"))
 	} else {
-		add(fieldStart, "Start", ev.Start.In(renderLoc).Format("2006-01-02 15:04 MST"))
-		add(fieldEnd, "End", ev.End.In(renderLoc).Format("2006-01-02 15:04 MST"))
+		b.addIf(fieldStart, "Start", ev.Start.In(renderLoc).Format("2006-01-02 15:04 MST"))
+		b.addIf(fieldEnd, "End", ev.End.In(renderLoc).Format("2006-01-02 15:04 MST"))
 	}
 	if sel.has(fieldRecurring) && ev.IsRecurring() {
-		rows = append(rows, labeled{"Recurring", "yes"})
+		b.add("Recurring", "yes")
 	}
 
 	// Body fields (location/description/organizer/attendees/conference/
 	// reminders/color), shared with the events-list sub-lines.
-	rows = append(rows, eventDetailRows(ev, sel, set, cal)...)
+	b.addRows(eventDetailRows(ev, sel, set, cal)...)
 
 	// --all-only fields.
-	add(fieldRRule, "RRULE", ev.RRule)
-	add(fieldUID, "UID", ev.UID)
-	add(fieldCalendarID, "Calendar ID", ev.CalendarID)
-	add(fieldID, "ID", ev.EventID)
+	b.addIf(fieldRRule, "RRULE", ev.RRule)
+	b.addIf(fieldUID, "UID", ev.UID)
+	b.addIf(fieldCalendarID, "Calendar ID", ev.CalendarID)
+	b.addIf(fieldID, "ID", ev.EventID)
 
-	return alignLabeled(rows)
+	return alignLabeled(b.rows)
 }
 
 // labeled is one "Label: value" detail row before alignment.
 type labeled struct {
 	label string
 	value string
+}
+
+// rowBuilder accumulates labeled rows gated by a fieldSet, factoring out the
+// "append iff the field is selected and the value is non-empty" pattern shared
+// by the event and calendar detail renderers.
+type rowBuilder struct {
+	sel  fieldSet
+	rows []labeled
+}
+
+// addIf appends a row when key is selected and value is non-empty.
+func (b *rowBuilder) addIf(key fieldKey, label, value string) {
+	if b.sel.has(key) && value != "" {
+		b.rows = append(b.rows, labeled{label, value})
+	}
+}
+
+// add appends a row unconditionally (callers that already checked selection).
+func (b *rowBuilder) add(label, value string) {
+	b.rows = append(b.rows, labeled{label, value})
+}
+
+// addRows appends pre-built rows.
+func (b *rowBuilder) addRows(rows ...labeled) {
+	b.rows = append(b.rows, rows...)
 }
 
 // alignColumnCap caps the alignment column so one outlier label (e.g. a long
@@ -443,33 +461,28 @@ func fieldNames(registry []fieldRow) []string {
 // lines, with a color swatch on the Color row and the default reminders
 // resolved from the calendar settings. sel selects which fields appear.
 func calendarDetailLines(c calendar.Info, set calendar.Settings, isDefault bool, sel fieldSet) []string {
-	var rows []labeled
-	add := func(key fieldKey, label, value string) {
-		if sel.has(key) && value != "" {
-			rows = append(rows, labeled{label, value})
-		}
-	}
-	add(calFieldName, "Name", c.Name)
-	add(calFieldType, "Type", c.TypeString())
+	b := rowBuilder{sel: sel}
+	b.addIf(calFieldName, "Name", c.Name)
+	b.addIf(calFieldType, "Type", c.TypeString())
 	if sel.has(calFieldColor) && c.Color != "" {
-		rows = append(rows, labeled{"Color", swatch(c.Color) + c.Color})
+		b.add("Color", swatch(c.Color)+c.Color)
 	}
-	add(calFieldDescription, "Description", c.Description)
+	b.addIf(calFieldDescription, "Description", c.Description)
 	if sel.has(calFieldDefaultReminders) {
-		rows = append(rows, defaultReminderRows("Default reminder (timed)", set.DefaultPartDayNotifications)...)
-		rows = append(rows, defaultReminderRows("Default reminder (all-day)", set.DefaultFullDayNotifications)...)
+		b.addRows(defaultReminderRows("Default reminder (timed)", set.DefaultPartDayNotifications)...)
+		b.addRows(defaultReminderRows("Default reminder (all-day)", set.DefaultFullDayNotifications)...)
 	}
 	if sel.has(calFieldDefaultDuration) && set.DefaultEventDuration > 0 {
-		rows = append(rows, labeled{"Default duration", fmt.Sprintf("%d min", set.DefaultEventDuration)})
+		b.add("Default duration", fmt.Sprintf("%d min", set.DefaultEventDuration))
 	}
-	add(calFieldID, "ID", c.ID)
+	b.addIf(calFieldID, "ID", c.ID)
 	if sel.has(calFieldIsDefault) && isDefault {
-		rows = append(rows, labeled{"Default", "yes"})
+		b.add("Default", "yes")
 	}
-	add(calFieldEmail, "Email", c.Email)
-	add(calFieldMemberID, "Member ID", c.MemberID)
-	add(calFieldAddressID, "Address ID", c.AddressID)
-	return alignLabeled(rows)
+	b.addIf(calFieldEmail, "Email", c.Email)
+	b.addIf(calFieldMemberID, "Member ID", c.MemberID)
+	b.addIf(calFieldAddressID, "Address ID", c.AddressID)
+	return alignLabeled(b.rows)
 }
 
 // defaultReminderRows renders one labeled row per default notification.
