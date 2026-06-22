@@ -7,21 +7,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var rootCmd = &cobra.Command{
-	Use:           "proton-cal",
-	Short:         "Proton Calendar CLI - read and write events via the Proton API",
-	SilenceUsage:  true,
-	SilenceErrors: true,
-	PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
-		switch outputFormat {
-		case "text", "json":
-			return nil
-		default:
-			return fmt.Errorf("invalid --output %q (want text or json)", outputFormat)
-		}
-	},
-}
-
 // outputFormat is the global --output/-o flag: "text" (default) or "json".
 // With "json", machine-readable JSON goes to stdout and human messages to
 // stderr.
@@ -35,14 +20,31 @@ var noColor bool
 // cache entirely (neither read nor written).
 var noCache bool
 
-func init() {
-	rootCmd.PersistentFlags().StringVarP(&outputFormat, "output", "o", "text",
+// newRootCmd builds the full command tree. It is a function (not a package
+// singleton) so tests can construct an isolated tree per invocation without
+// inheriting cobra's retained flag state.
+func newRootCmd() *cobra.Command {
+	root := &cobra.Command{
+		Use:           "proton-cal",
+		Short:         "Proton Calendar CLI - read and write events via the Proton API",
+		SilenceUsage:  true,
+		SilenceErrors: true,
+		PersistentPreRunE: func(_ *cobra.Command, _ []string) error {
+			switch outputFormat {
+			case "text", "json":
+				return nil
+			default:
+				return fmt.Errorf("invalid --output %q (want text or json)", outputFormat)
+			}
+		},
+	}
+	root.PersistentFlags().StringVarP(&outputFormat, "output", "o", "text",
 		"output format: text or json (json on stdout, human messages on stderr)")
-	rootCmd.PersistentFlags().BoolVar(&noColor, "no-color", false,
+	root.PersistentFlags().BoolVar(&noColor, "no-color", false,
 		"disable ANSI color output (color is auto-disabled when not a terminal or NO_COLOR is set)")
-	rootCmd.PersistentFlags().BoolVar(&noCache, "no-cache", false,
+	root.PersistentFlags().BoolVar(&noCache, "no-cache", false,
 		"bypass the on-disk bootstrap cache (key material and calendar list)")
-	rootCmd.AddCommand(
+	root.AddCommand(
 		newLoginCmd(),
 		newLogoutCmd(),
 		newCalendarsCmd(),
@@ -53,9 +55,10 @@ func init() {
 		newDeleteCmd(),
 		newMCPCmd(),
 	)
+	return root
 }
 
 // Execute runs the root command.
 func Execute() error {
-	return rootCmd.Execute()
+	return newRootCmd().Execute()
 }

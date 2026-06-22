@@ -19,7 +19,7 @@ func newCreateCmd() *cobra.Command {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			in.Summary = args[0]
 
-			svc, err := newService()
+			svc, err := serviceFactory()
 			if err != nil {
 				return err
 			}

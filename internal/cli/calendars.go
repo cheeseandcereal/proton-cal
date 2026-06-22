@@ -17,7 +17,7 @@ func newCalendarsCmd() *cobra.Command {
 		Short: "List all calendars",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			svc, err := newService()
+			svc, err := serviceFactory()
 			if err != nil {
 				return err
 			}

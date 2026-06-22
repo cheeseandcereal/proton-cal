@@ -24,7 +24,7 @@ occurrence's own ID deletes just that occurrence.`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			in.EventID = args[0]
 
-			svc, err := newService()
+			svc, err := serviceFactory()
 			if err != nil {
 				return err
 			}

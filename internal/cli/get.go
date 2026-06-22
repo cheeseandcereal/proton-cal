@@ -53,7 +53,7 @@ func newGetEventCmd() *cobra.Command {
 				return err
 			}
 
-			svc, err := newService()
+			svc, err := serviceFactory()
 			if err != nil {
 				return err
 			}
@@ -69,7 +69,7 @@ func newGetEventCmd() *cobra.Command {
 				if got.ICS == "" {
 					return calsvc.ErrICSUndecryptable
 				}
-				fmt.Println(got.ICS) // the document itself, to stdout
+				fmt.Fprintln(outWriter, got.ICS) // the document itself, to stdout
 				return nil
 			case outputJSON():
 				return printJSON(caljson.EventDetail(got.Event, got.Location, got.Settings, got.Calendar))
@@ -117,7 +117,7 @@ func newGetCalendarCmd() *cobra.Command {
 				return err
 			}
 
-			svc, err := newService()
+			svc, err := serviceFactory()
 			if err != nil {
 				return err
 			}

@@ -44,7 +44,7 @@ rule and a matching weekday).`,
 				in.Location = &location
 			}
 
-			svc, err := newService()
+			svc, err := serviceFactory()
 			if err != nil {
 				return err
 			}
