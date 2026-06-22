@@ -32,7 +32,23 @@ If `config.toml` or the stored session is missing, the suite skips itself.
 make integration
 ```
 
-(equivalent to `go test -tags integration -count=1 -v ./internal/integration/...`)
+This runs every live test, which now spans four packages:
+
+- `internal/integration` - the original domain-layer suite (the `event` and
+  `calendar` packages directly), plus the crash-recovery sweep.
+- `internal/calsvc` - the shared service layer end to end (create / get /
+  update / list / delete, recurrence variants, all-day, DST wall-time
+  stability, reminder inheritance, and live error paths).
+- `internal/mcpserver` - the MCP tool handlers (lifecycle with structured
+  output, `clear_fields`, `get_calendar`).
+- `internal/cli` - the cobra commands driven in-process against the live
+  service (JSON output, the `--location ""` field-clear tri-state,
+  create/delete).
+
+The service-, MCP- and CLI-layer tests build a real service with `calsvc.New`
+(cache disabled) using the same stored session, so they require the same
+prerequisites and the same `config.toml` test calendar. They skip themselves
+when that setup is missing.
 
 ## What it does (and safety)
 
