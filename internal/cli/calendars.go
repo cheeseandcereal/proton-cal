@@ -2,12 +2,12 @@ package cli
 
 import (
 	"fmt"
-
 	"io"
 
 	"github.com/spf13/cobra"
 
 	"github.com/cheeseandcereal/proton-cal/internal/calendar"
+	"github.com/cheeseandcereal/proton-cal/internal/eventview"
 )
 
 func newCalendarsCmd() *cobra.Command {
@@ -78,12 +78,10 @@ func renderCalendars(w io.Writer, cals []calendar.Info, defaultSel string) {
 		return
 	}
 	for _, c := range cals {
-		marker := ""
-		if c.Matches(defaultSel) {
-			marker = "  [default]"
+		// Shared header + ID lines, then the CLI's extra color/description.
+		for _, line := range eventview.CalendarHeaderLines(c, defaultSel) {
+			fmt.Fprintln(w, line)
 		}
-		fmt.Fprintf(w, "%s (%s)%s\n", c.Name, c.TypeString(), marker)
-		fmt.Fprintf(w, "  ID: %s\n", c.ID)
 		fmt.Fprintf(w, "  Color: %s%s\n", swatch(c.Color), c.Color)
 		if c.Description != "" {
 			fmt.Fprintf(w, "  Description: %s\n", c.Description)

@@ -121,6 +121,18 @@ func EffectiveColor(ev *event.Event, cal calendar.Info) string {
 	return cal.Color
 }
 
+// CalendarHeaderLines renders the lines shared by every calendar listing: the
+// "<name> (<type>)" header with a "  [default]" marker when the calendar
+// matches defaultSelector, then an indented "  ID: <id>" line. Surfaces that
+// want more (e.g. the CLI adds color/description rows) append to these.
+func CalendarHeaderLines(c calendar.Info, defaultSelector string) []string {
+	header := c.Name + " (" + c.TypeString() + ")"
+	if c.Matches(defaultSelector) {
+		header += "  [default]"
+	}
+	return []string{header, "  ID: " + c.ID}
+}
+
 // UpdateOutcomeMessage renders the human-readable confirmation for an update.
 // The first string is the headline ("Event updated." / "Occurrence
 // updated."); the second is a follow-up note about removed exceptions, or ""

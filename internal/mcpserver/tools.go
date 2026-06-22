@@ -2,7 +2,6 @@ package mcpserver
 
 import (
 	"context"
-	"errors"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -130,7 +129,7 @@ func (s *server) getEvent(ctx context.Context, _ *mcp.CallToolRequest, args getE
 	}
 	if ics {
 		if got.ICS == "" {
-			return nil, nil, errors.New("event could not be decrypted into iCalendar")
+			return nil, nil, calsvc.ErrICSUndecryptable
 		}
 		return textResult(got.ICS), nil, nil
 	}

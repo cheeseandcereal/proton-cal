@@ -168,6 +168,10 @@ type GotEvent struct {
 	ICS   string // populated only when GetEventInput.WithICS
 }
 
+// ErrICSUndecryptable is the error frontends return when an ICS export was
+// requested but no card could be decrypted (GotEvent.ICS is empty).
+var ErrICSUndecryptable = errors.New("event could not be decrypted into iCalendar")
+
 // GetEvent fetches, decrypts and (optionally) reconstructs the ICS of a
 // single event in the addressed calendar. The event must live in the
 // resolved calendar (default/first unless Calendar is given); a missing

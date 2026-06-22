@@ -17,19 +17,11 @@ func renderCalendars(cals []calendar.Info, defaultSelector string) string {
 	if len(cals) == 0 {
 		return "No calendars found."
 	}
-	var b strings.Builder
-	for i, c := range cals {
-		if i > 0 {
-			b.WriteByte('\n')
-		}
-		marker := ""
-		if c.Matches(defaultSelector) {
-			marker = "  [default]"
-		}
-		fmt.Fprintf(&b, "%s (%s)%s\n", c.Name, c.TypeString(), marker)
-		fmt.Fprintf(&b, "  ID: %s", c.ID)
+	var lines []string
+	for _, c := range cals {
+		lines = append(lines, eventview.CalendarHeaderLines(c, defaultSelector)...)
 	}
-	return b.String()
+	return strings.Join(lines, "\n")
 }
 
 // renderOccurrence renders one listed occurrence as a text block in the

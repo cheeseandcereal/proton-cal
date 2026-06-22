@@ -66,7 +66,7 @@ func newGetEventCmd() *cobra.Command {
 			switch {
 			case ics:
 				if got.ICS == "" {
-					return errors.New("event could not be decrypted into iCalendar")
+					return calsvc.ErrICSUndecryptable
 				}
 				fmt.Println(got.ICS) // the document itself, to stdout
 				return nil
