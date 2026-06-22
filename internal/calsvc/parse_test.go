@@ -4,13 +4,31 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/cheeseandcereal/proton-cal/internal/calendar"
+	"github.com/cheeseandcereal/proton-cal/internal/caltypes"
 )
 
 func TestResolveCreateTimes(t *testing.T) {
-	t.Run("timed without end errors", func(t *testing.T) {
-		_, _, err := resolveCreateTimes("2026-06-15 09:00", "", false, "UTC")
-		if err == nil || !strings.Contains(err.Error(), "end is required") {
-			t.Fatalf("want 'end is required' error, got %v", err)
+	t.Run("timed without end defers (no error, endProvided false)", func(t *testing.T) {
+		start, end, endProvided, err := resolveCreateTimes("2026-06-15 09:00", "", false, "UTC")
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if endProvided {
+			t.Error("endProvided = true, want false")
+		}
+		if !end.IsZero() {
+			t.Errorf("end = %v, want zero", end)
+		}
+		if !start.Equal(time.Date(2026, 6, 15, 9, 0, 0, 0, time.UTC)) {
+			t.Errorf("start = %v", start)
+		}
+	})
+
+	t.Run("timed without end still validates start", func(t *testing.T) {
+		if _, _, _, err := resolveCreateTimes("not-a-time", "", false, "UTC"); err == nil {
+			t.Fatal("want error for bad start")
 		}
 	})
 
@@ -19,9 +37,12 @@ func TestResolveCreateTimes(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		start, end, err := resolveCreateTimes("2026-06-15 09:00", "2026-06-15 09:30", false, "Europe/Berlin")
+		start, end, endProvided, err := resolveCreateTimes("2026-06-15 09:00", "2026-06-15 09:30", false, "Europe/Berlin")
 		if err != nil {
 			t.Fatal(err)
+		}
+		if !endProvided {
+			t.Error("endProvided = false, want true")
 		}
 		want := time.Date(2026, 6, 15, 9, 0, 0, 0, berlin)
 		if !start.Equal(want) {
@@ -33,15 +54,18 @@ func TestResolveCreateTimes(t *testing.T) {
 	})
 
 	t.Run("timed bad zone errors", func(t *testing.T) {
-		if _, _, err := resolveCreateTimes("2026-06-15 09:00", "2026-06-15 09:30", false, "Not/AZone"); err == nil {
+		if _, _, _, err := resolveCreateTimes("2026-06-15 09:00", "2026-06-15 09:30", false, "Not/AZone"); err == nil {
 			t.Fatal("want error for bad zone")
 		}
 	})
 
 	t.Run("all-day default end is start plus one day", func(t *testing.T) {
-		start, end, err := resolveCreateTimes("2026-06-15", "", true, "UTC")
+		start, end, endProvided, err := resolveCreateTimes("2026-06-15", "", true, "UTC")
 		if err != nil {
 			t.Fatal(err)
+		}
+		if !endProvided {
+			t.Error("endProvided = false, want true")
 		}
 		if !start.Equal(time.Date(2026, 6, 15, 0, 0, 0, 0, time.UTC)) {
 			t.Errorf("start = %v", start)
@@ -52,7 +76,7 @@ func TestResolveCreateTimes(t *testing.T) {
 	})
 
 	t.Run("all-day inclusive end converts to exclusive", func(t *testing.T) {
-		start, end, err := resolveCreateTimes("2026-06-15", "2026-06-17", true, "UTC")
+		start, end, _, err := resolveCreateTimes("2026-06-15", "2026-06-17", true, "UTC")
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -62,14 +86,45 @@ func TestResolveCreateTimes(t *testing.T) {
 	})
 
 	t.Run("all-day end before start errors", func(t *testing.T) {
-		if _, _, err := resolveCreateTimes("2026-06-15", "2026-06-10", true, "UTC"); err == nil {
+		if _, _, _, err := resolveCreateTimes("2026-06-15", "2026-06-10", true, "UTC"); err == nil {
 			t.Fatal("want error for end before start")
 		}
 	})
 
 	t.Run("all-day rejects datetime form", func(t *testing.T) {
-		if _, _, err := resolveCreateTimes("2026-06-15 09:00", "", true, "UTC"); err == nil {
+		if _, _, _, err := resolveCreateTimes("2026-06-15 09:00", "", true, "UTC"); err == nil {
 			t.Fatal("want error for datetime with all-day")
+		}
+	})
+}
+
+func TestApplyDefaultDuration(t *testing.T) {
+	start := time.Date(2026, 6, 15, 9, 0, 0, 0, time.UTC)
+
+	t.Run("uses calendar default", func(t *testing.T) {
+		set := calendar.Settings{DefaultEventDuration: 45}
+		end, err := applyDefaultDuration(start, set)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if d := end.Sub(start); d != 45*time.Minute {
+			t.Errorf("duration = %v, want 45m", d)
+		}
+	})
+
+	t.Run("no default requires explicit end", func(t *testing.T) {
+		_, err := applyDefaultDuration(start, calendar.Settings{})
+		if err == nil || !strings.Contains(err.Error(), "end is required") {
+			t.Fatalf("want 'end is required' error, got %v", err)
+		}
+	})
+
+	// Guard the unused-import expectation: a populated set without a duration
+	// still falls back to the error.
+	t.Run("reminders without duration still errors", func(t *testing.T) {
+		set := calendar.Settings{DefaultPartDayNotifications: []caltypes.Notification{{Type: 1, Trigger: "-PT10M"}}}
+		if _, err := applyDefaultDuration(start, set); err == nil {
+			t.Fatal("want 'end is required' error")
 		}
 	})
 }

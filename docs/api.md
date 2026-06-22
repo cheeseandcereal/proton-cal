@@ -36,8 +36,18 @@ The unlock path (`calendar.Keychain.Unlock`) issues a single
 `GET /calendar/v2/{calID}/bootstrap` whose body carries `Keys`, `Passphrase`,
 `Members` (same shapes as the standalone v1 endpoints) and `CalendarSettings`.
 The settings are stored on `calendar.Access.Settings` and drive
-default-reminder display. The cache key for a calendar's key material is this
-one bootstrap path.
+default-reminder display and the default event duration. The cache key for a
+calendar's key material is this one bootstrap path.
+
+`CalendarSettings.DefaultEventDuration` (minutes) is the calendar's default
+event length. `create event` uses it to default a timed event's end when no
+explicit end is given (`Settings.DefaultDuration` -> `applyDefaultDuration`,
+resolved inside the unlocked-calendar closure so no extra fetch is needed); an
+explicit end is required only when the calendar defines no default. `get
+calendar` exposes the duration and both default-reminder sets in its JSON
+(`default_duration`, `default_normal_notifications`,
+`default_full_day_notifications`); the calendar *list* omits them since the
+list endpoint carries no settings.
 
 **Response shape drift (live-verified June 2026):** `GET /calendar/v1`
 returns `Calendars[]` where display metadata (`Name`, `Description`,

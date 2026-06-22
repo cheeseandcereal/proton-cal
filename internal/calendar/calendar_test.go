@@ -8,6 +8,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/cheeseandcereal/proton-cal/internal/caltypes"
 	"github.com/cheeseandcereal/proton-cal/internal/config"
@@ -281,5 +282,17 @@ func TestSettingsDefaultNotifications(t *testing.T) {
 	}
 	if got := s.DefaultNotifications(true); len(got) != 1 || got[0].Trigger != "-PT16H" {
 		t.Errorf("full-day = %+v", got)
+	}
+}
+
+func TestSettingsDefaultDuration(t *testing.T) {
+	if d, ok := (Settings{DefaultEventDuration: 30}).DefaultDuration(); !ok || d != 30*time.Minute {
+		t.Errorf("set: got %v, ok=%v; want 30m, true", d, ok)
+	}
+	if d, ok := (Settings{DefaultEventDuration: 0}).DefaultDuration(); ok || d != 0 {
+		t.Errorf("unset: got %v, ok=%v; want 0, false", d, ok)
+	}
+	if _, ok := (Settings{DefaultEventDuration: -5}).DefaultDuration(); ok {
+		t.Errorf("negative: ok = true, want false")
 	}
 }

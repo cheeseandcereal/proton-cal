@@ -138,7 +138,7 @@ func newGetCalendarCmd() *cobra.Command {
 			}
 
 			if outputJSON() {
-				return printJSON(caljson.CalendarOf(got.Info, got.IsDefault))
+				return printJSON(caljson.CalendarDetailOf(got.Info, got.Settings, got.IsDefault))
 			}
 			w := humanOut()
 			for _, line := range calendarDetailLines(got.Info, got.Settings, got.IsDefault, sel) {

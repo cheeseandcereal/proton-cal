@@ -94,7 +94,7 @@ type CreateEventInput struct {
 	Description string
 	Location    string
 	Start       string // "YYYY-MM-DD HH:MM"; with AllDay: "YYYY-MM-DD"
-	End         string // required for timed events; all-day: inclusive end date, "" = Start
+	End         string // timed: "" defaults to start + calendar default duration; all-day: inclusive end date, "" = Start
 	AllDay      bool
 	Recurrence  Recurrence
 	Calendar    string
@@ -131,7 +131,7 @@ type CreatedEvent struct {
 func (s *Service) CreateEvent(ctx context.Context, in CreateEventInput) (*CreatedEvent, error) {
 	tz := s.EffectiveTimezone(in.TZ)
 
-	start, end, err := resolveCreateTimes(in.Start, in.End, in.AllDay, tz)
+	start, end, endProvided, err := resolveCreateTimes(in.Start, in.End, in.AllDay, tz)
 	if err != nil {
 		return nil, err
 	}
@@ -141,6 +141,17 @@ func (s *Service) CreateEvent(ctx context.Context, in CreateEventInput) (*Create
 	}
 
 	return withAccessResult(ctx, s, in.Calendar, func(_ calendar.Info, access *calendar.Access) (*CreatedEvent, bool, error) {
+		// A timed event with no explicit end defaults to the calendar's
+		// default duration; resolved here since it needs the unlocked
+		// calendar's settings (the bootstrap is cached, so no extra fetch).
+		end := end
+		if !endProvided {
+			defaulted, derr := applyDefaultDuration(start, access.Settings)
+			if derr != nil {
+				return nil, false, derr
+			}
+			end = defaulted
+		}
 		raw, err := event.Create(ctx, s.client, access, event.CreateOptions{
 			Summary:      in.Summary,
 			Description:  in.Description,

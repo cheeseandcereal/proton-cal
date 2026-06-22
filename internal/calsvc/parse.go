@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/cheeseandcereal/proton-cal/internal/calendar"
 	"github.com/cheeseandcereal/proton-cal/internal/icaltime"
 	"github.com/cheeseandcereal/proton-cal/internal/recurrence"
 )
@@ -71,39 +72,53 @@ func FormatOccurrenceStart(ts int64, allDay bool, loc *time.Location) string {
 // resolveCreateTimes resolves the create start/end times. All-day: start
 // is a date; end is an optional INCLUSIVE date (default = start) converted
 // to the exclusive iCal end by +24h, erroring when it lands at or before
-// the start. Timed: end is required and both parse as wall times in tzName.
-func resolveCreateTimes(startStr, endStr string, allDay bool, tzName string) (start, end time.Time, err error) {
+// the start (endProvided is always true). Timed: both parse as wall times in
+// tzName; when endStr is empty, end is left zero and endProvided is false so
+// the caller can default it to the calendar's duration once the calendar is
+// resolved (see applyDefaultDuration).
+func resolveCreateTimes(startStr, endStr string, allDay bool, tzName string) (start, end time.Time, endProvided bool, err error) {
 	if allDay {
 		start, err = parseDate(startStr)
 		if err != nil {
-			return time.Time{}, time.Time{}, err
+			return time.Time{}, time.Time{}, false, err
 		}
 		end = start
 		if endStr != "" {
 			end, err = parseDate(endStr)
 			if err != nil {
-				return time.Time{}, time.Time{}, err
+				return time.Time{}, time.Time{}, false, err
 			}
 		}
 		end = end.Add(24 * time.Hour) // exclusive iCal end
 		if !end.After(start) {
-			return time.Time{}, time.Time{}, errors.New("end date must not be before start date")
+			return time.Time{}, time.Time{}, false, errors.New("end date must not be before start date")
 		}
-		return start, end, nil
+		return start, end, true, nil
 	}
 
-	if endStr == "" {
-		return time.Time{}, time.Time{}, errors.New("end is required for timed events")
-	}
 	start, err = parseLocalDateTime(startStr, tzName)
 	if err != nil {
-		return time.Time{}, time.Time{}, err
+		return time.Time{}, time.Time{}, false, err
+	}
+	if endStr == "" {
+		return start, time.Time{}, false, nil
 	}
 	end, err = parseLocalDateTime(endStr, tzName)
 	if err != nil {
-		return time.Time{}, time.Time{}, err
+		return time.Time{}, time.Time{}, false, err
 	}
-	return start, end, nil
+	return start, end, true, nil
+}
+
+// applyDefaultDuration returns the end for a timed event whose end was omitted,
+// using the calendar's default event duration. When the calendar defines no
+// usable default, the explicit end remains required.
+func applyDefaultDuration(start time.Time, set calendar.Settings) (time.Time, error) {
+	dur, ok := set.DefaultDuration()
+	if !ok {
+		return time.Time{}, errors.New("end is required for timed events")
+	}
+	return start.Add(dur), nil
 }
 
 // Recurrence holds the structured recurrence options shared by the create

@@ -72,7 +72,8 @@ proton-cal events --days 7
 # Target a calendar by name or ID (default: config default_calendar, else first)
 proton-cal events --calendar Work
 
-# Create an event
+# Create an event (--end is optional for timed events: it defaults to the
+# calendar's default duration)
 proton-cal create "Team standup" \
   --start "2026-05-26 09:00" --end "2026-05-26 09:30" \
   --description "Weekly sync" --location "Zoom"

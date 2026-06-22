@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/ProtonMail/gopenpgp/v2/crypto"
 
@@ -32,6 +33,16 @@ func (s Settings) DefaultNotifications(allDay bool) []caltypes.Notification {
 		return s.DefaultFullDayNotifications
 	}
 	return s.DefaultPartDayNotifications
+}
+
+// DefaultDuration returns the calendar's default event duration and whether it
+// is usable. A non-positive DefaultEventDuration (the API's "unset" state)
+// reports ok=false so callers can fall back (e.g. requiring an explicit end).
+func (s Settings) DefaultDuration() (time.Duration, bool) {
+	if s.DefaultEventDuration <= 0 {
+		return 0, false
+	}
+	return time.Duration(s.DefaultEventDuration) * time.Minute, true
 }
 
 // Access is everything event code needs for one calendar.

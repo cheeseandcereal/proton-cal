@@ -31,7 +31,9 @@ func TestCLICreateValidationErrors(t *testing.T) {
 		args []string
 		want string
 	}{
-		{"timed missing end", []string{"create", "Lunch", "--start", "2026-06-15 09:00"}, "end is required"},
+		// "timed missing end" is no longer a pre-network error: the end now
+		// defaults to the calendar's duration, resolved after the calendar is
+		// unlocked (covered by calsvc.TestApplyDefaultDuration).
 		{"bad start", []string{"create", "Lunch", "--start", "nope", "--end", "2026-06-15 10:00"}, "invalid date"},
 		{"rrule conflicts repeat", []string{"create", "X", "--start", "2026-06-15 09:00", "--end", "2026-06-15 10:00", "--rrule", "FREQ=DAILY", "--repeat", "daily"}, "rrule cannot be combined"},
 		{"modifiers require repeat", []string{"create", "X", "--start", "2026-06-15 09:00", "--end", "2026-06-15 10:00", "--count", "3"}, "require repeat"},

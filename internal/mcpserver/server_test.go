@@ -100,9 +100,9 @@ func TestToolErrorsAreToolResults(t *testing.T) {
 	}
 	text, isErr = callText(t, cs2, "create_event", map[string]any{
 		"summary": "X",
-		"start":   "2026-06-15 09:00",
+		"start":   "nope",
 	})
-	if !isErr || !strings.Contains(text, "end is required") {
+	if !isErr || !strings.Contains(text, "invalid datetime") {
 		t.Errorf("isErr=%v text=%q", isErr, text)
 	}
 }

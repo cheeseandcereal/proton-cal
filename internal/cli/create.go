@@ -71,7 +71,7 @@ func newCreateCmd() *cobra.Command {
 	}
 
 	cmd.Flags().StringVar(&in.Start, "start", "", "start time, YYYY-MM-DD HH:MM (with --all-day: YYYY-MM-DD)")
-	cmd.Flags().StringVar(&in.End, "end", "", "end time, YYYY-MM-DD HH:MM (with --all-day: inclusive end date, default = start)")
+	cmd.Flags().StringVar(&in.End, "end", "", "end time, YYYY-MM-DD HH:MM (timed: defaults to the calendar's default duration; with --all-day: inclusive end date, defaulting to a single day)")
 	cmd.Flags().StringVar(&in.Description, "description", "", "event description")
 	cmd.Flags().StringVar(&in.Location, "location", "", "event location")
 	addCalendarFlag(cmd, &in.Calendar)

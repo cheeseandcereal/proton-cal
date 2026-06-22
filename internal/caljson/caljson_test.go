@@ -227,6 +227,50 @@ func TestCalendarOf(t *testing.T) {
 	if got.ID != "id1" || got.Name != "Personal" || got.Color != "#415DF0" || !got.IsDefault || got.Email != "a@b" {
 		t.Errorf("CalendarOf = %+v", got)
 	}
+	// CalendarOf must never carry default settings.
+	if got.DefaultDuration != 0 || got.DefaultNormalNotifications != nil || got.DefaultFullDayNotifications != nil {
+		t.Errorf("CalendarOf leaked settings: %+v", got)
+	}
+}
+
+func TestCalendarDetailOf(t *testing.T) {
+	c := calendar.Info{ID: "id1", Name: "Personal", Color: "#415DF0"}
+
+	t.Run("populates settings", func(t *testing.T) {
+		set := calendar.Settings{
+			DefaultEventDuration:        30,
+			DefaultPartDayNotifications: []caltypes.Notification{{Type: 1, Trigger: "-PT15M"}},
+			DefaultFullDayNotifications: []caltypes.Notification{{Type: 0, Trigger: "-PT16H"}},
+		}
+		got := CalendarDetailOf(c, set, true)
+		if got.ID != "id1" || got.Color != "#415DF0" || !got.IsDefault {
+			t.Errorf("base fields = %+v", got)
+		}
+		if got.DefaultDuration != 30 {
+			t.Errorf("DefaultDuration = %d, want 30", got.DefaultDuration)
+		}
+		if len(got.DefaultNormalNotifications) != 1 || got.DefaultNormalNotifications[0].Trigger != "-PT15M" || got.DefaultNormalNotifications[0].Type != "notify" {
+			t.Errorf("normal notifications = %+v", got.DefaultNormalNotifications)
+		}
+		if len(got.DefaultFullDayNotifications) != 1 || got.DefaultFullDayNotifications[0].Trigger != "-PT16H" || got.DefaultFullDayNotifications[0].Type != "email" {
+			t.Errorf("full-day notifications = %+v", got.DefaultFullDayNotifications)
+		}
+	})
+
+	t.Run("empty settings omit fields", func(t *testing.T) {
+		got := CalendarDetailOf(c, calendar.Settings{}, false)
+		if got.DefaultDuration != 0 || got.DefaultNormalNotifications != nil || got.DefaultFullDayNotifications != nil {
+			t.Errorf("empty settings should omit fields: %+v", got)
+		}
+		// Confirm omitempty actually drops them from JSON.
+		b, err := json.Marshal(got)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(b), "default_duration") || strings.Contains(string(b), "default_normal_notifications") || strings.Contains(string(b), "default_full_day_notifications") {
+			t.Errorf("JSON should omit empty default fields: %s", b)
+		}
+	})
 }
 
 func TestCalendars(t *testing.T) {

@@ -211,6 +211,46 @@ func TestE2EServiceLifecycle(t *testing.T) {
 	}
 }
 
+// TestE2ECreateEventDefaultEnd creates a timed event with no explicit end and
+// asserts the end defaults to the calendar's DefaultEventDuration.
+func TestE2ECreateEventDefaultEnd(t *testing.T) {
+	svc, cal := liveService(t)
+	ctx := context.Background()
+
+	gotCal, err := svc.GetCalendar(ctx, cal)
+	if err != nil {
+		t.Fatalf("GetCalendar: %v", err)
+	}
+	dur, ok := gotCal.Settings.DefaultDuration()
+	if !ok {
+		t.Skipf("calendar %q defines no default duration; cannot validate default end", cal)
+	}
+
+	start := e2eFutureDate() + " 09:00"
+	created, err := svc.CreateEvent(ctx, CreateEventInput{
+		Summary:  e2eSummary("svc-default-end"),
+		Start:    start,
+		Calendar: cal,
+		TZ:       "UTC",
+		// End deliberately omitted.
+	})
+	if err != nil {
+		t.Fatalf("CreateEvent without end: %v", err)
+	}
+	if created.ID == "" {
+		t.Fatal("create did not echo an ID")
+	}
+	trackDelete(t, svc, cal, created.ID)
+
+	got, err := svc.GetEvent(ctx, GetEventInput{EventID: created.ID, Calendar: cal, TZ: "UTC"})
+	if err != nil {
+		t.Fatalf("GetEvent: %v", err)
+	}
+	if d := got.Event.End.Sub(got.Event.Start); d != dur {
+		t.Errorf("default end duration = %v, want %v (calendar default)", d, dur)
+	}
+}
+
 // TestE2EGetCalendar exercises GetCalendar against the live API.
 func TestE2EGetCalendar(t *testing.T) {
 	svc, cal := liveService(t)

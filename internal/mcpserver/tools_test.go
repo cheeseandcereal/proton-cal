@@ -26,14 +26,18 @@ func failingServer(err error) *server {
 	}}
 }
 
-func TestCreateEventTimedWithoutEnd(t *testing.T) {
+// A timed event with no end no longer errors before the network: the end
+// defaults to the calendar's duration, resolved after the calendar unlocks
+// (covered by calsvc.TestApplyDefaultDuration). A bad start still fails in the
+// detached path, which is what this exercises.
+func TestCreateEventBadStart(t *testing.T) {
 	s := stubServer(config.Config{Timezone: "UTC"})
 	_, _, err := s.createEvent(context.Background(), nil, createEventArgs{
 		Summary: "Standup",
-		Start:   "2026-06-15 09:00",
+		Start:   "nope",
 	})
-	if err == nil || !strings.Contains(err.Error(), "end is required") {
-		t.Fatalf("want 'end is required' error, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "invalid datetime") {
+		t.Fatalf("want 'invalid datetime' error, got %v", err)
 	}
 }
 

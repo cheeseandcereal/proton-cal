@@ -69,8 +69,12 @@ func TestDetachedServiceValidationPaths(t *testing.T) {
 	if _, err := svc.UpdateEvent(ctx, UpdateEventInput{EventID: "x", NoRepeat: true, Recurrence: Recurrence{Repeat: "daily"}}); err == nil || !strings.Contains(err.Error(), "no-repeat cannot be combined") {
 		t.Errorf("update validation: %v", err)
 	}
-	if _, err := svc.CreateEvent(ctx, CreateEventInput{Summary: "X", Start: "2026-06-15 09:00"}); err == nil || !strings.Contains(err.Error(), "end is required") {
-		t.Errorf("create validation: %v", err)
+	// A bad start still fails before any calendar access (parsing happens in
+	// resolveCreateTimes). The "end is required" path now depends on the
+	// calendar's default duration, so it is resolved after the (cached)
+	// bootstrap and is covered by TestApplyDefaultDuration instead.
+	if _, err := svc.CreateEvent(ctx, CreateEventInput{Summary: "X", Start: "bogus"}); err == nil || !strings.Contains(err.Error(), "invalid datetime") {
+		t.Errorf("create parse validation: %v", err)
 	}
 	if _, err := svc.UpdateEvent(ctx, UpdateEventInput{EventID: "x", Start: "bogus"}); err == nil || !strings.Contains(err.Error(), "invalid date/time") {
 		t.Errorf("update parse validation: %v", err)

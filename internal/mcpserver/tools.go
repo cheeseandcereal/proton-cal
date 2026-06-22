@@ -119,7 +119,7 @@ func (s *server) register(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "create_event",
 		Description: "Create a calendar event. " +
-			"Timed events need start and end (\"YYYY-MM-DD HH:MM\" in the configured default timezone, or tz); " +
+			"Timed events take start (\"YYYY-MM-DD HH:MM\" in the configured default timezone, or tz); end is optional and defaults to the calendar's default duration; " +
 			"all-day events use dates (\"YYYY-MM-DD\") and end is the inclusive last day (default: start). " +
 			"Use repeat/every/count/until (or a raw rrule) to make it recurring.",
 	}, s.createEvent)
@@ -174,7 +174,7 @@ func (s *server) getCalendar(ctx context.Context, _ *mcp.CallToolRequest, args g
 		return nil, nil, err
 	}
 	text := renderCalendarDetail(got.Info, got.Settings, got.IsDefault)
-	return textResult(text), caljson.CalendarOf(got.Info, got.IsDefault), nil
+	return textResult(text), caljson.CalendarDetailOf(got.Info, got.Settings, got.IsDefault), nil
 }
 
 // ---------------------------------------------------------------- list_events
@@ -249,7 +249,7 @@ func (s *server) getEvent(ctx context.Context, _ *mcp.CallToolRequest, args getE
 type createEventArgs struct {
 	Summary     string   `json:"summary" jsonschema:"Event title"`
 	Start       string   `json:"start" jsonschema:"Start time \"YYYY-MM-DD HH:MM\" (in the configured default timezone, or tz); with all_day: a \"YYYY-MM-DD\" date"`
-	End         string   `json:"end,omitempty" jsonschema:"End time \"YYYY-MM-DD HH:MM\"; with all_day: inclusive end date (optional, defaults to start). Required for timed events."`
+	End         string   `json:"end,omitempty" jsonschema:"End time \"YYYY-MM-DD HH:MM\"; with all_day: inclusive end date (optional, defaulting to a single day). For timed events, defaults to the calendar's default duration (an explicit end is required only if the calendar defines no default)."`
 	Description string   `json:"description,omitempty" jsonschema:"Optional event description"`
 	Location    string   `json:"location,omitempty" jsonschema:"Optional event location"`
 	AllDay      bool     `json:"all_day,omitempty" jsonschema:"All-day event (dates instead of times)"`

@@ -9,6 +9,7 @@ import (
 
 	"github.com/cheeseandcereal/proton-cal/internal/calendar"
 	"github.com/cheeseandcereal/proton-cal/internal/calsvc"
+	"github.com/cheeseandcereal/proton-cal/internal/caltypes"
 	"github.com/cheeseandcereal/proton-cal/internal/event"
 	"github.com/cheeseandcereal/proton-cal/internal/eventview"
 )
@@ -93,6 +94,11 @@ type Calendar struct {
 	Email       string `json:"email,omitempty"`
 	MemberID    string `json:"member_id,omitempty"`
 	AddressID   string `json:"address_id,omitempty"`
+	// The following default settings are only populated for a single fetched
+	// calendar (CalendarDetailOf); the calendar list omits them.
+	DefaultDuration             int            `json:"default_duration,omitempty"` // minutes; 0 = unset
+	DefaultNormalNotifications  []Notification `json:"default_normal_notifications,omitempty"`
+	DefaultFullDayNotifications []Notification `json:"default_full_day_notifications,omitempty"`
 }
 
 // Created is the JSON shape of a create-event outcome. ID/UID are empty when
@@ -147,9 +153,7 @@ func enrich(j *Event, ev *event.Event, set calendar.Settings, cal calendar.Info)
 			Password: ev.Conference.Password, Host: ev.Conference.Host,
 		}
 	}
-	for _, n := range eventview.EffectiveReminders(ev, set) {
-		j.Notifications = append(j.Notifications, Notification{Type: eventview.ReminderKind(n.Type), Trigger: n.Trigger})
-	}
+	j.Notifications = notificationsJSON(eventview.EffectiveReminders(ev, set))
 }
 
 // base fills the identity/content fields plus enrichment shared by the
@@ -201,7 +205,7 @@ func EventDetail(ev *event.Event, loc *time.Location, set calendar.Settings, cal
 	return j
 }
 
-// CalendarOf maps a calendar.Info to its JSON shape.
+// CalendarOf maps a calendar.Info to its JSON shape (no default settings).
 func CalendarOf(c calendar.Info, isDefault bool) Calendar {
 	return Calendar{
 		ID:          c.ID,
@@ -214,6 +218,31 @@ func CalendarOf(c calendar.Info, isDefault bool) Calendar {
 		MemberID:    c.MemberID,
 		AddressID:   c.AddressID,
 	}
+}
+
+// CalendarDetailOf maps a single fetched calendar plus its default settings
+// (duration and reminder sets) to its JSON shape. Used for `get calendar`,
+// where the bootstrap settings are available; the calendar list uses
+// CalendarOf and omits these fields.
+func CalendarDetailOf(c calendar.Info, set calendar.Settings, isDefault bool) Calendar {
+	j := CalendarOf(c, isDefault)
+	j.DefaultDuration = set.DefaultEventDuration
+	j.DefaultNormalNotifications = notificationsJSON(set.DefaultPartDayNotifications)
+	j.DefaultFullDayNotifications = notificationsJSON(set.DefaultFullDayNotifications)
+	return j
+}
+
+// notificationsJSON maps caltypes notifications to their JSON shape (nil-safe;
+// returns nil for an empty input so the field is omitted).
+func notificationsJSON(ns []caltypes.Notification) []Notification {
+	if len(ns) == 0 {
+		return nil
+	}
+	out := make([]Notification, 0, len(ns))
+	for _, n := range ns {
+		out = append(out, Notification{Type: eventview.ReminderKind(n.Type), Trigger: n.Trigger})
+	}
+	return out
 }
 
 // Calendars maps a calendar list to JSON, marking the default by selector.
@@ -237,9 +266,7 @@ func CreatedOf(c *calsvc.CreatedEvent) Created {
 		RRule:   c.RRule,
 		Color:   c.Color,
 	}
-	for _, n := range c.Reminders {
-		out.Notifications = append(out.Notifications, Notification{Type: eventview.ReminderKind(n.Type), Trigger: n.Trigger})
-	}
+	out.Notifications = notificationsJSON(c.Reminders)
 	return out
 }
 
