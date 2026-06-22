@@ -54,32 +54,51 @@ func eventDetailRows(ev *event.Event, sel fieldSet, set calendar.Settings, cal c
 	return rows
 }
 
-// occurrenceLines renders one listed occurrence in the `proton-cal calendars`
-// style: an un-indented header line carrying only the summary (plus a
-// recurrence marker), then aligned "  Label: value" sub-lines for the time
-// and every selected detail field. Times are rendered in loc (all-day dates
-// in UTC, their canonical anchor zone). sel selects which detail fields
+// occurrenceHeaderRows builds the header (summary + recurrence marker) and the
+// labeled sub-rows (Time, the selected detail fields, an optional occurrence
+// start, and ID) for one listed occurrence in the `proton-cal calendars`
+// style. Splitting this out lets the list renderer align every event's
+// sub-rows to one shared column width. Times are rendered in loc (all-day
+// dates in UTC, their canonical anchor zone). sel selects which detail fields
 // appear; set/cal resolve the effective reminders and color.
-func occurrenceLines(l event.Listed, loc *time.Location, sel fieldSet, set calendar.Settings, cal calendar.Info) []string {
+func occurrenceHeaderRows(l event.Listed, loc *time.Location, sel fieldSet, set calendar.Settings, cal calendar.Info) (header string, rows []labeled) {
 	raw := l.Occurrence.Event
 	ev := l.Event
-	recurring := raw.IsMaster()
-
-	header := eventview.SummaryOr(ev) + eventview.RecurrenceSuffix(raw)
+	header = eventview.SummaryOr(ev) + eventview.RecurrenceSuffix(raw)
 
 	start := time.Unix(l.Occurrence.Start, 0)
 	end := time.Unix(l.Occurrence.End, 0)
 
-	rows := []labeled{{"Time", eventTimeRange(start, end, ev.AllDay, loc)}}
+	rows = []labeled{{"Time", eventTimeRange(start, end, ev.AllDay, loc)}}
 	rows = append(rows, eventDetailRows(ev, sel, set, cal)...)
-	if recurring {
+	if raw.IsMaster() {
 		rows = append(rows, labeled{"Occurrence start", calsvc.FormatOccurrenceStart(l.Occurrence.Start, ev.AllDay, loc)})
 	}
 	rows = append(rows, labeled{"ID", ev.EventID})
+	return header, rows
+}
 
-	lines := []string{header}
-	for _, line := range alignLabeled(rows) {
-		lines = append(lines, "  "+line)
+// occurrenceListLines renders a whole window of listed occurrences with a
+// single, consistent label-column width: every event's sub-field values line
+// up at the same column regardless of which fields each event has, for easier
+// scanning. Returns the lines for all events in order.
+func occurrenceListLines(items []event.Listed, loc *time.Location, sel fieldSet, set calendar.Settings, cal calendar.Info) []string {
+	headers := make([]string, len(items))
+	rowsPer := make([][]labeled, len(items))
+	width := 0
+	for i, l := range items {
+		headers[i], rowsPer[i] = occurrenceHeaderRows(l, loc, sel, set, cal)
+		if w := labelWidth(rowsPer[i]); w > width {
+			width = w
+		}
+	}
+
+	var lines []string
+	for i := range items {
+		lines = append(lines, headers[i])
+		for _, line := range alignLabeledWidth(rowsPer[i], width) {
+			lines = append(lines, "  "+line)
+		}
 	}
 	return lines
 }
@@ -178,17 +197,29 @@ func (b *rowBuilder) addRows(rows ...labeled) {
 // Labels longer than the cap simply get a single space before their value.
 const alignColumnCap = 14
 
-// alignLabeled renders labeled rows as "Label: value" with the colons
-// aligned to the widest label (up to alignColumnCap). Swatch escape
-// sequences in values are not measured for width (they are zero visible
-// columns at the value position).
-func alignLabeled(rows []labeled) []string {
+// labelWidth returns the alignment column width for rows: the widest label
+// not exceeding alignColumnCap.
+func labelWidth(rows []labeled) int {
 	width := 0
 	for _, r := range rows {
 		if n := len(r.label); n > width && n <= alignColumnCap {
 			width = n
 		}
 	}
+	return width
+}
+
+// alignLabeled renders labeled rows as "Label: value" with the colons aligned
+// to the widest label (up to alignColumnCap).
+func alignLabeled(rows []labeled) []string {
+	return alignLabeledWidth(rows, labelWidth(rows))
+}
+
+// alignLabeledWidth renders labeled rows as "Label: value" aligning the colons
+// to the given column width (so callers can share one width across several
+// row groups). Swatch escape sequences in values are not measured for width
+// (they are zero visible columns at the value position).
+func alignLabeledWidth(rows []labeled, width int) []string {
 	lines := make([]string, 0, len(rows))
 	for _, r := range rows {
 		lines = append(lines, fmt.Sprintf("%-*s %s", width+1, r.label+":", r.value))
@@ -263,15 +294,15 @@ var eventFieldRegistry = []fieldRow{
 }
 
 // listDefaultFields is the curated sub-line set shown under each event in the
-// events list when no --fields/--all is given: location, description,
-// conference and color. The head line already carries date/time + summary,
-// and the ID is always appended, so neither needs to be selected here.
+// events list when no --fields/--all is given: location, description and
+// conference. Color is omitted by default (request it with --fields color or
+// --all). The header carries the summary and the Time/ID rows are always
+// added, so none of those need to be selected here.
 func listDefaultFields() fieldSet {
 	return fieldSet{
 		fieldLocation:    true,
 		fieldDescription: true,
 		fieldConference:  true,
-		fieldColor:       true,
 	}
 }
 

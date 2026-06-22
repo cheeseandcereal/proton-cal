@@ -61,10 +61,8 @@ func newEventsCmd() *cobra.Command {
 			} else {
 				fmt.Fprintf(w, "Events in next %d days:\n", list.Days)
 			}
-			for _, l := range list.Items {
-				for _, line := range occurrenceLines(l, list.Location, sel, list.Settings, list.Calendar) {
-					fmt.Fprintln(w, line)
-				}
+			for _, line := range occurrenceListLines(list.Items, list.Location, sel, list.Settings, list.Calendar) {
+				fmt.Fprintln(w, line)
 			}
 			return nil
 		},

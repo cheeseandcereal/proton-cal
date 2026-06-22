@@ -54,7 +54,7 @@ func hasLine(lines []string, want string) bool {
 }
 
 func TestOccurrenceLinesTimed(t *testing.T) {
-	got := occurrenceLines(listedTimed(), time.UTC, listDefaultFields(), calendar.Settings{}, calendar.Info{})
+	got := occurrenceListLines([]event.Listed{listedTimed()}, time.UTC, listDefaultFields(), calendar.Settings{}, calendar.Info{})
 	// Header: summary only, un-indented; no inline time/location.
 	if got[0] != "Standup" {
 		t.Errorf("header line = %q", got[0])
@@ -77,7 +77,7 @@ func TestOccurrenceLinesTimed(t *testing.T) {
 
 func TestOccurrenceLinesTimedInZone(t *testing.T) {
 	loc := time.FixedZone("UTC+2", 2*60*60)
-	got := occurrenceLines(listedTimed(), loc, listDefaultFields(), calendar.Settings{}, calendar.Info{})
+	got := occurrenceListLines([]event.Listed{listedTimed()}, loc, listDefaultFields(), calendar.Settings{}, calendar.Info{})
 	if !hasLine(got, "Time: 2026-06-12 11:00 - 11:30 UTC+2") {
 		t.Errorf("Time sub-line in UTC+2 missing:\n%q", got)
 	}
@@ -88,7 +88,7 @@ func TestOccurrenceLinesTimedSpansDays(t *testing.T) {
 	// End on the next day: the end carries its own date; tz once at the end.
 	l.Occurrence.End = ts(2026, 6, 13, 1, 0)
 	l.Event.End = time.Unix(ts(2026, 6, 13, 1, 0), 0).UTC()
-	got := occurrenceLines(l, time.UTC, listDefaultFields(), calendar.Settings{}, calendar.Info{})
+	got := occurrenceListLines([]event.Listed{l}, time.UTC, listDefaultFields(), calendar.Settings{}, calendar.Info{})
 	if !hasLine(got, "Time: 2026-06-12 09:00 - 2026-06-13 01:00 UTC") {
 		t.Errorf("cross-day Time sub-line missing:\n%q", got)
 	}
@@ -99,7 +99,7 @@ func TestOccurrenceLinesNoTitleNoExtras(t *testing.T) {
 	l.Event.Summary = ""
 	l.Event.Description = ""
 	l.Event.Location = ""
-	got := occurrenceLines(l, time.UTC, listDefaultFields(), calendar.Settings{}, calendar.Info{})
+	got := occurrenceListLines([]event.Listed{l}, time.UTC, listDefaultFields(), calendar.Settings{}, calendar.Info{})
 	want := []string{
 		"(no title)",
 		"  Time: 2026-06-12 09:00 - 09:30 UTC",
@@ -118,7 +118,7 @@ func TestOccurrenceLinesAllDay(t *testing.T) {
 	// Render in a negative-offset zone: the all-day date must stay the
 	// UTC-anchored date, not shift to the previous local day.
 	loc := time.FixedZone("UTC-7", -7*60*60)
-	got := occurrenceLines(l, loc, listDefaultFields(), calendar.Settings{}, calendar.Info{})
+	got := occurrenceListLines([]event.Listed{l}, loc, listDefaultFields(), calendar.Settings{}, calendar.Info{})
 	if got[0] != "Standup" {
 		t.Errorf("all-day header line = %q", got[0])
 	}
@@ -133,7 +133,7 @@ func TestOccurrenceLinesAllDayMultiDay(t *testing.T) {
 	l.Occurrence.Start = ts(2026, 6, 12, 0, 0)
 	l.Occurrence.End = ts(2026, 6, 15, 0, 0) // exclusive end -> last day 06-14
 	loc := time.FixedZone("UTC-7", -7*60*60)
-	got := occurrenceLines(l, loc, listDefaultFields(), calendar.Settings{}, calendar.Info{})
+	got := occurrenceListLines([]event.Listed{l}, loc, listDefaultFields(), calendar.Settings{}, calendar.Info{})
 	if !hasLine(got, "Time: 2026-06-12 - 2026-06-14 (all day)") {
 		t.Errorf("multi-day all-day Time sub-line missing:\n%q", got)
 	}
@@ -143,7 +143,7 @@ func TestOccurrenceLinesRecurringMaster(t *testing.T) {
 	l := listedTimed()
 	l.Occurrence.Event.RRule = "FREQ=DAILY"
 	l.Event.RRule = "FREQ=DAILY"
-	got := occurrenceLines(l, time.UTC, listDefaultFields(), calendar.Settings{}, calendar.Info{})
+	got := occurrenceListLines([]event.Listed{l}, time.UTC, listDefaultFields(), calendar.Settings{}, calendar.Info{})
 	if got[0] != "Standup  (recurring)" {
 		t.Errorf("header line = %q", got[0])
 	}
@@ -158,7 +158,7 @@ func TestOccurrenceLinesRecurringAllDayMaster(t *testing.T) {
 	l.Occurrence.Start = ts(2026, 6, 12, 0, 0)
 	l.Event.AllDay = true
 	loc := time.FixedZone("UTC-7", -7*60*60)
-	got := occurrenceLines(l, loc, listDefaultFields(), calendar.Settings{}, calendar.Info{})
+	got := occurrenceListLines([]event.Listed{l}, loc, listDefaultFields(), calendar.Settings{}, calendar.Info{})
 	if !hasLine(got, "Occurrence start: 2026-06-12") {
 		t.Errorf("missing all-day occurrence start sub-line:\n%q", got)
 	}
@@ -168,12 +168,78 @@ func TestOccurrenceLinesEditedOccurrence(t *testing.T) {
 	l := listedTimed()
 	l.Occurrence.Event.RecurrenceID = ts(2026, 6, 12, 8, 0)
 	l.Event.RecurrenceID = time.Unix(ts(2026, 6, 12, 8, 0), 0).UTC()
-	got := occurrenceLines(l, time.UTC, listDefaultFields(), calendar.Settings{}, calendar.Info{})
+	got := occurrenceListLines([]event.Listed{l}, time.UTC, listDefaultFields(), calendar.Settings{}, calendar.Info{})
 	if got[0] != "Standup  (edited occurrence)" {
 		t.Errorf("edited occurrence header line = %q", got[0])
 	}
 	if hasLine(got, "Occurrence start: 2026-06-12 09:00") {
 		t.Errorf("edited occurrence must not get an occurrence start line: %q", got)
+	}
+}
+
+func TestListDefaultFieldsExcludesColor(t *testing.T) {
+	sel := listDefaultFields()
+	if sel.has(fieldColor) {
+		t.Error("color must not be in the events-list default field set")
+	}
+	// Color is suppressed in the default list even when the event has one.
+	l := listedTimed()
+	l.Event.Color = "#EC3E7C"
+	got := occurrenceListLines([]event.Listed{l}, time.UTC, listDefaultFields(), calendar.Settings{}, calendar.Info{})
+	for _, line := range got {
+		if strings.Contains(line, "Color:") {
+			t.Errorf("color must be hidden by default, got line %q", line)
+		}
+	}
+	// ... but appears when explicitly requested via --fields color.
+	sel2, err := selectFields(eventFieldRegistry, []string{"color"}, false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got = occurrenceListLines([]event.Listed{l}, time.UTC, sel2, calendar.Settings{}, calendar.Info{})
+	if !hasLine(got, "Color: strawberry (#EC3E7C)") {
+		t.Errorf("--fields color should show the color:\n%q", got)
+	}
+}
+
+// TestOccurrenceListConsistentAlignment verifies that the label column is
+// aligned identically across events even when they expose different fields:
+// an event with only Time/ID must still pad its labels to the same width as a
+// sibling event that has a longer label (e.g. Description).
+func TestOccurrenceListConsistentAlignment(t *testing.T) {
+	withDesc := listedTimed() // has Location + Description (long labels)
+	bare := listedTimed()
+	bare.Event.EventID = "evt2"
+	bare.Occurrence.Event = &caltypes.RawEvent{ID: "evt2"}
+	bare.Event.Summary = "Bare"
+	bare.Event.Location = ""
+	bare.Event.Description = ""
+
+	got := occurrenceListLines([]event.Listed{withDesc, bare}, time.UTC, listDefaultFields(), calendar.Settings{}, calendar.Info{})
+
+	// Collect the byte offset of the ':' in every "Time:" line; they must all
+	// match (one shared column), proving alignment is list-wide, not per-event.
+	var colonCols []int
+	for _, line := range got {
+		trimmed := strings.TrimPrefix(line, "  ")
+		if strings.HasPrefix(trimmed, "Time:") {
+			colonCols = append(colonCols, strings.IndexByte(line, ':'))
+		}
+	}
+	if len(colonCols) != 2 {
+		t.Fatalf("expected 2 Time lines, got %d (\n%s\n)", len(colonCols), strings.Join(got, "\n"))
+	}
+	if colonCols[0] != colonCols[1] {
+		t.Errorf("Time label colons not aligned across events: %v\n%s", colonCols, strings.Join(got, "\n"))
+	}
+	// The shared width is driven by the longest label present anywhere
+	// (Description = 11), so even the bare event's Time value starts past it.
+	for _, line := range got {
+		if strings.HasPrefix(strings.TrimPrefix(line, "  "), "Time:") {
+			if !strings.Contains(line, "Time:        ") { // padded to Description width
+				t.Errorf("Time line not padded to the shared column: %q", line)
+			}
+		}
 	}
 }
 
