@@ -10,7 +10,21 @@ import (
 	"github.com/cheeseandcereal/proton-cal/internal/eventview"
 )
 
+// newUpdateCmd is the parent "update" command grouping resource updaters.
 func newUpdateCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "update",
+		Short: "Update a resource (event or calendar)",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return cmd.Help()
+		},
+	}
+	cmd.AddCommand(newUpdateEventCmd(), newUpdateCalendarCmd())
+	return cmd
+}
+
+func newUpdateEventCmd() *cobra.Command {
 	var (
 		in          calsvc.UpdateEventInput
 		summary     string
@@ -20,7 +34,7 @@ func newUpdateCmd() *cobra.Command {
 	)
 
 	cmd := &cobra.Command{
-		Use:   "update EVENT_ID",
+		Use:   "event EVENT_ID",
 		Short: "Update an existing calendar event (only specified fields change)",
 		Long: `Update an existing calendar event. Only specified fields are changed.
 

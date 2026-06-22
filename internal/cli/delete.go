@@ -9,11 +9,25 @@ import (
 	"github.com/cheeseandcereal/proton-cal/internal/eventview"
 )
 
+// newDeleteCmd is the parent "delete" command grouping resource deleters.
 func newDeleteCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "delete",
+		Short: "Delete a resource (event or calendar)",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return cmd.Help()
+		},
+	}
+	cmd.AddCommand(newDeleteEventCmd(), newDeleteCalendarCmd())
+	return cmd
+}
+
+func newDeleteEventCmd() *cobra.Command {
 	var in calsvc.DeleteEventInput
 
 	cmd := &cobra.Command{
-		Use:   "delete EVENT_ID",
+		Use:   "event EVENT_ID",
 		Short: "Delete a calendar event",
 		Long: `Delete a calendar event.
 

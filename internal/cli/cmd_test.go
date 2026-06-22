@@ -34,9 +34,9 @@ func TestCLICreateValidationErrors(t *testing.T) {
 		// "timed missing end" is no longer a pre-network error: the end now
 		// defaults to the calendar's duration, resolved after the calendar is
 		// unlocked (covered by calsvc.TestApplyDefaultDuration).
-		{"bad start", []string{"create", "Lunch", "--start", "nope", "--end", "2026-06-15 10:00"}, "invalid date"},
-		{"rrule conflicts repeat", []string{"create", "X", "--start", "2026-06-15 09:00", "--end", "2026-06-15 10:00", "--rrule", "FREQ=DAILY", "--repeat", "daily"}, "rrule cannot be combined"},
-		{"modifiers require repeat", []string{"create", "X", "--start", "2026-06-15 09:00", "--end", "2026-06-15 10:00", "--count", "3"}, "require repeat"},
+		{"bad start", []string{"create", "event", "Lunch", "--start", "nope", "--end", "2026-06-15 10:00"}, "invalid date"},
+		{"rrule conflicts repeat", []string{"create", "event", "X", "--start", "2026-06-15 09:00", "--end", "2026-06-15 10:00", "--rrule", "FREQ=DAILY", "--repeat", "daily"}, "rrule cannot be combined"},
+		{"modifiers require repeat", []string{"create", "event", "X", "--start", "2026-06-15 09:00", "--end", "2026-06-15 10:00", "--count", "3"}, "require repeat"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -49,7 +49,7 @@ func TestCLICreateValidationErrors(t *testing.T) {
 }
 
 func TestCLICreateRequiresStartFlag(t *testing.T) {
-	_, _, err := runCLI(t, detachedFactory, "create", "NoStart")
+	_, _, err := runCLI(t, detachedFactory, "create", "event", "NoStart")
 	if err == nil || !strings.Contains(err.Error(), "start") {
 		t.Fatalf("want required-flag error mentioning start, got %v", err)
 	}
@@ -61,9 +61,9 @@ func TestCLIUpdateConflicts(t *testing.T) {
 		args []string
 		want string
 	}{
-		{"no-repeat with repeat", []string{"update", "evt", "--no-repeat", "--repeat", "daily"}, "no-repeat cannot be combined"},
-		{"occurrence with rrule", []string{"update", "evt", "--occurrence", "2026-06-15 09:00", "--rrule", "FREQ=DAILY"}, "occurrence"},
-		{"bad start", []string{"update", "evt", "--start", "whenever"}, "invalid date"},
+		{"no-repeat with repeat", []string{"update", "event", "evt", "--no-repeat", "--repeat", "daily"}, "no-repeat cannot be combined"},
+		{"occurrence with rrule", []string{"update", "event", "evt", "--occurrence", "2026-06-15 09:00", "--rrule", "FREQ=DAILY"}, "occurrence"},
+		{"bad start", []string{"update", "event", "evt", "--start", "whenever"}, "invalid date"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -81,10 +81,10 @@ func TestCLICreateReminderColorValidation(t *testing.T) {
 		args []string
 		want string
 	}{
-		{"bad reminder", []string{"create", "X", "--start", "2026-06-15 09:00", "--end", "2026-06-15 10:00", "--reminder", "soon"}, "invalid reminder offset"},
-		{"reminder + no-reminders", []string{"create", "X", "--start", "2026-06-15 09:00", "--end", "2026-06-15 10:00", "--reminder", "15m", "--no-reminders"}, "mutually exclusive"},
-		{"bad color", []string{"create", "X", "--start", "2026-06-15 09:00", "--end", "2026-06-15 10:00", "--color", "red"}, "invalid color"},
-		{"empty color", []string{"create", "X", "--start", "2026-06-15 09:00", "--end", "2026-06-15 10:00", "--color", ""}, "requires a value"},
+		{"bad reminder", []string{"create", "event", "X", "--start", "2026-06-15 09:00", "--end", "2026-06-15 10:00", "--reminder", "soon"}, "invalid reminder offset"},
+		{"reminder + no-reminders", []string{"create", "event", "X", "--start", "2026-06-15 09:00", "--end", "2026-06-15 10:00", "--reminder", "15m", "--no-reminders"}, "mutually exclusive"},
+		{"bad color", []string{"create", "event", "X", "--start", "2026-06-15 09:00", "--end", "2026-06-15 10:00", "--color", "red"}, "invalid color"},
+		{"empty color", []string{"create", "event", "X", "--start", "2026-06-15 09:00", "--end", "2026-06-15 10:00", "--color", ""}, "requires a value"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -102,11 +102,11 @@ func TestCLIUpdateReminderConflicts(t *testing.T) {
 		args []string
 		want string
 	}{
-		{"reminder + reminders-default", []string{"update", "evt", "--reminder", "15m", "--reminders-default"}, "mutually exclusive"},
-		{"no-reminders + reminders-default", []string{"update", "evt", "--no-reminders", "--reminders-default"}, "mutually exclusive"},
-		{"bad color", []string{"update", "evt", "--color", "chartreuse"}, "invalid color"},
-		{"empty color", []string{"update", "evt", "--color", ""}, "requires a value"},
-		{"bad reminder", []string{"update", "evt", "--reminder", "nope"}, "invalid reminder offset"},
+		{"reminder + reminders-default", []string{"update", "event", "evt", "--reminder", "15m", "--reminders-default"}, "mutually exclusive"},
+		{"no-reminders + reminders-default", []string{"update", "event", "evt", "--no-reminders", "--reminders-default"}, "mutually exclusive"},
+		{"bad color", []string{"update", "event", "evt", "--color", "chartreuse"}, "invalid color"},
+		{"empty color", []string{"update", "event", "evt", "--color", ""}, "requires a value"},
+		{"bad reminder", []string{"update", "event", "evt", "--reminder", "nope"}, "invalid reminder offset"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -126,7 +126,7 @@ func TestCLIGetEventICSWithJSONConflict(t *testing.T) {
 }
 
 func TestCLIDeleteBadOccurrence(t *testing.T) {
-	_, _, err := runCLI(t, detachedFactory, "delete", "evt", "--occurrence", "15/06/2026")
+	_, _, err := runCLI(t, detachedFactory, "delete", "event", "evt", "--occurrence", "15/06/2026")
 	if err == nil || !strings.Contains(err.Error(), "invalid date") {
 		t.Fatalf("want occurrence parse error, got %v", err)
 	}
@@ -178,5 +178,35 @@ func TestCLIGetParentHelp(t *testing.T) {
 	}
 	if !strings.Contains(out, "event") || !strings.Contains(out, "calendar") {
 		t.Errorf("get help missing subcommands; got:\n%s", out)
+	}
+}
+
+// The restructured create/update/delete are parents: bare invocation prints
+// help (with subcommands) instead of treating an arg as an event.
+func TestCLIMutationParentsShowHelp(t *testing.T) {
+	for _, parent := range []string{"create", "update", "delete"} {
+		out, _, err := runCLI(t, nil, parent)
+		if err != nil {
+			t.Fatalf("%s help: %v", parent, err)
+		}
+		if !strings.Contains(out, "event") {
+			t.Errorf("%s help missing event subcommand; got:\n%s", parent, out)
+		}
+	}
+}
+
+func TestCLIDeleteCalendarRequiresYes(t *testing.T) {
+	_, _, err := runCLI(t, detachedFactory, "delete", "calendar", "Work")
+	if err == nil || !strings.Contains(err.Error(), "--yes") {
+		t.Fatalf("want --yes requirement, got %v", err)
+	}
+}
+
+func TestCLIUpdateCalendarRejectsDefaultColor(t *testing.T) {
+	// "default" color is rejected before any network call (a calendar has no
+	// inheritable color), so the detached factory is never invoked.
+	_, _, err := runCLI(t, detachedFactory, "update", "calendar", "Work", "--color", "default")
+	if err == nil || !strings.Contains(err.Error(), "no inheritable default color") {
+		t.Fatalf("want default-color rejection, got %v", err)
 	}
 }

@@ -11,14 +11,28 @@ import (
 	"github.com/cheeseandcereal/proton-cal/internal/eventview"
 )
 
+// newCreateCmd is the parent "create" command grouping resource creators.
 func newCreateCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "create",
+		Short: "Create a resource (event)",
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return cmd.Help()
+		},
+	}
+	cmd.AddCommand(newCreateEventCmd())
+	return cmd
+}
+
+func newCreateEventCmd() *cobra.Command {
 	var (
 		in calsvc.CreateEventInput
 		rc reminderColorFlags
 	)
 
 	cmd := &cobra.Command{
-		Use:   "create SUMMARY",
+		Use:   "event SUMMARY",
 		Short: "Create a new calendar event (optionally recurring or all-day)",
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
