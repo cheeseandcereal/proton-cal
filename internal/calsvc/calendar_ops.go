@@ -95,7 +95,7 @@ func (s *Service) UpdateCalendar(ctx context.Context, in UpdateCalendarInput) (*
 		if err := calendar.UpdateSettings(ctx, s.api, info.ID, patch); err != nil {
 			return nil, fmt.Errorf("%w (metadata changes, if any, were applied)", err)
 		}
-		s.invalidateCache(calendar.BootstrapPath(info.ID))
+		s.invalidateCalendarKeys(info.ID)
 	}
 
 	if in.MakeDefault {

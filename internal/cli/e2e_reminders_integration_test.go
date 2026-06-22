@@ -17,7 +17,7 @@ func TestE2ECLIRemindersAndColor(t *testing.T) {
 	start, end := e2eFutureSlot()
 	summary := e2eSummary("cli-reminders")
 
-	stdout, _, err := runCLI(t, factory, "create", summary,
+	stdout, _, err := runCLI(t, factory, "create", "event", summary,
 		"--start", start, "--end", end, "--calendar", cal, "--tz", "UTC",
 		"--reminder", "15m", "--reminder", "email:1h", "--color", "#EC3E7C",
 		"-o", "json")
@@ -69,7 +69,7 @@ func TestE2ECLIRemindersAndColor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GetCalendar: %v", err)
 	}
-	if _, _, err := runCLI(t, factory, "update", "--calendar", cal, "--no-reminders", "--color", "default", "--", created.ID); err != nil {
+	if _, _, err := runCLI(t, factory, "update", "event", "--calendar", cal, "--no-reminders", "--color", "default", "--", created.ID); err != nil {
 		t.Fatalf("update clear: %v", err)
 	}
 	ev, err := e2eSvc.GetEvent(context.Background(), calsvc.GetEventInput{EventID: created.ID, Calendar: cal})
@@ -85,7 +85,7 @@ func TestE2ECLIRemindersAndColor(t *testing.T) {
 
 	// --reminders-default reverts reminders to inheriting the calendar default
 	// (NotificationsSet becomes false).
-	if _, _, err := runCLI(t, factory, "update", "--calendar", cal, "--reminders-default", "--", created.ID); err != nil {
+	if _, _, err := runCLI(t, factory, "update", "event", "--calendar", cal, "--reminders-default", "--", created.ID); err != nil {
 		t.Fatalf("update reminders-default: %v", err)
 	}
 	ev, err = e2eSvc.GetEvent(context.Background(), calsvc.GetEventInput{EventID: created.ID, Calendar: cal})

@@ -10,15 +10,19 @@ See [crypto.md](crypto.md) for the encryption model these endpoints carry and
 | Method | Endpoint                             | Purpose |
 |--------|--------------------------------------|---------|
 | GET    | `/calendar/v1`                       | List calendars |
-| POST   | `/calendar/v1`                       | Create calendar |
-| GET    | `/calendar/v1/{calID}`               | Get one calendar |
-| DELETE | `/calendar/v1/{calID}`               | Delete calendar |
+| POST   | `/calendar/v1`                       | Create calendar (we don't create calendars; needs calendar-key generation) |
+| GET    | `/calendar/v1/{calID}`               | Get one calendar (returns only ID/Type/Owner; metadata lives on the member) |
+| DELETE | `/calendar/v1/{calID}`               | Delete an OWNED calendar (we call it; needs the elevated "locked" scope) |
+| DELETE | `/calendar/v1/{calID}/managed`       | Delete/leave a backend-managed (holidays) calendar (we call it; normal scope) |
 | GET    | `/calendar/v2/{calID}/bootstrap`     | **Keys + members + passphrase + settings in one call** - our unlock path uses this; it is the *only* `v2` route |
 | GET    | `/calendar/v1/{calID}/keys`          | Calendar private keys (we don't call it; bootstrap supplies the keys) |
 | GET    | `/calendar/v1/{calID}/passphrase`    | Calendar passphrase (we don't call it; bootstrap supplies it) |
 | GET    | `/calendar/v1/{calID}/members`       | Member entries (we don't call it; bootstrap supplies them) |
+| PUT    | `/calendar/v1/{calID}/members/{memberID}` | Update our member's display metadata (Name/Description/Color); we call it for `update calendar` |
 | GET    | `/calendar/v1/{calID}/settings`      | Calendar settings, standalone (we don't call it; bootstrap supplies them) |
-| PUT    | `/calendar/v1/{calID}/settings`      | Update calendar settings (we don't write settings) |
+| PUT    | `/calendar/v1/{calID}/settings`      | Update calendar default settings; we call it for `update calendar` |
+| GET    | `/settings/calendar`                 | Per-account calendar user settings (carries `DefaultCalendarID`); we call it to resolve the default calendar |
+| PUT    | `/settings/calendar`                 | Update calendar user settings; we call it for `update calendar --make-default` |
 
 **Versioning note.** The API is almost entirely `calendar/v1`; in the Proton
 web client (`packages/shared/lib/api/calendars.ts`) `calendar/v2` is used by a
@@ -55,6 +59,52 @@ returns `Calendars[]` where display metadata (`Name`, `Description`,
 list endpoint returns just our own member). Older responses had these fields
 top-level; treat top-level values as a legacy fallback. `Type` observed
 values: `0` = normal, `1` = subscribed (read-only ICS), `2` = holidays.
+
+### The default calendar (live-verified)
+
+Which calendar is "the default" is an **account-level server setting**, not a
+local preference: `GET /settings/calendar` returns
+`CalendarUserSettings.DefaultCalendarID`. `is_default` in `get calendar` /
+`list_calendars` is computed by comparing each calendar's ID to that value,
+and an unspecified `--calendar` selector resolves to it (falling back to the
+first calendar when it is unset or names a calendar no longer present).
+`update calendar --make-default` writes it via a partial
+`PUT /settings/calendar {"DefaultCalendarID": "<id>"}` (normal scope, no
+password). The fetch is cached and invalidated on a make-default write.
+
+### Updating calendar metadata and settings (live-verified)
+
+Both update routes accept **partial** bodies (the server preserves omitted
+fields) and run with the normal session scope:
+
+- **Metadata** (`Name`, `Description`, `Color`) -
+  `PUT /calendar/v1/{calID}/members/{memberID}`. `Color` must be one of
+  Proton's fixed accent-palette colors, else `400 code 2011 "Not a valid
+  Proton color"` (same palette as event colors). A calendar has no
+  inheritable color, so there is no "default" sentinel.
+- **Settings** (`DefaultEventDuration`, `DefaultPartDayNotifications`,
+  `DefaultFullDayNotifications`, `MakesUserBusy`) -
+  `PUT /calendar/v1/{calID}/settings`. Notification sets serialize as `[]`
+  (never `null`) when cleared. Only owned (`Type 0`) calendars are updatable.
+
+After a settings write the cached bootstrap **and** the in-memory unlocked
+`Access` are invalidated, so a subsequent read in the same session reflects
+the change.
+
+### Deleting a calendar (live-verified)
+
+- **Owned (`Type 0`)** - `DELETE /calendar/v1/{calID}` requires the elevated
+  "locked" scope: a restored session's token lacks it and the call fails with
+  `403 code 9101`. Gaining it re-proves the login password via SRP
+  (`PUT /core/v4/users/unlock`; see overview.md), so the CLI prompts for the
+  password (`delete calendar`, or `--password`) and the MCP `delete_calendar`
+  tool takes a `password` argument.
+- **Backend-managed (`Type 2`, holidays)** - `DELETE /calendar/v1/{calID}/managed`
+  works with the **normal** scope (no password). The routes are not
+  interchangeable: the managed route on a normal calendar returns
+  `400 code 2011 "Not a backend managed calendar"`, and the normal route on a
+  managed/subscribed calendar returns `403 code 9101`.
+- **Subscribed (`Type 1`)** - not deletable here (unsubscribe in the app).
 
 ### Event operations
 

@@ -183,6 +183,16 @@ func (k *Keychain) Unlock(ctx context.Context, info Info) (*Access, error) {
 	return access, nil
 }
 
+// Invalidate drops any cached Access for the given calendar so the next
+// Unlock re-fetches the bootstrap (keys, members and settings). Used after a
+// write that changes a calendar's settings, so a subsequent read in the same
+// session does not return stale cached settings.
+func (k *Keychain) Invalidate(calendarID string) {
+	k.mu.Lock()
+	delete(k.cache, calendarID)
+	k.mu.Unlock()
+}
+
 // resolveMember finds OUR member entry among the given members: the one
 // whose Email matches one of our addresses' emails case-insensitively (the
 // members list may include other users on shared calendars), falling back to

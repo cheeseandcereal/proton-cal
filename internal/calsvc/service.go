@@ -296,6 +296,19 @@ func (s *Service) invalidateCache(keys ...string) {
 	}
 }
 
+// invalidateCalendarKeys drops the cached unlocked Access (and the cached
+// bootstrap response) for one calendar, so a subsequent unlock/settings read
+// re-fetches fresh. Used after a settings write.
+func (s *Service) invalidateCalendarKeys(calendarID string) {
+	s.invalidateCache(calendar.BootstrapPath(calendarID))
+	s.kcMu.Lock()
+	kc := s.keychain
+	s.kcMu.Unlock()
+	if kc != nil {
+		kc.Invalidate(calendarID)
+	}
+}
+
 // invalidateCalendarList drops the cached calendar list (disk + in-memory) so
 // the next resolution re-fetches it (e.g. after a name/color change or a
 // calendar deletion).

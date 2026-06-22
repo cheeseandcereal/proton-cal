@@ -68,6 +68,13 @@ sufficient scope"). Consequences:
 - `PUT /core/v4/users/lock` (empty body) drops the elevated scope again;
   good hygiene once the salts are in hand.
 
+The same elevation is required to **delete an owned calendar**
+(`DELETE /calendar/v1/{calID}` returns `9101` without it). `auth.WithLockedScope`
+wraps the unlock -> run -> lock dance for both uses; calendar deletion prompts
+for the login password at the point of use (it is never persisted). Deleting a
+backend-managed (holidays) calendar uses `DELETE .../managed` and needs no
+elevation.
+
 ## Error codes (observed)
 
 | Code | Meaning |

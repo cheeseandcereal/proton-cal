@@ -69,53 +69,65 @@ proton-cal calendars
 # List events for the next 7 days (recurring events expanded)
 proton-cal events --days 7
 
-# Target a calendar by name or ID (default: config default_calendar, else first)
+# Target a calendar by name or ID (default: the account's default calendar,
+# else the first)
 proton-cal events --calendar Work
 
 # Create an event (--end is optional for timed events: it defaults to the
 # calendar's default duration)
-proton-cal create "Team standup" \
+proton-cal create event "Team standup" \
   --start "2026-05-26 09:00" --end "2026-05-26 09:30" \
   --description "Weekly sync" --location "Zoom"
 
 # Recurring (daily/weekly/monthly/yearly; --every N, --count N or --until DATE)
-proton-cal create "Team standup" \
+proton-cal create event "Team standup" \
   --start "2026-05-26 09:00" --end "2026-05-26 09:30" \
   --repeat weekly --count 10
 
 # ... or a raw RRULE for anything fancier
-proton-cal create "Payday" --start "2026-05-29 09:00" --end "2026-05-29 09:05" \
+proton-cal create event "Payday" --start "2026-05-29 09:00" --end "2026-05-29 09:05" \
   --rrule "FREQ=MONTHLY;BYSETPOS=-1;BYDAY=FR"
 
 # All-day events take dates (end is inclusive and optional)
-proton-cal create "Conference" --all-day --start 2026-06-10 --end 2026-06-12
+proton-cal create event "Conference" --all-day --start 2026-06-10 --end 2026-06-12
 
 # Reminders (repeatable; shorthand 15m/1h30m/2d/1w, prefix email: for email)
 # and a color (a Proton color name or its hex)
-proton-cal create "Dentist" --start "2026-06-10 14:00" --end "2026-06-10 14:30" \
+proton-cal create event "Dentist" --start "2026-06-10 14:00" --end "2026-06-10 14:30" \
   --reminder 1d --reminder email:1h --color strawberry
 
-# Update (only the flags you pass change; recurrence is preserved)
-proton-cal update <event-id> --summary "Renamed standup" --location "In person"
+# Update an event (only the flags you pass change; recurrence is preserved)
+proton-cal update event <event-id> --summary "Renamed standup" --location "In person"
 
 # Reminders: replace, remove all, or revert to the calendar default
-proton-cal update <event-id> --reminder 30m --reminder 1d
-proton-cal update <event-id> --no-reminders          # no reminders
-proton-cal update <event-id> --reminders-default     # use the calendar default
-proton-cal update <event-id> --color pacific         # set a Proton color
-proton-cal update <event-id> --color default         # revert to the calendar color
+proton-cal update event <event-id> --reminder 30m --reminder 1d
+proton-cal update event <event-id> --no-reminders          # no reminders
+proton-cal update event <event-id> --reminders-default     # use the calendar default
+proton-cal update event <event-id> --color pacific         # set a Proton color
+proton-cal update event <event-id> --color default         # revert to the calendar color
 
 # Change or remove the recurrence (series changes drop edited occurrences)
-proton-cal update <event-id> --repeat daily --count 5
-proton-cal update <event-id> --no-repeat
+proton-cal update event <event-id> --repeat daily --count 5
+proton-cal update event <event-id> --no-repeat
 
 # Edit / delete ONE occurrence of a recurring event (identified by its
 # original start, as shown by `proton-cal events`)
-proton-cal update <event-id> --occurrence "2026-06-02 09:00" --start "2026-06-02 10:00"
-proton-cal delete <event-id> --occurrence "2026-06-02 09:00"
+proton-cal update event <event-id> --occurrence "2026-06-02 09:00" --start "2026-06-02 10:00"
+proton-cal delete event <event-id> --occurrence "2026-06-02 09:00"
 
-# Delete (recurring events: whole series incl. edited occurrences)
-proton-cal delete <event-id>
+# Delete an event (recurring events: whole series incl. edited occurrences)
+proton-cal delete event <event-id>
+
+# Update a calendar's metadata, default settings, or default status
+proton-cal update calendar Work --name "Work (2026)" --color cobalt
+proton-cal update calendar Work --default-duration 60 --makes-busy
+proton-cal update calendar Work --reminder 15m --full-day-reminder 1d  # replace default reminder sets
+proton-cal update calendar Work --make-default                         # make it the account default
+
+# Delete a calendar (--yes required; owned calendars prompt for the login
+# password, or pass --password for non-interactive use; holidays calendars
+# need no password)
+proton-cal delete calendar "Old project" --yes
 
 # Inspect one resource in full detail (labeled fields; color swatch in a terminal)
 proton-cal get event <event-id>
@@ -144,9 +156,12 @@ All time-based commands accept `--tz` (default: the `timezone` saved in
 ```toml
 username = "you"                 # written by login
 timezone = "America/Los_Angeles" # written by login; override freely
-default_calendar = "Work"        # optional: calendar ID or name
 # base_url = "https://mail-api.proton.me"  # optional override
 ```
+
+The default calendar (used when no `--calendar` is given, and shown as
+`[default]`) is your **account's** default calendar from Proton, not a local
+setting; change it with `proton-cal update calendar <name> --make-default`.
 
 `session.json` (same directory, mode 0600) holds the session tokens and the
 derived salted key passphrase. It can unlock your calendar keys but cannot be
@@ -171,8 +186,11 @@ session (re-login discards it) and `proton-cal logout` deletes it. Pass
 ## MCP server
 
 `proton-cal mcp` speaks MCP over stdio, exposing `list_calendars`,
-`get_calendar`, `list_events`, `get_event`, `create_event`, `update_event` and
-`delete_event` (each tool takes an optional `calendar` argument). Read tools
+`get_calendar`, `list_events`, `get_event`, `create_event`, `update_event`,
+`delete_event`, `update_calendar` and `delete_calendar` (most tools take an
+optional `calendar` argument). `delete_calendar` requires `confirm: true` and,
+for an owned calendar, a `password` argument (the login password, used only for
+the deletion handshake); there is no `create_calendar`. Read tools
 return both a human-readable text block and machine-readable structured content
 (the same JSON schema as the CLI's `-o json`). Because JSON arguments can't tell
 an omitted string from an empty one, `update_event` treats empty fields as
@@ -275,6 +293,14 @@ stored session it skips.
 - **Event color**: only Proton's fixed palette is accepted, and a color
   cannot be cleared to "none" - `--color default` reverts to the calendar's
   color (Proton has no per-event "no color" state once one is set).
+- **Creating calendars**: not supported (it requires generating a new
+  calendar key bundle). You can update and delete calendars, but create them
+  in the Proton app.
+- **Deleting an owned calendar is interactive**: it requires re-entering your
+  login password (prompted, or `--password` for scripts), since Proton gates
+  the deletion behind an elevated re-authentication scope. Holidays calendars
+  delete without a password; subscribed calendars must be unsubscribed in the
+  app.
 - **FIDO2-only 2FA**: not supported (TOTP only).
 - **API date filtering**: Proton ignores `Start`/`End` on the events listing
   and paginates everything at 100/page - the CLI paginates and filters
