@@ -54,40 +54,60 @@ func eventDetailRows(ev *event.Event, sel fieldSet, set calendar.Settings, cal c
 	return rows
 }
 
-// occurrenceLines renders one listed occurrence as human-readable output
-// lines. The head line carries only the date/time (with timezone) and the
-// summary; everything else (location, description, organizer, attendees,
-// conference, reminders, color) goes on its own labeled, aligned sub-line.
-// Times are rendered in loc (all-day dates in UTC, their canonical anchor
-// zone). sel selects which sub-line fields appear; set/cal resolve the
-// effective reminders and color.
+// occurrenceLines renders one listed occurrence in the `proton-cal calendars`
+// style: an un-indented header line carrying only the summary (plus a
+// recurrence marker), then aligned "  Label: value" sub-lines for the time
+// and every selected detail field. Times are rendered in loc (all-day dates
+// in UTC, their canonical anchor zone). sel selects which detail fields
+// appear; set/cal resolve the effective reminders and color.
 func occurrenceLines(l event.Listed, loc *time.Location, sel fieldSet, set calendar.Settings, cal calendar.Info) []string {
 	raw := l.Occurrence.Event
 	ev := l.Event
 	recurring := raw.IsMaster()
-	summary := eventview.SummaryOr(ev) + eventview.RecurrenceSuffix(raw)
+
+	header := eventview.SummaryOr(ev) + eventview.RecurrenceSuffix(raw)
 
 	start := time.Unix(l.Occurrence.Start, 0)
 	end := time.Unix(l.Occurrence.End, 0)
-	var head string
-	if ev.AllDay {
-		head = fmt.Sprintf("  %s (all day)  %s", start.UTC().Format("2006-01-02"), summary)
-	} else {
-		head = fmt.Sprintf("  %s - %s  %s",
-			start.In(loc).Format("2006-01-02 15:04 MST"), end.In(loc).Format("15:04 MST"), summary)
-	}
 
-	rows := eventDetailRows(ev, sel, set, cal)
+	rows := []labeled{{"Time", eventTimeRange(start, end, ev.AllDay, loc)}}
+	rows = append(rows, eventDetailRows(ev, sel, set, cal)...)
 	if recurring {
 		rows = append(rows, labeled{"Occurrence start", calsvc.FormatOccurrenceStart(l.Occurrence.Start, ev.AllDay, loc)})
 	}
 	rows = append(rows, labeled{"ID", ev.EventID})
 
-	lines := []string{head}
+	lines := []string{header}
 	for _, line := range alignLabeled(rows) {
-		lines = append(lines, "    "+line)
+		lines = append(lines, "  "+line)
 	}
 	return lines
+}
+
+// eventTimeRange formats an event's start/end for human display. The timezone
+// is shown once, at the end. The end's date is included only when it differs
+// from the start's date (so a same-day event reads "... 09:00 - 09:30 MST").
+//
+// All-day events use their UTC-anchored dates; the iCal end is exclusive, so
+// the inclusive last day is end-1day, and the end date is shown only for a
+// multi-day span.
+func eventTimeRange(start, end time.Time, allDay bool, loc *time.Location) string {
+	if allDay {
+		s := start.UTC()
+		last := end.UTC().AddDate(0, 0, -1) // exclusive end -> inclusive last day
+		if last.After(s) {
+			return fmt.Sprintf("%s - %s (all day)", s.Format("2006-01-02"), last.Format("2006-01-02"))
+		}
+		return s.Format("2006-01-02") + " (all day)"
+	}
+	s := start.In(loc)
+	e := end.In(loc)
+	if s.Format("2006-01-02") == e.Format("2006-01-02") {
+		// Same day: timezone once, at the end.
+		return fmt.Sprintf("%s - %s %s", s.Format("2006-01-02 15:04"), e.Format("15:04"), e.Format("MST"))
+	}
+	// Spans days: the end carries its own date; timezone once, at the end.
+	return fmt.Sprintf("%s - %s %s", s.Format("2006-01-02 15:04"), e.Format("2006-01-02 15:04"), e.Format("MST"))
 }
 
 // eventDetailLines renders a single fetched event as aligned "Label: value"

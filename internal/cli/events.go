@@ -2,7 +2,6 @@ package cli
 
 import (
 	"fmt"
-	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -62,7 +61,6 @@ func newEventsCmd() *cobra.Command {
 			} else {
 				fmt.Fprintf(w, "Events in next %d days:\n", list.Days)
 			}
-			fmt.Fprintln(w, strings.Repeat("-", 50))
 			for _, l := range list.Items {
 				for _, line := range occurrenceLines(l, list.Location, sel, list.Settings, list.Calendar) {
 					fmt.Fprintln(w, line)

@@ -55,12 +55,13 @@ func hasLine(lines []string, want string) bool {
 
 func TestOccurrenceLinesTimed(t *testing.T) {
 	got := occurrenceLines(listedTimed(), time.UTC, listDefaultFields(), calendar.Settings{}, calendar.Info{})
-	// Head: date/time (with timezone) + summary only; no inline location.
-	if got[0] != "  2026-06-12 09:00 UTC - 09:30 UTC  Standup" {
-		t.Errorf("head line = %q", got[0])
+	// Header: summary only, un-indented; no inline time/location.
+	if got[0] != "Standup" {
+		t.Errorf("header line = %q", got[0])
 	}
-	if strings.Contains(got[0], "Zoom") {
-		t.Errorf("location must not be inline on the head line: %q", got[0])
+	// Time on its own labeled sub-line; timezone once, at the end.
+	if !hasLine(got, "Time: 2026-06-12 09:00 - 09:30 UTC") {
+		t.Errorf("missing Time sub-line:\n%q", got)
 	}
 	// Location and description on their own labeled sub-lines.
 	if !hasLine(got, "Location: Zoom") {
@@ -77,8 +78,19 @@ func TestOccurrenceLinesTimed(t *testing.T) {
 func TestOccurrenceLinesTimedInZone(t *testing.T) {
 	loc := time.FixedZone("UTC+2", 2*60*60)
 	got := occurrenceLines(listedTimed(), loc, listDefaultFields(), calendar.Settings{}, calendar.Info{})
-	if got[0] != "  2026-06-12 11:00 UTC+2 - 11:30 UTC+2  Standup" {
-		t.Errorf("head line in UTC+2 = %q", got[0])
+	if !hasLine(got, "Time: 2026-06-12 11:00 - 11:30 UTC+2") {
+		t.Errorf("Time sub-line in UTC+2 missing:\n%q", got)
+	}
+}
+
+func TestOccurrenceLinesTimedSpansDays(t *testing.T) {
+	l := listedTimed()
+	// End on the next day: the end carries its own date; tz once at the end.
+	l.Occurrence.End = ts(2026, 6, 13, 1, 0)
+	l.Event.End = time.Unix(ts(2026, 6, 13, 1, 0), 0).UTC()
+	got := occurrenceLines(l, time.UTC, listDefaultFields(), calendar.Settings{}, calendar.Info{})
+	if !hasLine(got, "Time: 2026-06-12 09:00 - 2026-06-13 01:00 UTC") {
+		t.Errorf("cross-day Time sub-line missing:\n%q", got)
 	}
 }
 
@@ -89,8 +101,9 @@ func TestOccurrenceLinesNoTitleNoExtras(t *testing.T) {
 	l.Event.Location = ""
 	got := occurrenceLines(l, time.UTC, listDefaultFields(), calendar.Settings{}, calendar.Info{})
 	want := []string{
-		"  2026-06-12 09:00 UTC - 09:30 UTC  (no title)",
-		"    ID: evt1",
+		"(no title)",
+		"  Time: 2026-06-12 09:00 - 09:30 UTC",
+		"  ID:   evt1",
 	}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("occurrenceLines() = %q, want %q", got, want)
@@ -100,12 +113,29 @@ func TestOccurrenceLinesNoTitleNoExtras(t *testing.T) {
 func TestOccurrenceLinesAllDay(t *testing.T) {
 	l := listedTimed()
 	l.Event.AllDay = true
+	// Single-day all-day (exclusive end is the next day): no end date shown.
+	l.Occurrence.End = ts(2026, 6, 13, 0, 0)
 	// Render in a negative-offset zone: the all-day date must stay the
 	// UTC-anchored date, not shift to the previous local day.
 	loc := time.FixedZone("UTC-7", -7*60*60)
 	got := occurrenceLines(l, loc, listDefaultFields(), calendar.Settings{}, calendar.Info{})
-	if got[0] != "  2026-06-12 (all day)  Standup" {
-		t.Errorf("all-day head line = %q", got[0])
+	if got[0] != "Standup" {
+		t.Errorf("all-day header line = %q", got[0])
+	}
+	if !hasLine(got, "Time: 2026-06-12 (all day)") {
+		t.Errorf("single all-day Time sub-line missing:\n%q", got)
+	}
+}
+
+func TestOccurrenceLinesAllDayMultiDay(t *testing.T) {
+	l := listedTimed()
+	l.Event.AllDay = true
+	l.Occurrence.Start = ts(2026, 6, 12, 0, 0)
+	l.Occurrence.End = ts(2026, 6, 15, 0, 0) // exclusive end -> last day 06-14
+	loc := time.FixedZone("UTC-7", -7*60*60)
+	got := occurrenceLines(l, loc, listDefaultFields(), calendar.Settings{}, calendar.Info{})
+	if !hasLine(got, "Time: 2026-06-12 - 2026-06-14 (all day)") {
+		t.Errorf("multi-day all-day Time sub-line missing:\n%q", got)
 	}
 }
 
@@ -114,8 +144,8 @@ func TestOccurrenceLinesRecurringMaster(t *testing.T) {
 	l.Occurrence.Event.RRule = "FREQ=DAILY"
 	l.Event.RRule = "FREQ=DAILY"
 	got := occurrenceLines(l, time.UTC, listDefaultFields(), calendar.Settings{}, calendar.Info{})
-	if got[0] != "  2026-06-12 09:00 UTC - 09:30 UTC  Standup  (recurring)" {
-		t.Errorf("head line = %q", got[0])
+	if got[0] != "Standup  (recurring)" {
+		t.Errorf("header line = %q", got[0])
 	}
 	if !hasLine(got, "Occurrence start: 2026-06-12 09:00") {
 		t.Errorf("missing occurrence start sub-line:\n%q", got)
@@ -139,8 +169,8 @@ func TestOccurrenceLinesEditedOccurrence(t *testing.T) {
 	l.Occurrence.Event.RecurrenceID = ts(2026, 6, 12, 8, 0)
 	l.Event.RecurrenceID = time.Unix(ts(2026, 6, 12, 8, 0), 0).UTC()
 	got := occurrenceLines(l, time.UTC, listDefaultFields(), calendar.Settings{}, calendar.Info{})
-	if got[0] != "  2026-06-12 09:00 UTC - 09:30 UTC  Standup  (edited occurrence)" {
-		t.Errorf("edited occurrence head line = %q", got[0])
+	if got[0] != "Standup  (edited occurrence)" {
+		t.Errorf("edited occurrence header line = %q", got[0])
 	}
 	if hasLine(got, "Occurrence start: 2026-06-12 09:00") {
 		t.Errorf("edited occurrence must not get an occurrence start line: %q", got)
