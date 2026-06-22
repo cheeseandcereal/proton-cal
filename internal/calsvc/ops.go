@@ -11,6 +11,7 @@ import (
 	"github.com/cheeseandcereal/proton-cal/internal/calendar"
 	"github.com/cheeseandcereal/proton-cal/internal/caltypes"
 	"github.com/cheeseandcereal/proton-cal/internal/event"
+	"github.com/cheeseandcereal/proton-cal/internal/eventview"
 	"github.com/cheeseandcereal/proton-cal/internal/icaltime"
 )
 
@@ -177,6 +178,11 @@ type GetEventInput struct {
 	Calendar string // calendar ID or name; "" = default, else first
 	TZ       string
 	WithICS  bool // also reconstruct the raw iCalendar (BuildICS)
+	// NoSeries, when WithICS is set on a recurring event, limits the export
+	// to the single addressed VEVENT instead of the whole series (master +
+	// edited occurrences). It is a no-op (a warning is logged) for a
+	// non-recurring event.
+	NoSeries bool
 }
 
 // GotEvent is a single decrypted event with its raw row, the resolved
@@ -218,15 +224,94 @@ func (s *Service) GetEvent(ctx context.Context, in GetEventInput) (*GotEvent, er
 			return nil, false, fmt.Errorf("decrypting event: %w", err)
 		}
 		got := &GotEvent{resolved: resolved{Calendar: info, Settings: access.Settings, Location: loc}, Event: ev, Raw: raw}
+		degraded := ev.DecryptFailed
 		if in.WithICS {
-			ics, ierr := event.BuildICS(raw, access.KR)
-			if ierr != nil && !errors.Is(ierr, event.ErrDecryptDegraded) {
-				return nil, false, fmt.Errorf("building ICS: %w", ierr)
+			ics, icsDegraded, ierr := s.buildEventICS(ctx, in.NoSeries, info, access, raw, ev)
+			if ierr != nil {
+				return nil, false, ierr
 			}
 			got.ICS = ics
+			degraded = degraded || icsDegraded
 		}
-		return got, ev.DecryptFailed, nil
+		return got, degraded, nil
 	})
+}
+
+// buildEventICS produces the iCalendar export for a fetched event. Unless
+// noSeries is set, a recurring event (the addressed row is the master or any
+// of its edited occurrences) is expanded into the whole series: one VCALENDAR
+// with the master VEVENT plus a VEVENT per edited occurrence. The injected
+// COLOR/VALARMs are the EFFECTIVE values (the row's own, else the calendar
+// default), matching what the Proton clients display.
+//
+// The returned degraded flag is true when any row could not be decrypted, so
+// the caller can drive the one-shot key-refresh retry; a build that yields no
+// content surfaces as an empty string (frontends map that to
+// ErrICSUndecryptable).
+func (s *Service) buildEventICS(ctx context.Context, noSeries bool, info calendar.Info, access *calendar.Access, raw *caltypes.RawEvent, ev *event.Event) (ics string, degraded bool, err error) {
+	single := func() (string, bool, error) {
+		out, ierr := event.BuildICS(raw, access.KR, s.effectiveExtras(ev, info, access.Settings))
+		if ierr != nil && !errors.Is(ierr, event.ErrDecryptDegraded) {
+			return "", false, fmt.Errorf("building ICS: %w", ierr)
+		}
+		return out, errors.Is(ierr, event.ErrDecryptDegraded), nil
+	}
+
+	if noSeries {
+		if !ev.IsRecurring() && raw.RecurrenceID == 0 {
+			s.notify("--no-series ignored: event is not recurring")
+		}
+		return single()
+	}
+
+	rows, err := event.GetByUID(ctx, s.client, info.ID, raw.UID)
+	if err != nil {
+		return "", false, fmt.Errorf("fetching series: %w", err)
+	}
+	// A non-recurring event (no master among the UID rows) needs no
+	// expansion; emit just its single VEVENT.
+	if !seriesHasMaster(rows) {
+		return single()
+	}
+
+	extras := make(map[string]event.RowExtras, len(rows))
+	for _, r := range rows {
+		rev, derr := event.Decrypt(r, access.KR)
+		if derr != nil || rev.DecryptFailed {
+			// Leave this row out of the extras map; BuildSeriesICS falls
+			// back to its literal columns (and may skip it if undecryptable).
+			degraded = true
+			continue
+		}
+		extras[r.ID] = s.effectiveExtras(rev, info, access.Settings)
+	}
+
+	out, anyFailed, ierr := event.BuildSeriesICS(rows, access.KR, extras)
+	if ierr != nil && !errors.Is(ierr, event.ErrDecryptDegraded) {
+		return "", false, fmt.Errorf("building series ICS: %w", ierr)
+	}
+	return out, degraded || anyFailed || errors.Is(ierr, event.ErrDecryptDegraded), nil
+}
+
+// effectiveExtras resolves the COLOR/VALARM data injected into an exported
+// VEVENT to the values that actually apply (the event's own when set, else the
+// calendar default), mirroring the Proton clients.
+func (s *Service) effectiveExtras(ev *event.Event, info calendar.Info, set calendar.Settings) event.RowExtras {
+	return event.RowExtras{
+		Color:         eventview.EffectiveColor(ev, info),
+		Notifications: eventview.EffectiveReminders(ev, set),
+	}
+}
+
+// seriesHasMaster reports whether any row is a recurring master (RRULE set,
+// no RECURRENCE-ID).
+func seriesHasMaster(rows []*caltypes.RawEvent) bool {
+	for _, r := range rows {
+		if r != nil && r.IsMaster() {
+			return true
+		}
+	}
+	return false
 }
 
 // GotCalendar is a single resolved calendar with its default settings and a

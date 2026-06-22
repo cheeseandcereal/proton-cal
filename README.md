@@ -34,6 +34,12 @@ The reverse-engineered API details are documented in [docs/](docs/).
   terminal. Reminders and color reflect the calendar's defaults when an event
   has none of its own (matching the Proton apps); `get calendar` shows the
   calendar's default reminders and event duration
+- **iCalendar export** (`get event --ics`): for a recurring event this exports
+  the whole series in one `.ics` (the master `VEVENT` with its `RRULE`/`EXDATE`s
+  plus a `VEVENT` per edited occurrence, each with its `RECURRENCE-ID`); use
+  `--no-series` for just the addressed `VEVENT`. The export carries the
+  effective reminders/color (the calendar defaults when the event has none of
+  its own)
 - **`-o/--output json`** on every read/write command (machine-readable JSON
   on stdout; human messages on stderr)
 - **MCP server**: stdio server exposing the same operations as 7 tools
@@ -114,7 +120,8 @@ proton-cal delete <event-id>
 proton-cal get event <event-id>
 proton-cal get event <event-id> --fields summary,location,attendees
 proton-cal get event <event-id> --all            # also uid, calendar_id, raw rrule
-proton-cal get event <event-id> --ics            # export the raw iCalendar document
+proton-cal get event <event-id> --ics            # export iCalendar (whole series for recurring events)
+proton-cal get event <event-id> --ics --no-series # export only the single addressed VEVENT
 proton-cal get calendar                          # the default calendar
 proton-cal get calendar Work --all               # also email, member/address IDs
 

@@ -141,3 +141,52 @@ func TestMergeFragmentsPreservesValarm(t *testing.T) {
 		t.Errorf("VALARM not preserved:\n%s", got)
 	}
 }
+
+// TestMergeFragmentsEqualsVCalendarOfBody guards the refactor: MergeFragments
+// must equal MergeVCalendar wrapping a single MergeVEventBody, byte-for-byte.
+func TestMergeFragmentsEqualsVCalendarOfBody(t *testing.T) {
+	card := joinCRLF("BEGIN:VEVENT", "UID:u1",
+		"DTSTAMP:20260601T000000Z", "SUMMARY:X",
+		"BEGIN:VALARM", "ACTION:DISPLAY", "TRIGGER:-PT10M", "DESCRIPTION:x", "END:VALARM",
+		"END:VEVENT")
+	cards := []MergeCard{{SharedSigned: true, Data: card}}
+	frag := MergeFragments("-//t//EN", cards...)
+	viaBody := MergeVCalendar("-//t//EN", MergeVEventBody(cards...))
+	if frag != viaBody {
+		t.Errorf("MergeFragments != MergeVCalendar(MergeVEventBody)\n--- frag ---\n%q\n--- viaBody ---\n%q", frag, viaBody)
+	}
+}
+
+func TestMergeVCalendarMultipleVEvents(t *testing.T) {
+	masterCard := joinCRLF("BEGIN:VEVENT", "UID:u1", "DTSTART:20260101T000000Z",
+		"RRULE:FREQ=WEEKLY", "END:VEVENT")
+	exCard := joinCRLF("BEGIN:VEVENT", "UID:u1", "RECURRENCE-ID:20260108T000000Z",
+		"DTSTART:20260108T010000Z", "END:VEVENT")
+
+	master := MergeVEventBody(MergeCard{SharedSigned: true, Data: masterCard})
+	ex := MergeVEventBody(MergeCard{SharedSigned: true, Data: exCard})
+	got := MergeVCalendar("-//t//EN", master, ex)
+
+	if strings.Count(got, "BEGIN:VCALENDAR") != 1 || strings.Count(got, "END:VCALENDAR") != 1 {
+		t.Errorf("want one VCALENDAR:\n%s", got)
+	}
+	if n := strings.Count(got, "BEGIN:VEVENT"); n != 2 {
+		t.Errorf("VEVENT count = %d, want 2\n%s", n, got)
+	}
+	if !strings.Contains(got, "RRULE:FREQ=WEEKLY") || !strings.Contains(got, "RECURRENCE-ID:20260108T000000Z") {
+		t.Errorf("series properties missing:\n%s", got)
+	}
+	// Body slices carry no wrapper of their own.
+	if strings.Contains(strings.Join(master, "\n"), "VCALENDAR") {
+		t.Errorf("MergeVEventBody must not include VCALENDAR: %v", master)
+	}
+}
+
+// TestMergeVCalendarSkipsEmptyBodies ensures empty (nil) bodies are harmless.
+func TestMergeVCalendarSkipsEmptyBodies(t *testing.T) {
+	body := MergeVEventBody(MergeCard{SharedSigned: true, Data: joinCRLF("BEGIN:VEVENT", "UID:u1", "END:VEVENT")})
+	got := MergeVCalendar("-//t//EN", nil, body, nil)
+	if n := strings.Count(got, "BEGIN:VEVENT"); n != 1 {
+		t.Errorf("VEVENT count = %d, want 1\n%s", n, got)
+	}
+}

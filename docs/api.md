@@ -223,7 +223,10 @@ client fires all four in parallel):
   payload (full encrypted blobs still returned); not a useful lever.
 - `?UID=<ical-uid>` filters server-side (independent of `Type`) - the cheap
   way to fetch a single recurring series (master + exception rows) without
-  scanning, used by `GetByUID`.
+  scanning, used by `GetByUID`. `GetByUID` paginates on the `More` cursor
+  (like the windowed query) so series larger than one page are fetched in
+  full; `More` is documented for `Type`-scoped queries, and the loop
+  terminates after the first page regardless.
 
 The single-event endpoint wraps the row as `{"Event": {...}}`.
 
@@ -275,3 +278,9 @@ plus the card groups and key packets described in [crypto.md](crypto.md).
   across DST transitions; expansion must iterate in the event's start
   timezone, not in UTC. All-day masters anchor at midnight UTC (matching
   the stored instants).
+- **Whole-series ICS export** (`get event --ics`): `GetByUID` fetches the
+  master + every exception row, and one VCALENDAR is emitted with the master
+  VEVENT (RRULE/EXDATEs) followed by one VEVENT per edited occurrence (each
+  carrying its `RECURRENCE-ID` straight from the row's signed card). The
+  injected COLOR/VALARMs are the *effective* values (the row's own, else the
+  calendar default). `--no-series` falls back to the single addressed VEVENT.

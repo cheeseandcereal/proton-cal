@@ -57,6 +57,29 @@ var strippedProps = map[string]bool{
 // Property values are kept exactly as decrypted (TEXT escaping intact);
 // content lines are folded for output.
 func MergeFragments(prodID string, cards ...MergeCard) string {
+	return MergeVCalendar(prodID, MergeVEventBody(cards...))
+}
+
+// MergeVCalendar wraps one or more pre-built VEVENT bodies (each a slice of
+// folded BEGIN:VEVENT...END:VEVENT lines, e.g. from MergeVEventBody) in a
+// single VCALENDAR with VERSION:2.0 and the given prodID. Empty bodies are
+// skipped. This is the multi-VEVENT (recurring-series) export wrapper; the
+// single-body case reproduces MergeFragments byte-for-byte.
+func MergeVCalendar(prodID string, bodies ...[]string) string {
+	out := make([]string, 0, 16)
+	out = append(out, "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:"+prodID)
+	for _, body := range bodies {
+		out = append(out, body...)
+	}
+	out = append(out, "END:VCALENDAR")
+	return strings.Join(out, "\r\n")
+}
+
+// MergeVEventBody reconstructs a single VEVENT (BEGIN:VEVENT...END:VEVENT,
+// folded lines) from the decrypted per-card fragments, applying the same
+// union/override/strip rules as MergeFragments. The result carries no
+// VCALENDAR wrapper so callers can place several VEVENTs in one VCALENDAR.
+func MergeVEventBody(cards ...MergeCard) []string {
 	// Ordered list of merged top-level property lines (logical, unfolded),
 	// plus an index so structural overrides can replace in place.
 	var propOrder []string              // property NAME in first-seen order
@@ -98,8 +121,8 @@ func MergeFragments(prodID string, cards ...MergeCard) string {
 		}
 	}
 
-	out := make([]string, 0, len(propOrder)+len(multi)+len(components)+4)
-	out = append(out, "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:"+prodID, "BEGIN:VEVENT")
+	out := make([]string, 0, len(propOrder)+len(multi)+len(components)+2)
+	out = append(out, "BEGIN:VEVENT")
 	for _, name := range propOrder {
 		out = append(out, foldLine(propLine[name]))
 	}
@@ -107,8 +130,8 @@ func MergeFragments(prodID string, cards ...MergeCard) string {
 		out = append(out, foldLine(line))
 	}
 	out = append(out, components...)
-	out = append(out, "END:VEVENT", "END:VCALENDAR")
-	return strings.Join(out, "\r\n")
+	out = append(out, "END:VEVENT")
+	return out
 }
 
 // topLevelEventLines returns the property lines belonging directly to the

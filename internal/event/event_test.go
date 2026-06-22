@@ -128,6 +128,17 @@ func fabricateRaw(t *testing.T, id, uid string, start, end int64, tz string, rru
 		"DTSTART;TZID=" + tz + ":20260615T090000",
 		"DTEND;TZID=" + tz + ":20260615T093000",
 	}
+	// Exception rows carry a RECURRENCE-ID in their shared-signed card (the
+	// original occurrence start), formatted in the card's timezone. This
+	// mirrors real data so BuildICS/BuildSeriesICS surface it per VEVENT.
+	if recurrenceID != 0 {
+		loc, lerr := time.LoadLocation(tz)
+		if lerr != nil {
+			t.Fatalf("loading tz %q: %v", tz, lerr)
+		}
+		recLocal := time.Unix(recurrenceID, 0).In(loc).Format("20060102T150405")
+		sharedSignedLines = append(sharedSignedLines, "RECURRENCE-ID;TZID="+tz+":"+recLocal)
+	}
 	if rrule != "" {
 		sharedSignedLines = append(sharedSignedLines, "RRULE:"+rrule)
 	}

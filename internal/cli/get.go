@@ -26,10 +26,11 @@ func newGetCmd() *cobra.Command {
 
 func newGetEventCmd() *cobra.Command {
 	var (
-		in     calsvc.GetEventInput
-		ics    bool
-		fields []string
-		all    bool
+		in       calsvc.GetEventInput
+		ics      bool
+		noSeries bool
+		fields   []string
+		all      bool
 	)
 
 	cmd := &cobra.Command{
@@ -37,6 +38,9 @@ func newGetEventCmd() *cobra.Command {
 		Short: "Show a single event in full detail, or export its iCalendar",
 		Long: "Show a single event in full detail (attendees, conferencing, reminders),\n" +
 			"or export it as an iCalendar (.ics) document with --ics.\n\n" +
+			"For a recurring event, --ics exports the WHOLE series by default: one\n" +
+			".ics with the master VEVENT plus a VEVENT per edited occurrence. Use\n" +
+			"--no-series to export only the single addressed VEVENT instead.\n\n" +
 			"Use -o/--output json for structured JSON (always the full field set).\n" +
 			"In text output, --fields selects which fields to show and --all reveals\n" +
 			"everything (including uid, calendar_id and the raw RRULE).",
@@ -45,8 +49,12 @@ func newGetEventCmd() *cobra.Command {
 			if ics && outputJSON() {
 				return errors.New("--ics cannot be combined with --output json")
 			}
+			if noSeries && !ics {
+				return errors.New("--no-series only applies with --ics")
+			}
 			in.EventID = args[0]
 			in.WithICS = ics
+			in.NoSeries = noSeries
 
 			sel, err := selectFields(eventFieldRegistry, fields, all)
 			if err != nil {
@@ -83,7 +91,8 @@ func newGetEventCmd() *cobra.Command {
 		},
 	}
 
-	cmd.Flags().BoolVar(&ics, "ics", false, "export the raw iCalendar (.ics) document instead of detail")
+	cmd.Flags().BoolVar(&ics, "ics", false, "export the raw iCalendar (.ics) document instead of detail (whole series for recurring events)")
+	cmd.Flags().BoolVar(&noSeries, "no-series", false, "with --ics, export only the addressed VEVENT, not the whole recurring series")
 	cmd.Flags().StringSliceVar(&fields, "fields", nil, "comma-separated fields to show in text output (default: curated set)")
 	cmd.Flags().BoolVar(&all, "all", false, "show all fields in text output (including uid, calendar_id, rrule)")
 	addCalendarFlag(cmd, &in.Calendar)

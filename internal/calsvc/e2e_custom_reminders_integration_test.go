@@ -184,6 +184,109 @@ func TestE2ERemindersInICSExport(t *testing.T) {
 	}
 }
 
+// TestE2ESeriesICSExport verifies that GetEvent(WithICS) on a recurring event
+// exports the WHOLE series by default (master VEVENT + a VEVENT per edited
+// occurrence, each with its RECURRENCE-ID), and that NoSeries limits the
+// export to the single addressed VEVENT.
+func TestE2ESeriesICSExport(t *testing.T) {
+	svc, cal := liveService(t)
+	ctx := context.Background()
+
+	date := e2eFutureDate()
+	created, err := svc.CreateEvent(ctx, CreateEventInput{
+		Summary: e2eSummary("series-ics"), Start: date + " 09:00", End: date + " 09:30",
+		Calendar: cal, TZ: "UTC",
+		Reminders: []caltypes.Notification{{Type: 1, Trigger: "-PT30M"}}, RemindersSet: true,
+		Recurrence: Recurrence{Repeat: "daily", Count: 3},
+	})
+	if err != nil {
+		t.Fatalf("CreateEvent: %v", err)
+	}
+	defer func() { _, _ = svc.DeleteEvent(ctx, DeleteEventInput{EventID: created.ID, Calendar: cal}) }()
+
+	// Edit the second occurrence (creates an exception row sharing the UID).
+	starts := occurrencesForUID(t, svc, cal, created.UID, date+" 00:00", 5)
+	if len(starts) < 2 {
+		t.Fatalf("expected >=2 occurrences, got %d", len(starts))
+	}
+	occStart := FormatOccurrenceStart(starts[1], false, time.UTC)
+	newSummary := e2eSummary("series-ics-edited")
+	if _, err := svc.UpdateEvent(ctx, UpdateEventInput{
+		EventID: created.ID, Calendar: cal, TZ: "UTC", Occurrence: occStart, Summary: &newSummary,
+	}); err != nil {
+		t.Fatalf("UpdateEvent occurrence: %v", err)
+	}
+
+	// Default --ics: whole series. Two VEVENTs, master RRULE, one RECURRENCE-ID.
+	got, err := svc.GetEvent(ctx, GetEventInput{EventID: created.ID, Calendar: cal, TZ: "UTC", WithICS: true})
+	if err != nil {
+		t.Fatalf("GetEvent WithICS (series): %v", err)
+	}
+	if n := strings.Count(got.ICS, "BEGIN:VEVENT"); n != 2 {
+		t.Errorf("series VEVENT count = %d, want 2\n%s", n, got.ICS)
+	}
+	if strings.Count(got.ICS, "BEGIN:VCALENDAR") != 1 {
+		t.Errorf("want exactly one VCALENDAR\n%s", got.ICS)
+	}
+	if !strings.Contains(got.ICS, "RRULE:") {
+		t.Errorf("master RRULE missing\n%s", got.ICS)
+	}
+	if n := strings.Count(got.ICS, "RECURRENCE-ID"); n != 1 {
+		t.Errorf("RECURRENCE-ID count = %d, want 1\n%s", n, got.ICS)
+	}
+	// Effective reminder appears on the master VEVENT.
+	if !strings.Contains(got.ICS, "TRIGGER:-PT30M") {
+		t.Errorf("effective reminder missing from series export\n%s", got.ICS)
+	}
+
+	// NoSeries: only the addressed (master) VEVENT.
+	gotOne, err := svc.GetEvent(ctx, GetEventInput{EventID: created.ID, Calendar: cal, TZ: "UTC", WithICS: true, NoSeries: true})
+	if err != nil {
+		t.Fatalf("GetEvent WithICS (no-series): %v", err)
+	}
+	if n := strings.Count(gotOne.ICS, "BEGIN:VEVENT"); n != 1 {
+		t.Errorf("no-series VEVENT count = %d, want 1\n%s", n, gotOne.ICS)
+	}
+}
+
+// TestE2EInheritedRemindersInICS verifies the effective-reminder fix: an event
+// that inherits the calendar's default reminders (NotificationsSet=false) still
+// shows a VALARM in its --ics export (previously omitted).
+func TestE2EInheritedRemindersInICS(t *testing.T) {
+	svc, cal := liveService(t)
+	ctx := context.Background()
+
+	// No reminder flags => inherits the calendar default.
+	start, end := e2eFutureSlot()
+	created, err := svc.CreateEvent(ctx, CreateEventInput{
+		Summary: e2eSummary("ics-inherit"), Start: start, End: end, Calendar: cal, TZ: "UTC",
+	})
+	if err != nil {
+		t.Fatalf("CreateEvent: %v", err)
+	}
+	defer func() { _, _ = svc.DeleteEvent(ctx, DeleteEventInput{EventID: created.ID, Calendar: cal}) }()
+
+	got, err := svc.GetEvent(ctx, GetEventInput{EventID: created.ID, Calendar: cal, TZ: "UTC", WithICS: true})
+	if err != nil {
+		t.Fatalf("GetEvent WithICS: %v", err)
+	}
+	// Resolve what the calendar default should be and require it to match.
+	eff := eventview.EffectiveReminders(got.Event, got.Settings)
+	if len(eff) == 0 {
+		t.Skip("calendar has no default reminders; nothing to assert")
+	}
+	if !strings.Contains(got.ICS, "BEGIN:VALARM") {
+		t.Errorf("inherited reminder not injected into --ics:\n%s", got.ICS)
+	}
+	if !strings.Contains(got.ICS, "TRIGGER:"+eff[0].Trigger) {
+		t.Errorf("inherited reminder trigger %q missing from --ics:\n%s", eff[0].Trigger, got.ICS)
+	}
+	// Effective color (the calendar's color) should also be present.
+	if !strings.Contains(got.ICS, "COLOR:"+eventview.EffectiveColor(got.Event, got.Calendar)) {
+		t.Errorf("inherited color missing from --ics:\n%s", got.ICS)
+	}
+}
+
 // hasReminder reports whether ns contains a notification with the given type
 // and trigger (order-independent; the server may reorder the array).
 func hasReminder(ns []caltypes.Notification, typ int, trigger string) bool {

@@ -110,7 +110,10 @@ func (s *server) register(srv *mcp.Server) {
 		Description: "Get a single calendar event in full detail by its ID: " +
 			"summary, times, location, description, organizer, attendees with their " +
 			"RSVP status, video conferencing (Proton Meet/Zoom) link, color and reminders. " +
-			"Set format to \"ics\" to instead return the event as a raw iCalendar (.ics) document.",
+			"Set format to \"ics\" to instead return the event as a raw iCalendar (.ics) document. " +
+			"For a recurring event, \"ics\" returns the WHOLE series (master VEVENT plus a " +
+			"VEVENT per edited occurrence) unless no_series is true, which returns only the " +
+			"single addressed VEVENT.",
 	}, s.getEvent)
 
 	mcp.AddTool(srv, &mcp.Tool{
@@ -212,6 +215,7 @@ type getEventArgs struct {
 	Calendar string `json:"calendar,omitempty" jsonschema:"Calendar ID or name the event lives in (optional; default: the configured default calendar, else the first calendar)"`
 	TZ       string `json:"tz,omitempty" jsonschema:"IANA timezone for display (optional; default: the configured timezone)"`
 	Format   string `json:"format,omitempty" jsonschema:"Output format: \"detail\" (default, human-readable) or \"ics\" (raw iCalendar document)"`
+	NoSeries bool   `json:"no_series,omitempty" jsonschema:"With format \"ics\" on a recurring event, export only the single addressed VEVENT instead of the whole series (master + edited occurrences). Ignored for non-recurring events."`
 }
 
 func (s *server) getEvent(ctx context.Context, _ *mcp.CallToolRequest, args getEventArgs) (*mcp.CallToolResult, any, error) {
@@ -225,6 +229,7 @@ func (s *server) getEvent(ctx context.Context, _ *mcp.CallToolRequest, args getE
 		Calendar: args.Calendar,
 		TZ:       args.TZ,
 		WithICS:  ics,
+		NoSeries: args.NoSeries,
 	})
 	if err != nil {
 		return nil, nil, err

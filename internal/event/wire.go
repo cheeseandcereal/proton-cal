@@ -277,17 +277,27 @@ func Get(ctx context.Context, client papi.API, calendarID, eventID string) (*cal
 }
 
 // GetByUID fetches all raw rows sharing an iCal UID (master + exceptions);
-// the UID query param filters server-side (verified live).
+// the UID query param filters server-side (verified live). It paginates on the
+// More cursor so a series with more than one page of edited occurrences is
+// returned in full; if the server does not set More on UID-filtered queries
+// (it is documented only for Type-scoped queries), the loop still terminates
+// after the first (and only) page.
 func GetByUID(ctx context.Context, client papi.API, calendarID, uid string) ([]*caltypes.RawEvent, error) {
-	q := url.Values{}
-	q.Set("UID", uid)
-	q.Set("Page", "0")
-	q.Set("PageSize", strconv.Itoa(pageSize))
-	var resp eventsResponse
-	if err := client.Get(ctx, calendar.APIPath+"/"+calendarID+"/events", q, &resp); err != nil {
-		return nil, fmt.Errorf("calendar %s: fetching events by UID: %w", calendarID, err)
+	var all []*caltypes.RawEvent
+	for page := 0; ; page++ {
+		q := url.Values{}
+		q.Set("UID", uid)
+		q.Set("Page", strconv.Itoa(page))
+		q.Set("PageSize", strconv.Itoa(pageSize))
+		var resp eventsResponse
+		if err := client.Get(ctx, calendar.APIPath+"/"+calendarID+"/events", q, &resp); err != nil {
+			return nil, fmt.Errorf("calendar %s: fetching events by UID: %w", calendarID, err)
+		}
+		all = append(all, resp.Events...)
+		if resp.More != 1 {
+			return all, nil
+		}
 	}
-	return resp.Events, nil
 }
 
 // deleteRows deletes raw event rows by ID in a single sync call.
