@@ -7,10 +7,14 @@ import (
 
 	"github.com/cheeseandcereal/proton-cal/internal/caljson"
 	"github.com/cheeseandcereal/proton-cal/internal/calsvc"
+	"github.com/cheeseandcereal/proton-cal/internal/eventview"
 )
 
 func newCreateCmd() *cobra.Command {
-	var in calsvc.CreateEventInput
+	var (
+		in calsvc.CreateEventInput
+		rc reminderColorFlags
+	)
 
 	cmd := &cobra.Command{
 		Use:   "create SUMMARY",
@@ -18,6 +22,15 @@ func newCreateCmd() *cobra.Command {
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			in.Summary = args[0]
+
+			if err := rc.validateExclusive(cmd); err != nil {
+				return err
+			}
+			reminders, set, err := rc.createReminders()
+			if err != nil {
+				return err
+			}
+			in.Reminders, in.RemindersSet, in.Color = reminders, set, rc.color
 
 			svc, err := serviceFactory()
 			if err != nil {
@@ -42,6 +55,12 @@ func newCreateCmd() *cobra.Command {
 			if created.RRule != "" {
 				fmt.Fprintf(w, "  Repeats: %s\n", created.RRule)
 			}
+			if created.Color != "" {
+				fmt.Fprintf(w, "  Color: %s%s\n", swatch(created.Color), created.Color)
+			}
+			for _, n := range created.Reminders {
+				fmt.Fprintf(w, "  Reminder (%s): %s\n", eventview.ReminderKind(n.Type), n.Trigger)
+			}
 			return nil
 		},
 	}
@@ -54,6 +73,7 @@ func newCreateCmd() *cobra.Command {
 	addTZFlag(cmd, &in.TZ, "the event times (default: from config / system)")
 	cmd.Flags().BoolVar(&in.AllDay, "all-day", false, "all-day event (dates instead of times)")
 	addRecurrenceFlags(cmd, &in.Recurrence)
+	addCreateReminderColorFlags(cmd, &rc)
 	_ = cmd.MarkFlagRequired("start")
 	return cmd
 }

@@ -16,6 +16,7 @@ func newUpdateCmd() *cobra.Command {
 		summary     string
 		description string
 		location    string
+		rc          reminderColorFlags
 	)
 
 	cmd := &cobra.Command{
@@ -43,6 +44,16 @@ rule and a matching weekday).`,
 			if cmd.Flags().Changed("location") {
 				in.Location = &location
 			}
+
+			if err := rc.validateExclusive(cmd); err != nil {
+				return err
+			}
+			rem, err := rc.updateReminders()
+			if err != nil {
+				return err
+			}
+			in.Reminders = rem
+			in.Color = rc.updateColor(cmd)
 
 			svc, err := serviceFactory()
 			if err != nil {
@@ -79,5 +90,6 @@ rule and a matching weekday).`,
 	addOccurrenceFlag(cmd, &in.Occurrence, "edit")
 	cmd.Flags().BoolVar(&in.NoRepeat, "no-repeat", false, "remove the recurrence from this event")
 	addRecurrenceFlags(cmd, &in.Recurrence)
+	addUpdateReminderColorFlags(cmd, &rc)
 	return cmd
 }

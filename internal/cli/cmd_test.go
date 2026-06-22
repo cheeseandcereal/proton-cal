@@ -73,6 +73,48 @@ func TestCLIUpdateConflicts(t *testing.T) {
 	}
 }
 
+func TestCLICreateReminderColorValidation(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"bad reminder", []string{"create", "X", "--start", "2026-06-15 09:00", "--end", "2026-06-15 10:00", "--reminder", "soon"}, "invalid reminder offset"},
+		{"reminder + no-reminders", []string{"create", "X", "--start", "2026-06-15 09:00", "--end", "2026-06-15 10:00", "--reminder", "15m", "--no-reminders"}, "mutually exclusive"},
+		{"bad color", []string{"create", "X", "--start", "2026-06-15 09:00", "--end", "2026-06-15 10:00", "--color", "red"}, "invalid --color"},
+		{"empty color", []string{"create", "X", "--start", "2026-06-15 09:00", "--end", "2026-06-15 10:00", "--color", ""}, "requires a value"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, _, err := runCLI(t, detachedFactory, tt.args...)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("args %v: want %q, got %v", tt.args, tt.want, err)
+			}
+		})
+	}
+}
+
+func TestCLIUpdateReminderConflicts(t *testing.T) {
+	tests := []struct {
+		name string
+		args []string
+		want string
+	}{
+		{"reminder + reminders-default", []string{"update", "evt", "--reminder", "15m", "--reminders-default"}, "mutually exclusive"},
+		{"no-reminders + reminders-default", []string{"update", "evt", "--no-reminders", "--reminders-default"}, "mutually exclusive"},
+		{"color + no-color", []string{"update", "evt", "--color", "#EC3E7C", "--no-color"}, "mutually exclusive"},
+		{"bad reminder", []string{"update", "evt", "--reminder", "nope"}, "invalid reminder offset"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			_, _, err := runCLI(t, detachedFactory, tt.args...)
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("args %v: want %q, got %v", tt.args, tt.want, err)
+			}
+		})
+	}
+}
+
 func TestCLIGetEventICSWithJSONConflict(t *testing.T) {
 	_, _, err := runCLI(t, detachedFactory, "get", "event", "evt", "--ics", "-o", "json")
 	if err == nil || !strings.Contains(err.Error(), "--ics cannot be combined") {
