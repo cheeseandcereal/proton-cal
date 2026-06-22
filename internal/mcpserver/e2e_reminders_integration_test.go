@@ -52,12 +52,12 @@ func TestE2EMCPRemindersAndColor(t *testing.T) {
 	}
 	calColor := calStruct.(caljson.Calendar).Color
 
-	// reminders_mode=none removes them; color reverts to the calendar color
-	// via clear_fields (Proton has no color "clear", so it becomes calColor).
+	// reminders_mode=none removes them; color="default" reverts to the
+	// calendar color (Proton has no color "clear", so it becomes calColor).
 	if _, _, err := s.updateEvent(ctx, nil, updateEventArgs{
-		EventID: evID, Calendar: cal, RemindersMode: "none", ClearFields: []string{"color"},
+		EventID: evID, Calendar: cal, RemindersMode: "none", Color: "default",
 	}); err != nil {
-		t.Fatalf("updateEvent none+clear color: %v", err)
+		t.Fatalf("updateEvent none+color default: %v", err)
 	}
 	_, structured, err = s.getEvent(ctx, nil, getEventArgs{EventID: evID, Calendar: cal, TZ: "UTC"})
 	if err != nil {
@@ -71,5 +71,21 @@ func TestE2EMCPRemindersAndColor(t *testing.T) {
 	// reported the same whether stored or inherited; either way it must match.
 	if detail.Color != calColor {
 		t.Errorf("color after revert = %q, want calendar color %q", detail.Color, calColor)
+	}
+
+	// clear_fields:["color"] is the backward-compatible equivalent of
+	// color="default": set a palette color, then clear it.
+	if _, _, err := s.updateEvent(ctx, nil, updateEventArgs{EventID: evID, Calendar: cal, Color: "pacific"}); err != nil {
+		t.Fatalf("updateEvent set pacific: %v", err)
+	}
+	if _, _, err := s.updateEvent(ctx, nil, updateEventArgs{EventID: evID, Calendar: cal, ClearFields: []string{"color"}}); err != nil {
+		t.Fatalf("updateEvent clear_fields color: %v", err)
+	}
+	_, structured, err = s.getEvent(ctx, nil, getEventArgs{EventID: evID, Calendar: cal, TZ: "UTC"})
+	if err != nil {
+		t.Fatalf("getEvent after clear_fields: %v", err)
+	}
+	if detail = structured.(caljson.Event); detail.Color != calColor {
+		t.Errorf("color after clear_fields = %q, want calendar color %q", detail.Color, calColor)
 	}
 }

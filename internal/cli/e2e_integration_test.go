@@ -116,7 +116,7 @@ func TestE2ECLIGetEventJSON(t *testing.T) {
 	start, end := e2eFutureSlot()
 	evID := createForTest(t, e2eSvc, cal, calsvc.CreateEventInput{Start: start, End: end, Location: "CLI Lab"})
 
-	stdout, _, err := runCLI(t, factory, "get", "event", evID, "--calendar", cal, "--tz", "UTC", "-o", "json")
+	stdout, _, err := runCLI(t, factory, "get", "event", "--calendar", cal, "--tz", "UTC", "-o", "json", "--", evID)
 	if err != nil {
 		t.Fatalf("get event -o json: %v", err)
 	}
@@ -165,7 +165,7 @@ func TestE2ECLIFieldClearTriState(t *testing.T) {
 	})
 
 	// Update an unrelated field (start), omitting --location: location kept.
-	if _, _, err := runCLI(t, factory, "update", evID, "--calendar", cal, "--tz", "UTC", "--description", "changed"); err != nil {
+	if _, _, err := runCLI(t, factory, "update", "--calendar", cal, "--tz", "UTC", "--description", "changed", "--", evID); err != nil {
 		t.Fatalf("update (omit location): %v", err)
 	}
 	got, err := e2eSvc.GetEvent(context.Background(), calsvc.GetEventInput{EventID: evID, Calendar: cal})
@@ -180,7 +180,7 @@ func TestE2ECLIFieldClearTriState(t *testing.T) {
 	}
 
 	// Now clear it explicitly with --location "".
-	if _, _, err := runCLI(t, factory, "update", evID, "--calendar", cal, "--location", ""); err != nil {
+	if _, _, err := runCLI(t, factory, "update", "--calendar", cal, "--location", "", "--", evID); err != nil {
 		t.Fatalf("update (clear location): %v", err)
 	}
 	got, err = e2eSvc.GetEvent(context.Background(), calsvc.GetEventInput{EventID: evID, Calendar: cal})
@@ -213,7 +213,7 @@ func TestE2ECLICreateDelete(t *testing.T) {
 		t.Fatalf("create returned no id:\n%s", stdout)
 	}
 
-	if _, _, err := runCLI(t, factory, "delete", created.ID, "--calendar", cal); err != nil {
+	if _, _, err := runCLI(t, factory, "delete", "--calendar", cal, "--", created.ID); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
 	if _, err := e2eSvc.GetEvent(context.Background(), calsvc.GetEventInput{EventID: created.ID, Calendar: cal}); err == nil {

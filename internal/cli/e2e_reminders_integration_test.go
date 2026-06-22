@@ -45,8 +45,9 @@ func TestE2ECLIRemindersAndColor(t *testing.T) {
 		t.Errorf("create JSON reminders/color = %+v / %q", created.Notifications, created.Color)
 	}
 
-	// Read back via get event -o json.
-	stdout, _, err = runCLI(t, factory, "get", "event", created.ID, "--calendar", cal, "--tz", "UTC", "-o", "json")
+	// Read back via get event -o json. Flags come first then "--" so an event
+	// ID starting with "-" (Proton IDs are base64) is not parsed as a flag.
+	stdout, _, err = runCLI(t, factory, "get", "event", "--calendar", cal, "--tz", "UTC", "-o", "json", "--", created.ID)
 	if err != nil {
 		t.Fatalf("get event: %v", err)
 	}
@@ -61,13 +62,14 @@ func TestE2ECLIRemindersAndColor(t *testing.T) {
 		t.Errorf("get JSON reminders/color = %+v / %q", got.Notifications, got.Color)
 	}
 
-	// Clear reminders (--no-reminders) and revert color (--no-color, which
-	// sets the event to the calendar's own color since Proton has no clear).
+	// Remove reminders (--no-reminders) and revert color (--color default,
+	// which sets the event to the calendar's own color since Proton has no
+	// clear).
 	calInfo, err := e2eSvc.GetCalendar(context.Background(), cal)
 	if err != nil {
 		t.Fatalf("GetCalendar: %v", err)
 	}
-	if _, _, err := runCLI(t, factory, "update", created.ID, "--calendar", cal, "--no-reminders", "--no-color"); err != nil {
+	if _, _, err := runCLI(t, factory, "update", "--calendar", cal, "--no-reminders", "--color", "default", "--", created.ID); err != nil {
 		t.Fatalf("update clear: %v", err)
 	}
 	ev, err := e2eSvc.GetEvent(context.Background(), calsvc.GetEventInput{EventID: created.ID, Calendar: cal})
@@ -79,5 +81,18 @@ func TestE2ECLIRemindersAndColor(t *testing.T) {
 	}
 	if ev.Event.Color != calInfo.Info.Color {
 		t.Errorf("color after revert = %q, want calendar color %q", ev.Event.Color, calInfo.Info.Color)
+	}
+
+	// --reminders-default reverts reminders to inheriting the calendar default
+	// (NotificationsSet becomes false).
+	if _, _, err := runCLI(t, factory, "update", "--calendar", cal, "--reminders-default", "--", created.ID); err != nil {
+		t.Fatalf("update reminders-default: %v", err)
+	}
+	ev, err = e2eSvc.GetEvent(context.Background(), calsvc.GetEventInput{EventID: created.ID, Calendar: cal})
+	if err != nil {
+		t.Fatalf("GetEvent after reminders-default: %v", err)
+	}
+	if ev.Event.NotificationsSet {
+		t.Errorf("after --reminders-default, reminders should inherit (NotificationsSet=false), got %+v", ev.Event.Notifications)
 	}
 }
