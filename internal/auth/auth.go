@@ -193,17 +193,35 @@ func fetchSalts(ctx context.Context, pc *proton.Client, m *proton.Manager, raw *
 	if !isInsufficientScope(err) {
 		return nil, fmt.Errorf("fetching key salts: %w", err)
 	}
-	if err := unlockScope(ctx, m, raw, username, password); err != nil {
-		return nil, fmt.Errorf("unlocking session scope: %w", err)
-	}
-	// Best-effort re-lock: drop the elevated scope as soon as the salts
-	// are in hand.
-	defer func() { _ = raw.Put(ctx, "/core/v4/users/lock", struct{}{}, nil) }()
-	salts, err = pc.GetSalts(ctx)
-	if err != nil {
-		return nil, fmt.Errorf("fetching key salts: %w", err)
+	werr := WithLockedScope(ctx, m, raw, username, password, func() error {
+		salts, err = pc.GetSalts(ctx)
+		if err != nil {
+			return fmt.Errorf("fetching key salts: %w", err)
+		}
+		return nil
+	})
+	if werr != nil {
+		return nil, werr
 	}
 	return salts, nil
+}
+
+// WithLockedScope gains the elevated "locked" scope (by proving knowledge of
+// the LOGIN password via SRP to PUT /core/v4/users/unlock), runs fn, then
+// drops the scope again (PUT /core/v4/users/lock, best effort) regardless of
+// fn's outcome. It is the reusable form of the unlock/lock dance that
+// sensitive operations (e.g. deleting a calendar) require on a restored
+// session, whose token otherwise lacks the scope (Proton code 9101).
+//
+// The password is always the login password, even in two-password mode. A
+// wrong password surfaces as a server-proof mismatch from unlockScope.
+func WithLockedScope(ctx context.Context, m *proton.Manager, raw *papi.Client, username, password string, fn func() error) error {
+	if err := unlockScope(ctx, m, raw, username, password); err != nil {
+		return fmt.Errorf("unlocking session scope: %w", err)
+	}
+	// Best-effort re-lock: drop the elevated scope as soon as we are done.
+	defer func() { _ = raw.Put(ctx, "/core/v4/users/lock", struct{}{}, nil) }()
+	return fn()
 }
 
 // deriveAndVerifyKeyPass derives the salted key passphrase from the key
