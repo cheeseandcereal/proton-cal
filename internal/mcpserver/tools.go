@@ -539,29 +539,35 @@ type deleteCalendarArgs struct {
 }
 
 func (s *server) deleteCalendar(ctx context.Context, _ *mcp.CallToolRequest, args deleteCalendarArgs) (*mcp.CallToolResult, any, error) {
-	if !args.Confirm {
-		return nil, nil, errors.New("refusing to delete without confirm=true")
-	}
 	svc, err := s.service()
 	if err != nil {
 		return nil, nil, err
 	}
 
-	// Owned calendars need the password; surface a clear error if it is
-	// required but absent (rather than failing deep in the scope handshake).
-	needsPassword, err := svc.CalendarNeedsDeleteAuth(ctx, args.Calendar)
+	// Dry run: resolve the target first so confirm=false refuses while naming
+	// the exact calendar that WOULD be deleted (guards against the wrong one).
+	info, err := svc.ResolveCalendarInfo(ctx, args.Calendar)
 	if err != nil {
 		return nil, nil, err
 	}
-	if needsPassword && args.Password == "" {
-		return nil, nil, errors.New("deleting an owned calendar requires the account login password (pass it as password)")
+	if !args.Confirm {
+		return nil, nil, fmt.Errorf(
+			"refusing to delete calendar %q (%s, ID %s) without confirm=true; set confirm=true to delete it",
+			info.Name, info.TypeString(), info.ID)
+	}
+
+	// Owned calendars need the password; surface a clear error if it is
+	// required but absent (rather than failing deep in the scope handshake).
+	if info.Type == 0 && args.Password == "" {
+		return nil, nil, fmt.Errorf("deleting owned calendar %q requires the account login password (pass it as password)", info.Name)
 	}
 
 	if err := svc.DeleteCalendar(ctx, calsvc.DeleteCalendarInput{
-		Selector: args.Calendar,
+		Selector: info.ID,
 		Password: args.Password,
 	}); err != nil {
 		return nil, nil, err
 	}
-	return textResult("Calendar deleted."), map[string]any{"deleted": true, "calendar": args.Calendar}, nil
+	return textResult(fmt.Sprintf("Calendar %q deleted.", info.Name)),
+		map[string]any{"deleted": true, "id": info.ID, "name": info.Name}, nil
 }

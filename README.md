@@ -124,10 +124,12 @@ proton-cal update calendar Work --default-duration 60 --makes-busy
 proton-cal update calendar Work --reminder 15m --full-day-reminder 1d  # replace default reminder sets
 proton-cal update calendar Work --make-default                         # make it the account default
 
-# Delete a calendar (--yes required; owned calendars prompt for the login
-# password, or pass --password for non-interactive use; holidays calendars
-# need no password)
-proton-cal delete calendar "Old project" --yes
+# Delete a calendar. Without --yes it resolves and reports the target
+# (name + type + ID), then refuses - a dry run that guards against deleting the
+# wrong calendar. With --yes, owned calendars prompt for the login password
+# (or pass --password); holidays calendars need no password.
+proton-cal delete calendar "Old project"        # dry run: reports + refuses
+proton-cal delete calendar "Old project" --yes  # actually deletes
 
 # Inspect one resource in full detail (labeled fields; color swatch in a terminal)
 proton-cal get event <event-id>

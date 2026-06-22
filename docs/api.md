@@ -106,6 +106,11 @@ the change.
   managed/subscribed calendar returns `403 code 9101`.
 - **Subscribed (`Type 1`)** - not deletable here (unsubscribe in the app).
 
+Both frontends first **resolve** the calendar as a dry run: without confirmation
+(`--yes` / `confirm=true`) they refuse and report the exact calendar that would
+be deleted (name, type, ID), guarding against deleting the wrong one. The
+resolved ID (not the raw selector) is then used for the delete.
+
 ### Event operations
 
 | Method | Endpoint                                        | Purpose |

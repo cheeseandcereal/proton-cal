@@ -134,15 +134,12 @@ type DeleteCalendarInput struct {
 	Password string
 }
 
-// CalendarNeedsDeleteAuth reports whether deleting the calendar named by
-// selector requires the login password (true for owned/normal calendars;
-// false for managed/holidays). Frontends use it to decide whether to prompt.
-func (s *Service) CalendarNeedsDeleteAuth(ctx context.Context, selector string) (bool, error) {
-	info, err := s.resolveCalendar(ctx, selector)
-	if err != nil {
-		return false, err
-	}
-	return info.Type == 0, nil
+// ResolveCalendarInfo resolves a selector to a calendar's Info (ID, name,
+// type, member identity) without unlocking keys. Frontends use it for a
+// pre-delete dry run (showing what would be deleted) and to decide whether a
+// password is needed.
+func (s *Service) ResolveCalendarInfo(ctx context.Context, selector string) (calendar.Info, error) {
+	return s.resolveCalendar(ctx, selector)
 }
 
 // DeleteCalendar removes a calendar. Owned (normal) calendars require the

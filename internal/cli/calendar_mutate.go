@@ -144,23 +144,27 @@ func newDeleteCalendarCmd() *cobra.Command {
 			"Subscribed calendars cannot be deleted here (unsubscribe in the app).",
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if !yes {
-				return errors.New("refusing to delete without confirmation; pass --yes")
-			}
-
 			svc, err := serviceFactory()
 			if err != nil {
 				return err
 			}
 			defer svc.Close()
 
-			// Decide whether a password is needed by resolving the calendar
-			// type first; only owned (normal) calendars require it.
-			needsPassword, err := svc.CalendarNeedsDeleteAuth(cmd.Context(), args[0])
+			// Dry run: resolve the target first so a missing --yes can refuse
+			// with the exact calendar that WOULD be deleted (name + type +
+			// ID), guarding against deleting the wrong calendar.
+			info, err := svc.ResolveCalendarInfo(cmd.Context(), args[0])
 			if err != nil {
 				return err
 			}
-			if needsPassword && password == "" {
+			if !yes {
+				return fmt.Errorf(
+					"refusing to delete calendar %q (%s, ID %s) without confirmation; re-run with --yes to delete it",
+					info.Name, info.TypeString(), info.ID)
+			}
+
+			// Only owned (normal) calendars require the login password.
+			if info.Type == 0 && password == "" {
 				password, err = promptDeletePassword()
 				if err != nil {
 					return err
@@ -168,21 +172,22 @@ func newDeleteCalendarCmd() *cobra.Command {
 			}
 
 			if err := svc.DeleteCalendar(cmd.Context(), calsvc.DeleteCalendarInput{
-				Selector: args[0],
+				Selector: info.ID, // use the resolved ID, not the raw selector
 				Password: password,
 			}); err != nil {
 				return err
 			}
 
 			if outputJSON() {
-				return printJSON(map[string]any{"deleted": true, "selector": args[0]})
+				return printJSON(map[string]any{"deleted": true, "id": info.ID, "name": info.Name})
 			}
-			fmt.Fprintln(humanOut(), "Calendar deleted.")
+			fmt.Fprintf(humanOut(), "Calendar %q deleted.\n", info.Name)
 			return nil
 		},
 	}
 
-	cmd.Flags().BoolVar(&yes, "yes", false, "confirm deletion (required)")
+	cmd.Flags().BoolVar(&yes, "yes", false,
+		"confirm deletion; without it the command resolves and reports the target calendar, then refuses")
 	cmd.Flags().StringVar(&password, "password", "",
 		"login password for deleting an owned calendar (prompted if omitted on a terminal; exposed in shell history/process list when passed)")
 	return cmd

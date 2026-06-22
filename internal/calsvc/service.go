@@ -96,6 +96,15 @@ func NewDetached(cfg config.Config) *Service {
 	return &Service{cfg: cfg}
 }
 
+// NewWithAPI builds a Service whose read endpoints are served by the given
+// papi.API (used as both the cached and fresh read path) and with no session
+// client. It is a test seam for exercising resolution and read-only operations
+// across packages without a live session; operations needing the underlying
+// *papi.Client (key unlock, scope elevation) will still panic.
+func NewWithAPI(cfg config.Config, api papi.API) *Service {
+	return &Service{cfg: cfg, api: api, freshAPI: api}
+}
+
 // Close releases the underlying API client.
 func (s *Service) Close() {
 	if s.client != nil {

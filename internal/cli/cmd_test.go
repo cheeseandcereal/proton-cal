@@ -2,6 +2,9 @@ package cli
 
 import (
 	"bytes"
+	"context"
+	"encoding/json"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -16,6 +19,33 @@ import (
 // client - so these tests only assert on the pre-network behavior.
 func detachedFactory() (*calsvc.Service, error) {
 	return calsvc.NewDetached(config.Config{Timezone: "UTC"}), nil
+}
+
+// cliFakeAPI serves canned GET bodies (read-only) so resolution-dependent CLI
+// paths can be exercised; writes are no-ops.
+type cliFakeAPI struct{ bodies map[string]string }
+
+func (f cliFakeAPI) Get(_ context.Context, path string, _ url.Values, out any) error {
+	body := f.bodies[path]
+	if body == "" {
+		body = `{}`
+	}
+	if out == nil {
+		return nil
+	}
+	return json.Unmarshal([]byte(body), out)
+}
+
+func (cliFakeAPI) Put(context.Context, string, any, any) error  { return nil }
+func (cliFakeAPI) Post(context.Context, string, any, any) error { return nil }
+func (cliFakeAPI) Delete(context.Context, string, any) error    { return nil }
+
+// fakeAPIFactory returns a serviceFactory whose read path is served by the
+// given canned bodies (calendar list etc.), so resolution succeeds offline.
+func fakeAPIFactory(bodies map[string]string) func() (*calsvc.Service, error) {
+	return func() (*calsvc.Service, error) {
+		return calsvc.NewWithAPI(config.Config{Timezone: "UTC"}, cliFakeAPI{bodies: bodies}), nil
+	}
 }
 
 func TestCLIInvalidOutputFlag(t *testing.T) {
@@ -196,9 +226,19 @@ func TestCLIMutationParentsShowHelp(t *testing.T) {
 }
 
 func TestCLIDeleteCalendarRequiresYes(t *testing.T) {
-	_, _, err := runCLI(t, detachedFactory, "delete", "calendar", "Work")
-	if err == nil || !strings.Contains(err.Error(), "--yes") {
-		t.Fatalf("want --yes requirement, got %v", err)
+	// Without --yes, the command resolves the target (dry run) and refuses,
+	// naming the calendar (name, type, ID) it WOULD have deleted.
+	factory := fakeAPIFactory(map[string]string{
+		"/calendar/v1": `{"Calendars":[{"ID":"id-work","Type":0,"Members":[{"ID":"m1","Name":"Work","Color":"#112233"}]}]}`,
+	})
+	_, _, err := runCLI(t, factory, "delete", "calendar", "Work")
+	if err == nil {
+		t.Fatal("want refusal without --yes")
+	}
+	for _, want := range []string{"--yes", `"Work"`, "id-work", "normal"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("refusal %q missing %q", err.Error(), want)
+		}
 	}
 }
 

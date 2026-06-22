@@ -2,7 +2,9 @@ package mcpserver
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net/url"
 	"strings"
 	"testing"
 
@@ -25,6 +27,32 @@ func failingServer(err error) *server {
 		return nil, err
 	}}
 }
+
+// apiStubServer returns a server whose service reads from canned GET bodies
+// (e.g. a calendar list), so resolution-dependent paths run offline. Writes
+// and key-unlock operations still panic.
+func apiStubServer(cfg config.Config, bodies map[string]string) *server {
+	return &server{bootstrap: func() (*calsvc.Service, error) {
+		return calsvc.NewWithAPI(cfg, mcpFakeAPI{bodies: bodies}), nil
+	}}
+}
+
+type mcpFakeAPI struct{ bodies map[string]string }
+
+func (f mcpFakeAPI) Get(_ context.Context, path string, _ url.Values, out any) error {
+	body := f.bodies[path]
+	if body == "" {
+		body = `{}`
+	}
+	if out == nil {
+		return nil
+	}
+	return json.Unmarshal([]byte(body), out)
+}
+
+func (mcpFakeAPI) Put(context.Context, string, any, any) error  { return nil }
+func (mcpFakeAPI) Post(context.Context, string, any, any) error { return nil }
+func (mcpFakeAPI) Delete(context.Context, string, any) error    { return nil }
 
 // A timed event with no end no longer errors before the network: the end
 // defaults to the calendar's duration, resolved after the calendar unlocks

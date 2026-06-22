@@ -106,9 +106,14 @@ func TestToolErrorsAreToolResults(t *testing.T) {
 		t.Errorf("isErr=%v text=%q", isErr, text)
 	}
 
-	// delete_calendar with confirm=false is a guarded tool error.
-	text, isErr = callText(t, cs2, "delete_calendar", map[string]any{"calendar": "Work", "confirm": false})
-	if !isErr || !strings.Contains(text, "confirm=true") {
+	// delete_calendar with confirm=false resolves the target (dry run) and
+	// refuses, naming the calendar it WOULD delete. Needs an API-backed
+	// server so resolution succeeds offline.
+	cs3 := connectTestClient(t, apiStubServer(config.Config{Timezone: "UTC"}, map[string]string{
+		"/calendar/v1": `{"Calendars":[{"ID":"id-work","Type":0,"Members":[{"ID":"m1","Name":"Work","Color":"#112233"}]}]}`,
+	}))
+	text, isErr = callText(t, cs3, "delete_calendar", map[string]any{"calendar": "Work", "confirm": false})
+	if !isErr || !strings.Contains(text, "confirm=true") || !strings.Contains(text, "id-work") {
 		t.Errorf("delete_calendar without confirm: isErr=%v text=%q", isErr, text)
 	}
 }
