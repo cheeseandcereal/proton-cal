@@ -104,13 +104,15 @@ type CreateEventInput struct {
 // did not echo the created row; Start/End are the server-echoed times when
 // available, else the requested ones.
 type CreatedEvent struct {
-	ID      string
-	UID     string
-	Summary string
-	Start   time.Time
-	End     time.Time
-	AllDay  bool
-	RRule   string
+	ID          string
+	UID         string
+	Summary     string
+	Description string
+	Location    string
+	Start       time.Time
+	End         time.Time
+	AllDay      bool
+	RRule       string
 }
 
 // CreateEvent validates, resolves and creates an event.
@@ -140,7 +142,10 @@ func (s *Service) CreateEvent(ctx context.Context, in CreateEventInput) (*Create
 		if err != nil {
 			return nil, false, fmt.Errorf("creating event: %w", err)
 		}
-		out := &CreatedEvent{Summary: in.Summary, Start: start, End: end, AllDay: in.AllDay, RRule: rrule}
+		out := &CreatedEvent{
+			Summary: in.Summary, Description: in.Description, Location: in.Location,
+			Start: start, End: end, AllDay: in.AllDay, RRule: rrule,
+		}
 		if raw != nil {
 			out.ID = raw.ID
 			out.UID = raw.UID

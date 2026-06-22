@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/cheeseandcereal/proton-cal/internal/caljson"
 	"github.com/cheeseandcereal/proton-cal/internal/calsvc"
 )
 
@@ -44,9 +45,9 @@ func newEventsCmd() *cobra.Command {
 			}
 
 			if outputJSON() {
-				rows := make([]eventJSON, 0, len(list.Items))
+				rows := make([]caljson.Event, 0, len(list.Items))
 				for _, l := range list.Items {
-					rows = append(rows, occurrenceJSON(l, list.Location, list.Settings, list.Calendar))
+					rows = append(rows, caljson.Occurrence(l, list.Location, list.Settings, list.Calendar))
 				}
 				return printJSON(rows)
 			}

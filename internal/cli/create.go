@@ -5,20 +5,9 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/cheeseandcereal/proton-cal/internal/caljson"
 	"github.com/cheeseandcereal/proton-cal/internal/calsvc"
 )
-
-// createdJSON is the machine-readable shape of a created event. ID/UID are
-// empty when the server did not echo the created row.
-type createdJSON struct {
-	ID      string `json:"id,omitempty"`
-	UID     string `json:"uid,omitempty"`
-	Summary string `json:"summary"`
-	StartTS int64  `json:"start_ts"`
-	EndTS   int64  `json:"end_ts"`
-	AllDay  bool   `json:"all_day"`
-	RRule   string `json:"rrule,omitempty"`
-}
 
 func newCreateCmd() *cobra.Command {
 	var in calsvc.CreateEventInput
@@ -42,15 +31,7 @@ func newCreateCmd() *cobra.Command {
 			}
 
 			if outputJSON() {
-				return printJSON(createdJSON{
-					ID:      created.ID,
-					UID:     created.UID,
-					Summary: created.Summary,
-					StartTS: created.Start.Unix(),
-					EndTS:   created.End.Unix(),
-					AllDay:  created.AllDay,
-					RRule:   created.RRule,
-				})
+				return printJSON(caljson.CreatedOf(created))
 			}
 
 			w := humanOut()

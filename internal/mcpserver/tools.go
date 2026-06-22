@@ -5,6 +5,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/cheeseandcereal/proton-cal/internal/caljson"
 	"github.com/cheeseandcereal/proton-cal/internal/calsvc"
 	"github.com/cheeseandcereal/proton-cal/internal/eventview"
 )
@@ -28,6 +29,13 @@ func (s *server) register(srv *mcp.Server) {
 			"Recurring events are expanded into their individual occurrences, marked \"(recurring)\"; " +
 			"pass the shown ID plus the shown \"occurrence start\" value to update_event/delete_event to address one occurrence.",
 	}, s.listEvents)
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name: "get_calendar",
+		Description: "Get a single calendar in detail by ID or name (default: the configured " +
+			"default calendar, else the first): name, type, color, the calendar's default " +
+			"reminders (timed and all-day) and default event duration.",
+	}, s.getCalendar)
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "get_event",
@@ -74,7 +82,27 @@ func (s *server) listCalendars(ctx context.Context, _ *mcp.CallToolRequest, _ li
 	if err != nil {
 		return nil, nil, err
 	}
-	return textResult(renderCalendars(cals, svc.DefaultCalendarSelector())), nil, nil
+	defaultSel := svc.DefaultCalendarSelector()
+	return textResult(renderCalendars(cals, defaultSel)), caljson.Calendars(cals, defaultSel), nil
+}
+
+// ---------------------------------------------------------------- get_calendar
+
+type getCalendarArgs struct {
+	Calendar string `json:"calendar,omitempty" jsonschema:"Calendar ID or name (optional; default: the configured default calendar, else the first calendar)"`
+}
+
+func (s *server) getCalendar(ctx context.Context, _ *mcp.CallToolRequest, args getCalendarArgs) (*mcp.CallToolResult, any, error) {
+	svc, err := s.service()
+	if err != nil {
+		return nil, nil, err
+	}
+	got, err := svc.GetCalendar(ctx, args.Calendar)
+	if err != nil {
+		return nil, nil, err
+	}
+	text := renderCalendarDetail(got.Info, got.Settings, got.IsDefault)
+	return textResult(text), caljson.CalendarOf(got.Info, got.IsDefault), nil
 }
 
 // ---------------------------------------------------------------- list_events
@@ -100,7 +128,12 @@ func (s *server) listEvents(ctx context.Context, _ *mcp.CallToolRequest, args li
 	if err != nil {
 		return nil, nil, err
 	}
-	return textResult(renderEvents(list.Items, list.Days, list.Location, list.Settings, list.Calendar)), nil, nil
+	rows := make([]caljson.Event, 0, len(list.Items))
+	for _, l := range list.Items {
+		rows = append(rows, caljson.Occurrence(l, list.Location, list.Settings, list.Calendar))
+	}
+	text := renderEvents(list.Items, list.Days, list.Location, list.Settings, list.Calendar)
+	return textResult(text), rows, nil
 }
 
 // ---------------------------------------------------------------- get_event
@@ -133,7 +166,8 @@ func (s *server) getEvent(ctx context.Context, _ *mcp.CallToolRequest, args getE
 		}
 		return textResult(got.ICS), nil, nil
 	}
-	return textResult(renderEventDetail(got.Event, got.Location, got.Settings, got.Calendar)), nil, nil
+	text := renderEventDetail(got.Event, got.Location, got.Settings, got.Calendar)
+	return textResult(text), caljson.EventDetail(got.Event, got.Location, got.Settings, got.Calendar), nil
 }
 
 // ---------------------------------------------------------------- create_event
@@ -176,7 +210,7 @@ func (s *server) createEvent(ctx context.Context, _ *mcp.CallToolRequest, args c
 	if err != nil {
 		return nil, nil, err
 	}
-	return textResult(renderCreated(created)), nil, nil
+	return textResult(renderCreated(created)), caljson.CreatedOf(created), nil
 }
 
 // ---------------------------------------------------------------- update_event
@@ -240,7 +274,7 @@ func (s *server) updateEvent(ctx context.Context, _ *mcp.CallToolRequest, args u
 	if note != "" {
 		out += " " + note
 	}
-	return textResult(out), nil, nil
+	return textResult(out), caljson.UpdatedOf(outcome), nil
 }
 
 // ---------------------------------------------------------------- delete_event
@@ -266,5 +300,5 @@ func (s *server) deleteEvent(ctx context.Context, _ *mcp.CallToolRequest, args d
 	if err != nil {
 		return nil, nil, err
 	}
-	return textResult(renderDeleteResult(res, args.EventID)), nil, nil
+	return textResult(renderDeleteResult(res, args.EventID)), res, nil
 }

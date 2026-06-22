@@ -157,6 +157,33 @@ func TestRenderEvents(t *testing.T) {
 	}
 }
 
+func TestRenderCalendarDetail(t *testing.T) {
+	c := calendar.Info{ID: "id-1", Name: "Personal", Type: 0, Color: "#415DF0"}
+	set := calendar.Settings{
+		DefaultEventDuration:        30,
+		DefaultPartDayNotifications: []caltypes.Notification{{Type: 1, Trigger: "-PT15M"}},
+		DefaultFullDayNotifications: []caltypes.Notification{{Type: 1, Trigger: "-PT16H"}},
+	}
+	got := renderCalendarDetail(c, set, true)
+	for _, want := range []string{
+		"Personal (normal)",
+		"  ID: id-1",
+		"  color: #415DF0",
+		"  default reminder timed (notify): -PT15M",
+		"  default reminder all-day (notify): -PT16H",
+		"  default duration: 30 min",
+		"  (default calendar)",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("calendar detail missing %q:\n%s", want, got)
+		}
+	}
+	// No default marker in the header line (the explicit note carries it).
+	if strings.Contains(got, "[default]") {
+		t.Errorf("header should not carry [default]:\n%s", got)
+	}
+}
+
 func TestRenderDeleteResult(t *testing.T) {
 	tests := []struct {
 		res  event.DeleteResult

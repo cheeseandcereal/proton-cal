@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/cheeseandcereal/proton-cal/internal/caljson"
 	"github.com/cheeseandcereal/proton-cal/internal/calsvc"
 )
 
@@ -71,7 +72,7 @@ func newGetEventCmd() *cobra.Command {
 				fmt.Println(got.ICS) // the document itself, to stdout
 				return nil
 			case outputJSON():
-				return printJSON(eventDetailJSON(got.Event, got.Location, got.Settings, got.Calendar))
+				return printJSON(caljson.EventDetail(got.Event, got.Location, got.Settings, got.Calendar))
 			default:
 				w := humanOut()
 				for _, line := range eventDetailLines(got.Event, got.Location, sel, got.Settings, got.Calendar) {
@@ -128,7 +129,7 @@ func newGetCalendarCmd() *cobra.Command {
 			}
 
 			if outputJSON() {
-				return printJSON(calendarJSONOf(got.Info, got.IsDefault))
+				return printJSON(caljson.CalendarOf(got.Info, got.IsDefault))
 			}
 			w := humanOut()
 			for _, line := range calendarDetailLines(got.Info, got.Settings, got.IsDefault, sel) {

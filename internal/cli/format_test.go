@@ -147,57 +147,6 @@ func TestOccurrenceLinesEditedOccurrence(t *testing.T) {
 	}
 }
 
-func TestOccurrenceJSONTimed(t *testing.T) {
-	l := listedTimed()
-	l.Occurrence.Event.RRule = "FREQ=DAILY"
-	l.Event.RRule = "FREQ=DAILY"
-	loc := time.FixedZone("UTC+2", 2*60*60)
-	got := occurrenceJSON(l, loc, calendar.Settings{}, calendar.Info{})
-	want := eventJSON{
-		ID:                "evt1",
-		UID:               "uid1",
-		Summary:           "Standup",
-		Description:       "Weekly sync",
-		Location:          "Zoom",
-		Start:             "2026-06-12T11:00:00+02:00",
-		End:               "2026-06-12T11:30:00+02:00",
-		AllDay:            false,
-		Recurring:         true,
-		EditedOccurrence:  false,
-		OccurrenceStartTS: ts(2026, 6, 12, 9, 0),
-		RRule:             "FREQ=DAILY",
-		CalendarID:        "cal1",
-	}
-	if !reflect.DeepEqual(got, want) {
-		t.Errorf("occurrenceJSON() = %+v, want %+v", got, want)
-	}
-}
-
-func TestOccurrenceJSONAllDayUsesUTC(t *testing.T) {
-	l := listedTimed()
-	l.Event.AllDay = true
-	l.Occurrence.Start = ts(2026, 6, 12, 0, 0)
-	l.Occurrence.End = ts(2026, 6, 13, 0, 0)
-	loc := time.FixedZone("UTC-7", -7*60*60)
-	got := occurrenceJSON(l, loc, calendar.Settings{}, calendar.Info{})
-	if got.Start != "2026-06-12T00:00:00Z" || got.End != "2026-06-13T00:00:00Z" {
-		t.Errorf("all-day start/end = %q / %q, want UTC-anchored dates", got.Start, got.End)
-	}
-	if !got.AllDay {
-		t.Error("AllDay = false, want true")
-	}
-}
-
-func TestOccurrenceJSONEditedOccurrence(t *testing.T) {
-	l := listedTimed()
-	l.Occurrence.Event.RecurrenceID = ts(2026, 6, 12, 8, 0)
-	l.Event.RecurrenceID = time.Unix(ts(2026, 6, 12, 8, 0), 0).UTC()
-	got := occurrenceJSON(l, time.UTC, calendar.Settings{}, calendar.Info{})
-	if !got.EditedOccurrence || got.Recurring {
-		t.Errorf("EditedOccurrence=%v Recurring=%v, want true/false", got.EditedOccurrence, got.Recurring)
-	}
-}
-
 func TestEventDetailRendersEnrichment(t *testing.T) {
 	ev := &event.Event{
 		EventID: "evt1", UID: "uid1", CalendarID: "cal1",
@@ -217,24 +166,6 @@ func TestEventDetailRendersEnrichment(t *testing.T) {
 		},
 		Notifications:    []caltypes.Notification{{Type: 1, Trigger: "-PT1H"}},
 		NotificationsSet: true,
-	}
-
-	// JSON shape.
-	j := eventDetailJSON(ev, time.UTC, calendar.Settings{}, calendar.Info{})
-	if j.Color != "#EC3E7C" || !j.IsOrganizer {
-		t.Errorf("color/isOrganizer = %q/%v", j.Color, j.IsOrganizer)
-	}
-	if j.Organizer == nil || j.Organizer.Email != "adam@adamcrowder.net" {
-		t.Errorf("organizer = %+v", j.Organizer)
-	}
-	if len(j.Attendees) != 1 || j.Attendees[0].Status != "accepted" {
-		t.Errorf("attendees = %+v", j.Attendees)
-	}
-	if j.Conference == nil || j.Conference.Provider != "Proton Meet" {
-		t.Errorf("conference = %+v", j.Conference)
-	}
-	if len(j.Notifications) != 1 || j.Notifications[0].Trigger != "-PT1H" {
-		t.Errorf("notifications = %+v", j.Notifications)
 	}
 
 	// Human lines contain the key facts with Title-Case labels.

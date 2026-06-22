@@ -5,16 +5,10 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/cheeseandcereal/proton-cal/internal/caljson"
 	"github.com/cheeseandcereal/proton-cal/internal/calsvc"
 	"github.com/cheeseandcereal/proton-cal/internal/eventview"
 )
-
-// updatedJSON is the machine-readable shape of an update outcome.
-type updatedJSON struct {
-	Updated           bool `json:"updated"`
-	EditedOccurrence  bool `json:"edited_occurrence"`
-	RemovedExceptions int  `json:"removed_exceptions"`
-}
 
 func newUpdateCmd() *cobra.Command {
 	var (
@@ -62,11 +56,7 @@ rule and a matching weekday).`,
 			}
 
 			if outputJSON() {
-				return printJSON(updatedJSON{
-					Updated:           true,
-					EditedOccurrence:  outcome.EditedOccurrence,
-					RemovedExceptions: outcome.RemovedExceptions,
-				})
+				return printJSON(caljson.UpdatedOf(outcome))
 			}
 
 			w := humanOut()

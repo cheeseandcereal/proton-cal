@@ -24,6 +24,29 @@ func renderCalendars(cals []calendar.Info, defaultSelector string) string {
 	return strings.Join(lines, "\n")
 }
 
+// renderCalendarDetail renders the get_calendar reply: header + ID, color,
+// the calendar's default reminders (timed/all-day) and default event duration,
+// and a default-calendar marker.
+func renderCalendarDetail(c calendar.Info, set calendar.Settings, isDefault bool) string {
+	lines := eventview.CalendarHeaderLines(c, "") // no default marker here
+	if c.Color != "" {
+		lines = append(lines, "  color: "+c.Color)
+	}
+	for _, n := range set.DefaultPartDayNotifications {
+		lines = append(lines, "  default reminder timed ("+eventview.ReminderKind(n.Type)+"): "+n.Trigger)
+	}
+	for _, n := range set.DefaultFullDayNotifications {
+		lines = append(lines, "  default reminder all-day ("+eventview.ReminderKind(n.Type)+"): "+n.Trigger)
+	}
+	if set.DefaultEventDuration > 0 {
+		lines = append(lines, fmt.Sprintf("  default duration: %d min", set.DefaultEventDuration))
+	}
+	if isDefault {
+		lines = append(lines, "  (default calendar)")
+	}
+	return strings.Join(lines, "\n")
+}
+
 // renderOccurrence renders one listed occurrence as a text block in the
 // list_events line format. set/cal resolve the effective reminders and color.
 func renderOccurrence(l event.Listed, loc *time.Location, set calendar.Settings, cal calendar.Info) string {
@@ -132,11 +155,17 @@ func renderCreated(created *calsvc.CreatedEvent) string {
 		when = created.Start.Format("Mon 02 Jan 15:04") + " - " + created.End.Format("15:04")
 	}
 	out := fmt.Sprintf("Event created: %s\n  %s", created.Summary, when)
-	if created.ID != "" {
-		out += "\n  ID: " + created.ID
+	if created.Location != "" {
+		out += "\n  location: " + created.Location
+	}
+	if created.Description != "" {
+		out += "\n  description: " + created.Description
 	}
 	if created.RRule != "" {
 		out += "\n  Repeats: " + created.RRule
+	}
+	if created.ID != "" {
+		out += "\n  ID: " + created.ID
 	}
 	return out
 }
