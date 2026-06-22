@@ -205,6 +205,8 @@ func TestRenderCreated(t *testing.T) {
 	c := &calsvc.CreatedEvent{
 		ID: "ev1", Summary: "Lunch", Location: "Cafe", Description: "with team",
 		Start: start, End: start.Add(time.Hour), RRule: "FREQ=DAILY",
+		Color:     "#EC3E7C",
+		Reminders: []caltypes.Notification{{Type: 1, Trigger: "-PT15M"}},
 	}
 	got := renderCreated(c)
 	for _, want := range []string{
@@ -213,6 +215,8 @@ func TestRenderCreated(t *testing.T) {
 		"location: Cafe",
 		"description: with team",
 		"Repeats: FREQ=DAILY",
+		"color: #EC3E7C",
+		"reminder (notify): -PT15M",
 		"ID: ev1",
 	} {
 		if !strings.Contains(got, want) {

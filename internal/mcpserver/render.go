@@ -164,6 +164,16 @@ func renderCreated(created *calsvc.CreatedEvent) string {
 	if created.RRule != "" {
 		out += "\n  Repeats: " + created.RRule
 	}
+	if created.Color != "" {
+		out += "\n  color: " + created.Color
+	}
+	if len(created.Reminders) > 0 {
+		lines := make([]string, len(created.Reminders))
+		for i, n := range created.Reminders {
+			lines[i] = "  reminder (" + eventview.ReminderKind(n.Type) + "): " + n.Trigger
+		}
+		out += "\n" + strings.Join(lines, "\n")
+	}
 	if created.ID != "" {
 		out += "\n  ID: " + created.ID
 	}

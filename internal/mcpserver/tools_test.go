@@ -100,6 +100,13 @@ func TestApplyClearFields(t *testing.T) {
 	if in.Description != nil {
 		t.Errorf("description should be untouched: %v", in.Description)
 	}
+	// "color" reverts to the calendar color (empty ColorUpdate).
+	if err := applyClearFields(&in, []string{"color"}); err != nil {
+		t.Fatalf("clear color: %v", err)
+	}
+	if in.Color == nil || in.Color.Value != "" {
+		t.Errorf("color not cleared to inherit: %+v", in.Color)
+	}
 	if err := applyClearFields(&in, []string{"bogus"}); err == nil || !strings.Contains(err.Error(), "unknown field") {
 		t.Fatalf("want unknown-field error, got %v", err)
 	}
@@ -109,10 +116,74 @@ func TestUpdateEventUnknownClearField(t *testing.T) {
 	s := stubServer(config.Config{Timezone: "UTC"})
 	_, _, err := s.updateEvent(context.Background(), nil, updateEventArgs{
 		EventID:     "abc",
-		ClearFields: []string{"color"},
+		ClearFields: []string{"priority"},
 	})
 	if err == nil || !strings.Contains(err.Error(), "unknown field") {
 		t.Fatalf("want unknown clear field error, got %v", err)
+	}
+}
+
+func TestResolveUpdateReminders(t *testing.T) {
+	t.Run("keep", func(t *testing.T) {
+		u, err := resolveUpdateReminders("", nil)
+		if err != nil || u != nil {
+			t.Errorf("got (%v, %v), want keep (nil,nil)", u, err)
+		}
+	})
+	t.Run("empty mode + list -> custom", func(t *testing.T) {
+		u, err := resolveUpdateReminders("", []string{"15m"})
+		if err != nil || u == nil || u.Inherit || len(u.List) != 1 {
+			t.Errorf("got (%+v, %v)", u, err)
+		}
+	})
+	t.Run("inherit", func(t *testing.T) {
+		u, err := resolveUpdateReminders("inherit", nil)
+		if err != nil || u == nil || !u.Inherit {
+			t.Errorf("got (%+v, %v)", u, err)
+		}
+	})
+	t.Run("none", func(t *testing.T) {
+		u, err := resolveUpdateReminders("none", nil)
+		if err != nil || u == nil || u.Inherit || len(u.List) != 0 {
+			t.Errorf("got (%+v, %v)", u, err)
+		}
+	})
+	t.Run("custom requires list", func(t *testing.T) {
+		if _, err := resolveUpdateReminders("custom", nil); err == nil || !strings.Contains(err.Error(), "requires at least one") {
+			t.Errorf("want custom-empty error, got %v", err)
+		}
+	})
+	t.Run("bad mode", func(t *testing.T) {
+		if _, err := resolveUpdateReminders("sometimes", nil); err == nil || !strings.Contains(err.Error(), "invalid reminders_mode") {
+			t.Errorf("want invalid-mode error, got %v", err)
+		}
+	})
+	t.Run("bad spec", func(t *testing.T) {
+		if _, err := resolveUpdateReminders("custom", []string{"nope"}); err == nil {
+			t.Error("want parse error")
+		}
+	})
+}
+
+func TestCreateEventReminderConflict(t *testing.T) {
+	s := stubServer(config.Config{Timezone: "UTC"})
+	_, _, err := s.createEvent(context.Background(), nil, createEventArgs{
+		Summary: "X", Start: "2026-06-15 09:00", End: "2026-06-15 10:00",
+		Reminders: []string{"15m"}, NoReminders: true,
+	})
+	if err == nil || !strings.Contains(err.Error(), "mutually exclusive") {
+		t.Fatalf("want reminders/no_reminders conflict, got %v", err)
+	}
+}
+
+func TestCreateEventBadReminder(t *testing.T) {
+	s := stubServer(config.Config{Timezone: "UTC"})
+	_, _, err := s.createEvent(context.Background(), nil, createEventArgs{
+		Summary: "X", Start: "2026-06-15 09:00", End: "2026-06-15 10:00",
+		Reminders: []string{"whenever"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "invalid reminder offset") {
+		t.Fatalf("want bad-reminder error, got %v", err)
 	}
 }
 

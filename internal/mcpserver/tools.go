@@ -2,13 +2,17 @@ package mcpserver
 
 import (
 	"context"
+	"errors"
 	"fmt"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/cheeseandcereal/proton-cal/internal/caljson"
 	"github.com/cheeseandcereal/proton-cal/internal/calsvc"
+	"github.com/cheeseandcereal/proton-cal/internal/caltypes"
+	"github.com/cheeseandcereal/proton-cal/internal/event"
 	"github.com/cheeseandcereal/proton-cal/internal/eventview"
+	"github.com/cheeseandcereal/proton-cal/internal/reminders"
 )
 
 // textResult wraps a string as a successful text tool result.
@@ -20,9 +24,10 @@ func textResult(text string) *mcp.CallToolResult {
 // input at (a non-nil "" pointer clears the field; see calsvc.UpdateEventInput).
 var emptyString string
 
-// applyClearFields sets the named text fields to "clear" on the update input.
-// JSON args can't express "explicitly empty", so clearing is opt-in here;
-// each name maps to a non-nil empty-string pointer. Unknown names error.
+// applyClearFields sets the named fields to "clear" on the update input. JSON
+// args can't express "explicitly empty", so clearing is opt-in here; the text
+// fields map to a non-nil empty-string pointer, and "color" reverts to the
+// calendar color. Unknown names error.
 func applyClearFields(in *calsvc.UpdateEventInput, fields []string) error {
 	for _, f := range fields {
 		switch f {
@@ -32,11 +37,49 @@ func applyClearFields(in *calsvc.UpdateEventInput, fields []string) error {
 			in.Description = &emptyString
 		case "location":
 			in.Location = &emptyString
+		case "color":
+			in.Color = &event.ColorUpdate{Value: ""}
 		default:
-			return fmt.Errorf("clear_fields: unknown field %q (valid: summary, description, location)", f)
+			return fmt.Errorf("clear_fields: unknown field %q (valid: summary, description, location, color)", f)
 		}
 	}
 	return nil
+}
+
+// reminderModeNone/Inherit/Custom select the update reminder tri-state.
+const (
+	reminderModeKeep    = ""
+	reminderModeInherit = "inherit"
+	reminderModeNone    = "none"
+	reminderModeCustom  = "custom"
+)
+
+// resolveUpdateReminders turns the reminders_mode arg plus the reminders list
+// into an *event.RemindersUpdate (nil = keep). An empty mode with a non-empty
+// list is treated as "custom" for convenience.
+func resolveUpdateReminders(mode string, specs []string) (*event.RemindersUpdate, error) {
+	if mode == reminderModeKeep && len(specs) > 0 {
+		mode = reminderModeCustom
+	}
+	switch mode {
+	case reminderModeKeep:
+		return nil, nil
+	case reminderModeInherit:
+		return &event.RemindersUpdate{Inherit: true}, nil
+	case reminderModeNone:
+		return &event.RemindersUpdate{List: nil}, nil
+	case reminderModeCustom:
+		list, err := reminders.ParseList(specs)
+		if err != nil {
+			return nil, err
+		}
+		if len(list) == 0 {
+			return nil, errors.New("reminders_mode \"custom\" requires at least one entry in reminders")
+		}
+		return &event.RemindersUpdate{List: list}, nil
+	default:
+		return nil, fmt.Errorf("invalid reminders_mode %q (keep, inherit, none or custom)", mode)
+	}
 }
 
 // register adds all proton-calendar tools to the MCP server.
@@ -198,25 +241,40 @@ func (s *server) getEvent(ctx context.Context, _ *mcp.CallToolRequest, args getE
 // ---------------------------------------------------------------- create_event
 
 type createEventArgs struct {
-	Summary     string `json:"summary" jsonschema:"Event title"`
-	Start       string `json:"start" jsonschema:"Start time \"YYYY-MM-DD HH:MM\" (in the configured default timezone, or tz); with all_day: a \"YYYY-MM-DD\" date"`
-	End         string `json:"end,omitempty" jsonschema:"End time \"YYYY-MM-DD HH:MM\"; with all_day: inclusive end date (optional, defaults to start). Required for timed events."`
-	Description string `json:"description,omitempty" jsonschema:"Optional event description"`
-	Location    string `json:"location,omitempty" jsonschema:"Optional event location"`
-	AllDay      bool   `json:"all_day,omitempty" jsonschema:"All-day event (dates instead of times)"`
-	Repeat      string `json:"repeat,omitempty" jsonschema:"Make the event recurring: \"daily\", \"weekly\", \"monthly\" or \"yearly\""`
-	Every       int    `json:"every,omitempty" jsonschema:"Repeat interval, e.g. 2 = every second day/week/... (with repeat; default 1)"`
-	Count       int    `json:"count,omitempty" jsonschema:"Number of occurrences, max 49 (with repeat; 0 = unlimited)"`
-	Until       string `json:"until,omitempty" jsonschema:"Last day of the recurrence \"YYYY-MM-DD\" (with repeat)"`
-	RRule       string `json:"rrule,omitempty" jsonschema:"Raw RRULE value (advanced; replaces the repeat/every/count/until args)"`
-	Calendar    string `json:"calendar,omitempty" jsonschema:"Calendar ID or name (optional; default: the configured default calendar, else the first calendar)"`
-	TZ          string `json:"tz,omitempty" jsonschema:"IANA timezone for the event times (optional; default: the configured timezone)"`
+	Summary     string   `json:"summary" jsonschema:"Event title"`
+	Start       string   `json:"start" jsonschema:"Start time \"YYYY-MM-DD HH:MM\" (in the configured default timezone, or tz); with all_day: a \"YYYY-MM-DD\" date"`
+	End         string   `json:"end,omitempty" jsonschema:"End time \"YYYY-MM-DD HH:MM\"; with all_day: inclusive end date (optional, defaults to start). Required for timed events."`
+	Description string   `json:"description,omitempty" jsonschema:"Optional event description"`
+	Location    string   `json:"location,omitempty" jsonschema:"Optional event location"`
+	AllDay      bool     `json:"all_day,omitempty" jsonschema:"All-day event (dates instead of times)"`
+	Repeat      string   `json:"repeat,omitempty" jsonschema:"Make the event recurring: \"daily\", \"weekly\", \"monthly\" or \"yearly\""`
+	Every       int      `json:"every,omitempty" jsonschema:"Repeat interval, e.g. 2 = every second day/week/... (with repeat; default 1)"`
+	Count       int      `json:"count,omitempty" jsonschema:"Number of occurrences, max 49 (with repeat; 0 = unlimited)"`
+	Until       string   `json:"until,omitempty" jsonschema:"Last day of the recurrence \"YYYY-MM-DD\" (with repeat)"`
+	RRule       string   `json:"rrule,omitempty" jsonschema:"Raw RRULE value (advanced; replaces the repeat/every/count/until args)"`
+	Reminders   []string `json:"reminders,omitempty" jsonschema:"Reminders before the event, e.g. [\"15m\",\"1h30m\",\"2d\"]; prefix \"email:\" for an email reminder (default a notification). Raw iCal triggers like \"-PT15M\" also accepted. Omit to inherit the calendar default; pass no_reminders to set none."`
+	NoReminders bool     `json:"no_reminders,omitempty" jsonschema:"Create the event with no reminders (overrides the calendar default)"`
+	Color       string   `json:"color,omitempty" jsonschema:"Event color \"#RRGGBB\" (optional; default: the calendar color)"`
+	Calendar    string   `json:"calendar,omitempty" jsonschema:"Calendar ID or name (optional; default: the configured default calendar, else the first calendar)"`
+	TZ          string   `json:"tz,omitempty" jsonschema:"IANA timezone for the event times (optional; default: the configured timezone)"`
 }
 
 func (s *server) createEvent(ctx context.Context, _ *mcp.CallToolRequest, args createEventArgs) (*mcp.CallToolResult, any, error) {
 	svc, err := s.service()
 	if err != nil {
 		return nil, nil, err
+	}
+	if len(args.Reminders) > 0 && args.NoReminders {
+		return nil, nil, errors.New("reminders and no_reminders are mutually exclusive")
+	}
+	var remList []caltypes.Notification
+	remSet := args.NoReminders
+	if len(args.Reminders) > 0 {
+		remList, err = reminders.ParseList(args.Reminders)
+		if err != nil {
+			return nil, nil, err
+		}
+		remSet = true
 	}
 	created, err := svc.CreateEvent(ctx, calsvc.CreateEventInput{
 		Summary:     args.Summary,
@@ -229,8 +287,11 @@ func (s *server) createEvent(ctx context.Context, _ *mcp.CallToolRequest, args c
 			Repeat: args.Repeat, Every: args.Every, Count: args.Count,
 			Until: args.Until, RawRRule: args.RRule,
 		},
-		Calendar: args.Calendar,
-		TZ:       args.TZ,
+		Reminders:    remList,
+		RemindersSet: remSet,
+		Color:        args.Color,
+		Calendar:     args.Calendar,
+		TZ:           args.TZ,
 	})
 	if err != nil {
 		return nil, nil, err
@@ -241,22 +302,25 @@ func (s *server) createEvent(ctx context.Context, _ *mcp.CallToolRequest, args c
 // ---------------------------------------------------------------- update_event
 
 type updateEventArgs struct {
-	EventID     string   `json:"event_id" jsonschema:"The event ID (get from list_events)"`
-	Summary     string   `json:"summary,omitempty" jsonschema:"New event title (leave empty to keep current)"`
-	Start       string   `json:"start,omitempty" jsonschema:"New start \"YYYY-MM-DD HH:MM\" (\"YYYY-MM-DD\" for all-day events)"`
-	End         string   `json:"end,omitempty" jsonschema:"New end \"YYYY-MM-DD HH:MM\" (\"YYYY-MM-DD\" for all-day events)"`
-	Description string   `json:"description,omitempty" jsonschema:"New description (leave empty to keep current)"`
-	Location    string   `json:"location,omitempty" jsonschema:"New location (leave empty to keep current)"`
-	Occurrence  string   `json:"occurrence,omitempty" jsonschema:"For recurring events - the ORIGINAL start of the one occurrence to edit (as shown by list_events); other fields then apply to just that occurrence"`
-	Repeat      string   `json:"repeat,omitempty" jsonschema:"New recurrence: \"daily\", \"weekly\", \"monthly\" or \"yearly\""`
-	Every       int      `json:"every,omitempty" jsonschema:"Repeat interval (with repeat; default 1)"`
-	Count       int      `json:"count,omitempty" jsonschema:"Number of occurrences, max 49 (with repeat; 0 = unlimited)"`
-	Until       string   `json:"until,omitempty" jsonschema:"Last day of the recurrence \"YYYY-MM-DD\" (with repeat)"`
-	RRule       string   `json:"rrule,omitempty" jsonschema:"Raw RRULE value (advanced; replaces repeat/every/count/until)"`
-	NoRepeat    bool     `json:"no_repeat,omitempty" jsonschema:"Remove the recurrence from this event"`
-	ClearFields []string `json:"clear_fields,omitempty" jsonschema:"Fields to clear (set empty): any of \"summary\", \"description\", \"location\". Use this instead of passing an empty string, which is treated as \"keep current\"."`
-	Calendar    string   `json:"calendar,omitempty" jsonschema:"Calendar ID or name (optional; default: the configured default calendar, else the first calendar)"`
-	TZ          string   `json:"tz,omitempty" jsonschema:"IANA timezone for the event times (optional; default: the configured timezone)"`
+	EventID       string   `json:"event_id" jsonschema:"The event ID (get from list_events)"`
+	Summary       string   `json:"summary,omitempty" jsonschema:"New event title (leave empty to keep current)"`
+	Start         string   `json:"start,omitempty" jsonschema:"New start \"YYYY-MM-DD HH:MM\" (\"YYYY-MM-DD\" for all-day events)"`
+	End           string   `json:"end,omitempty" jsonschema:"New end \"YYYY-MM-DD HH:MM\" (\"YYYY-MM-DD\" for all-day events)"`
+	Description   string   `json:"description,omitempty" jsonschema:"New description (leave empty to keep current)"`
+	Location      string   `json:"location,omitempty" jsonschema:"New location (leave empty to keep current)"`
+	Occurrence    string   `json:"occurrence,omitempty" jsonschema:"For recurring events - the ORIGINAL start of the one occurrence to edit (as shown by list_events); other fields then apply to just that occurrence"`
+	Repeat        string   `json:"repeat,omitempty" jsonschema:"New recurrence: \"daily\", \"weekly\", \"monthly\" or \"yearly\""`
+	Every         int      `json:"every,omitempty" jsonschema:"Repeat interval (with repeat; default 1)"`
+	Count         int      `json:"count,omitempty" jsonschema:"Number of occurrences, max 49 (with repeat; 0 = unlimited)"`
+	Until         string   `json:"until,omitempty" jsonschema:"Last day of the recurrence \"YYYY-MM-DD\" (with repeat)"`
+	RRule         string   `json:"rrule,omitempty" jsonschema:"Raw RRULE value (advanced; replaces repeat/every/count/until)"`
+	NoRepeat      bool     `json:"no_repeat,omitempty" jsonschema:"Remove the recurrence from this event"`
+	Reminders     []string `json:"reminders,omitempty" jsonschema:"New reminders, e.g. [\"15m\",\"email:1h\"] (prefix \"email:\"; default a notification). Setting this implies reminders_mode=custom. Raw iCal triggers like \"-PT15M\" also accepted."`
+	RemindersMode string   `json:"reminders_mode,omitempty" jsonschema:"How to change reminders: \"keep\" (default), \"inherit\" (calendar default), \"none\" (remove all), or \"custom\" (use the reminders list)."`
+	Color         string   `json:"color,omitempty" jsonschema:"Set the event color \"#RRGGBB\". To revert to the calendar color, pass \"color\" in clear_fields instead."`
+	ClearFields   []string `json:"clear_fields,omitempty" jsonschema:"Fields to clear: any of \"summary\", \"description\", \"location\" (set empty) or \"color\" (revert to the calendar color). Use this instead of passing an empty string, which is treated as \"keep current\"."`
+	Calendar      string   `json:"calendar,omitempty" jsonschema:"Calendar ID or name (optional; default: the configured default calendar, else the first calendar)"`
+	TZ            string   `json:"tz,omitempty" jsonschema:"IANA timezone for the event times (optional; default: the configured timezone)"`
 }
 
 func (s *server) updateEvent(ctx context.Context, _ *mcp.CallToolRequest, args updateEventArgs) (*mcp.CallToolResult, any, error) {
@@ -290,6 +354,16 @@ func (s *server) updateEvent(ctx context.Context, _ *mcp.CallToolRequest, args u
 	if args.Location != "" {
 		in.Location = &args.Location
 	}
+	if args.Color != "" {
+		in.Color = &event.ColorUpdate{Value: args.Color}
+	}
+	rem, err := resolveUpdateReminders(args.RemindersMode, args.Reminders)
+	if err != nil {
+		return nil, nil, err
+	}
+	in.Reminders = rem
+	// clear_fields (incl. "color") is applied after the color arg so an
+	// explicit clear wins over an accidental empty color.
 	if err := applyClearFields(&in, args.ClearFields); err != nil {
 		return nil, nil, err
 	}
