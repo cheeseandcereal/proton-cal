@@ -139,6 +139,24 @@ func (s *server) register(srv *mcp.Server) {
 			"Recurring events: deletes the whole series (master + edited occurrences) " +
 			"unless occurrence limits it to a single occurrence.",
 	}, s.deleteEvent)
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name: "update_calendar",
+		Description: "Update an owned calendar (by ID or name; default: the account's " +
+			"default, else the first). Change its name, description, color, default " +
+			"event duration, busy setting, default reminder sets, and/or make it the " +
+			"account default. Only provided fields change. Subscribed and holidays " +
+			"calendars cannot be modified.",
+	}, s.updateCalendar)
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name: "delete_calendar",
+		Description: "Delete a calendar by ID or name. Requires confirm=true. Deleting an " +
+			"OWNED calendar is irreversible and requires the account login password " +
+			"(pass it as password); holidays calendars need no password; subscribed " +
+			"calendars cannot be deleted here. The password is used only for the " +
+			"deletion handshake and is never stored or echoed.",
+	}, s.deleteCalendar)
 }
 
 // ---------------------------------------------------------------- list_calendars
@@ -429,4 +447,121 @@ func (s *server) deleteEvent(ctx context.Context, _ *mcp.CallToolRequest, args d
 		return nil, nil, err
 	}
 	return textResult(renderDeleteResult(res, args.EventID)), res, nil
+}
+
+// ---------------------------------------------------------------- update_calendar
+
+type updateCalendarArgs struct {
+	Calendar            string   `json:"calendar,omitempty" jsonschema:"Calendar ID or name (optional; default: the account's default calendar, else the first calendar)"`
+	Name                string   `json:"name,omitempty" jsonschema:"New calendar name (optional)"`
+	Description         string   `json:"description,omitempty" jsonschema:"New description (optional; use clear_description to set it empty)"`
+	ClearDescription    bool     `json:"clear_description,omitempty" jsonschema:"Set the description to empty (use instead of an empty description, which is treated as 'keep')"`
+	Color               string   `json:"color,omitempty" jsonschema:"New color: a Proton color name (e.g. \"strawberry\") or its hex (only Proton's fixed palette). A calendar has no inheritable default color, so \"default\" is not accepted."`
+	DefaultDuration     int      `json:"default_duration,omitempty" jsonschema:"Default event duration in minutes (optional; >0)"`
+	MakesBusy           *bool    `json:"makes_busy,omitempty" jsonschema:"Whether events on this calendar mark you busy (optional)"`
+	Reminders           []string `json:"reminders,omitempty" jsonschema:"Replace the timed-event default reminders, e.g. [\"15m\",\"email:1h\"] (prefix \"email:\"; default a notification). An empty list clears them. Omit to keep."`
+	SetReminders        bool     `json:"set_reminders,omitempty" jsonschema:"Set true to apply the reminders list (including an empty list to clear); needed because an omitted list is indistinguishable from an empty one over JSON."`
+	FullDayReminders    []string `json:"full_day_reminders,omitempty" jsonschema:"Replace the all-day default reminders (same syntax as reminders). An empty list clears them. Omit to keep."`
+	SetFullDayReminders bool     `json:"set_full_day_reminders,omitempty" jsonschema:"Set true to apply the full_day_reminders list (including an empty list to clear)."`
+	MakeDefault         bool     `json:"make_default,omitempty" jsonschema:"Make this the account's default calendar"`
+}
+
+func (s *server) updateCalendar(ctx context.Context, _ *mcp.CallToolRequest, args updateCalendarArgs) (*mcp.CallToolResult, any, error) {
+	svc, err := s.service()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	in := calsvc.UpdateCalendarInput{Selector: args.Calendar, MakeDefault: args.MakeDefault}
+	if args.Name != "" {
+		in.Name = &args.Name
+	}
+	switch {
+	case args.ClearDescription:
+		empty := ""
+		in.Description = &empty
+	case args.Description != "":
+		in.Description = &args.Description
+	}
+	if args.Color != "" {
+		in.Color = &args.Color // validated (incl. rejecting "default") in the service
+	}
+	if args.DefaultDuration != 0 {
+		in.DefaultDuration = &args.DefaultDuration
+	}
+	if args.MakesBusy != nil {
+		in.MakesUserBusy = args.MakesBusy
+	}
+	if args.SetReminders {
+		ns, err := parseCalendarReminders(args.Reminders)
+		if err != nil {
+			return nil, nil, err
+		}
+		in.PartDayReminders = &ns
+	}
+	if args.SetFullDayReminders {
+		ns, err := parseCalendarReminders(args.FullDayReminders)
+		if err != nil {
+			return nil, nil, err
+		}
+		in.FullDayReminders = &ns
+	}
+
+	got, err := svc.UpdateCalendar(ctx, in)
+	if err != nil {
+		return nil, nil, err
+	}
+	return textResult(renderCalendarDetail(got.Info, got.Settings, got.IsDefault)),
+		caljson.CalendarDetailOf(got.Info, got.Settings, got.IsDefault), nil
+}
+
+// parseCalendarReminders turns reminder specs into a notification set; an
+// empty input clears the set (non-nil empty slice).
+func parseCalendarReminders(specs []string) ([]caltypes.Notification, error) {
+	nonEmpty := make([]string, 0, len(specs))
+	for _, s := range specs {
+		if s != "" {
+			nonEmpty = append(nonEmpty, s)
+		}
+	}
+	if len(nonEmpty) == 0 {
+		return []caltypes.Notification{}, nil
+	}
+	return reminders.ParseList(nonEmpty)
+}
+
+// ---------------------------------------------------------------- delete_calendar
+
+type deleteCalendarArgs struct {
+	Calendar string `json:"calendar" jsonschema:"Calendar ID or name to delete"`
+	Confirm  bool   `json:"confirm" jsonschema:"Must be true to actually delete (a safety guard)"`
+	Password string `json:"password,omitempty" jsonschema:"Account login password, required to delete an OWNED calendar (not needed for holidays calendars). Used only for the deletion handshake; never stored."`
+}
+
+func (s *server) deleteCalendar(ctx context.Context, _ *mcp.CallToolRequest, args deleteCalendarArgs) (*mcp.CallToolResult, any, error) {
+	if !args.Confirm {
+		return nil, nil, errors.New("refusing to delete without confirm=true")
+	}
+	svc, err := s.service()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Owned calendars need the password; surface a clear error if it is
+	// required but absent (rather than failing deep in the scope handshake).
+	needsPassword, err := svc.CalendarNeedsDeleteAuth(ctx, args.Calendar)
+	if err != nil {
+		return nil, nil, err
+	}
+	if needsPassword && args.Password == "" {
+		return nil, nil, errors.New("deleting an owned calendar requires the account login password (pass it as password)")
+	}
+
+	if err := svc.DeleteCalendar(ctx, calsvc.DeleteCalendarInput{
+		Selector: args.Calendar,
+		Password: args.Password,
+	}); err != nil {
+		return nil, nil, err
+	}
+	return textResult("Calendar deleted."), map[string]any{"deleted": true, "calendar": args.Calendar}, nil
 }
