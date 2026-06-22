@@ -87,13 +87,15 @@ type Calendar struct {
 // Created is the JSON shape of a create-event outcome. ID/UID are empty when
 // the server did not echo the created row.
 type Created struct {
-	ID      string `json:"id,omitempty"`
-	UID     string `json:"uid,omitempty"`
-	Summary string `json:"summary"`
-	StartTS int64  `json:"start_ts"`
-	EndTS   int64  `json:"end_ts"`
-	AllDay  bool   `json:"all_day"`
-	RRule   string `json:"rrule,omitempty"`
+	ID            string         `json:"id,omitempty"`
+	UID           string         `json:"uid,omitempty"`
+	Summary       string         `json:"summary"`
+	StartTS       int64          `json:"start_ts"`
+	EndTS         int64          `json:"end_ts"`
+	AllDay        bool           `json:"all_day"`
+	RRule         string         `json:"rrule,omitempty"`
+	Color         string         `json:"color,omitempty"`
+	Notifications []Notification `json:"notifications,omitempty"`
 }
 
 // Updated is the JSON shape of an update-event outcome.
@@ -208,7 +210,7 @@ func Calendars(cals []calendar.Info, defaultSel string) []Calendar {
 
 // CreatedOf maps a create outcome to its JSON shape.
 func CreatedOf(c *calsvc.CreatedEvent) Created {
-	return Created{
+	out := Created{
 		ID:      c.ID,
 		UID:     c.UID,
 		Summary: c.Summary,
@@ -216,7 +218,12 @@ func CreatedOf(c *calsvc.CreatedEvent) Created {
 		EndTS:   c.End.Unix(),
 		AllDay:  c.AllDay,
 		RRule:   c.RRule,
+		Color:   c.Color,
 	}
+	for _, n := range c.Reminders {
+		out.Notifications = append(out.Notifications, Notification{Type: n.Type, Trigger: n.Trigger})
+	}
+	return out
 }
 
 // UpdatedOf maps an update outcome to its JSON shape.

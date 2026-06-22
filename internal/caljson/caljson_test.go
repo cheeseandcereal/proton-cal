@@ -178,6 +178,8 @@ func TestCreatedOf(t *testing.T) {
 	c := &calsvc.CreatedEvent{
 		ID: "ev1", UID: "uid1", Summary: "Lunch",
 		Start: start, End: end, AllDay: false, RRule: "FREQ=DAILY",
+		Color:     "#EC3E7C",
+		Reminders: []caltypes.Notification{{Type: 1, Trigger: "-PT15M"}},
 	}
 	got := CreatedOf(c)
 	if got.ID != "ev1" || got.UID != "uid1" || got.Summary != "Lunch" {
@@ -188,6 +190,12 @@ func TestCreatedOf(t *testing.T) {
 	}
 	if got.RRule != "FREQ=DAILY" || got.AllDay {
 		t.Errorf("CreatedOf recurrence/allday = %+v", got)
+	}
+	if got.Color != "#EC3E7C" {
+		t.Errorf("CreatedOf color = %q", got.Color)
+	}
+	if len(got.Notifications) != 1 || got.Notifications[0].Trigger != "-PT15M" {
+		t.Errorf("CreatedOf notifications = %+v", got.Notifications)
 	}
 }
 

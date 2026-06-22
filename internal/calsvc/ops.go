@@ -98,11 +98,20 @@ type CreateEventInput struct {
 	Recurrence  Recurrence
 	Calendar    string
 	TZ          string
+	// Reminders is the event's own reminder set; RemindersSet selects the
+	// tri-state (RemindersSet false = inherit the calendar default, true +
+	// empty = explicitly none, true + non-empty = custom). Notifications are
+	// pre-parsed by the frontend (see internal/reminders).
+	Reminders    []caltypes.Notification
+	RemindersSet bool
+	// Color is the per-event color override ("#RRGGBB"); "" = inherit.
+	Color string
 }
 
 // CreatedEvent reports a create outcome. ID/UID are empty when the server
 // did not echo the created row; Start/End are the server-echoed times when
-// available, else the requested ones.
+// available, else the requested ones. Reminders/Color reflect what was
+// REQUESTED (the create response does not reliably echo row fields).
 type CreatedEvent struct {
 	ID          string
 	UID         string
@@ -113,6 +122,8 @@ type CreatedEvent struct {
 	End         time.Time
 	AllDay      bool
 	RRule       string
+	Reminders   []caltypes.Notification
+	Color       string
 }
 
 // CreateEvent validates, resolves and creates an event.
@@ -130,14 +141,17 @@ func (s *Service) CreateEvent(ctx context.Context, in CreateEventInput) (*Create
 
 	return withAccessResult(ctx, s, in.Calendar, func(_ calendar.Info, access *calendar.Access) (*CreatedEvent, bool, error) {
 		raw, err := event.Create(ctx, s.client, access, event.CreateOptions{
-			Summary:     in.Summary,
-			Description: in.Description,
-			Location:    in.Location,
-			Start:       start,
-			End:         end,
-			TZName:      tz,
-			AllDay:      in.AllDay,
-			RRule:       rrule,
+			Summary:      in.Summary,
+			Description:  in.Description,
+			Location:     in.Location,
+			Start:        start,
+			End:          end,
+			TZName:       tz,
+			AllDay:       in.AllDay,
+			RRule:        rrule,
+			Reminders:    in.Reminders,
+			RemindersSet: in.RemindersSet,
+			Color:        in.Color,
 		})
 		if err != nil {
 			return nil, false, fmt.Errorf("creating event: %w", err)
@@ -145,6 +159,7 @@ func (s *Service) CreateEvent(ctx context.Context, in CreateEventInput) (*Create
 		out := &CreatedEvent{
 			Summary: in.Summary, Description: in.Description, Location: in.Location,
 			Start: start, End: end, AllDay: in.AllDay, RRule: rrule,
+			Reminders: in.Reminders, Color: in.Color,
 		}
 		if raw != nil {
 			out.ID = raw.ID
@@ -259,6 +274,11 @@ type UpdateEventInput struct {
 	Recurrence  Recurrence
 	Calendar    string
 	TZ          string
+	// Reminders/Color: nil = keep current; non-nil overrides (the frontend
+	// resolves the keep/inherit/none/custom intent into these). Reusing the
+	// event package's tri-state types keeps the mapping a straight pass.
+	Reminders *event.RemindersUpdate
+	Color     *event.ColorUpdate
 }
 
 // validate rejects conflicting update option combinations.
@@ -299,6 +319,8 @@ func (s *Service) UpdateEvent(ctx context.Context, in UpdateEventInput) (*event.
 		Summary:     in.Summary,
 		Description: in.Description,
 		Location:    in.Location,
+		Reminders:   in.Reminders,
+		Color:       in.Color,
 	}
 	if in.Start != "" {
 		t, err := parseWhen(in.Start, tz)
