@@ -31,7 +31,9 @@ func (f *fakeRawAPI) Get(_ context.Context, path string, _ url.Values, out any) 
 	return nil
 }
 
-func (f *fakeRawAPI) Put(context.Context, string, any, any) error { return nil }
+func (f *fakeRawAPI) Put(context.Context, string, any, any) error  { return nil }
+func (f *fakeRawAPI) Post(context.Context, string, any, any) error { return nil }
+func (f *fakeRawAPI) Delete(context.Context, string, any) error    { return nil }
 
 func newTestCache(t *testing.T) *config.Cache {
 	t.Helper()

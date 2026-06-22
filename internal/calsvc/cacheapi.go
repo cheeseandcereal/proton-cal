@@ -106,6 +106,14 @@ func (a *cachedAPI) Put(ctx context.Context, path string, body, out any) error {
 	return a.inner.Put(ctx, path, body, out)
 }
 
+func (a *cachedAPI) Post(ctx context.Context, path string, body, out any) error {
+	return a.inner.Post(ctx, path, body, out)
+}
+
+func (a *cachedAPI) Delete(ctx context.Context, path string, out any) error {
+	return a.inner.Delete(ctx, path, out)
+}
+
 func unmarshalTo(data json.RawMessage, out any) error {
 	if out == nil {
 		return nil

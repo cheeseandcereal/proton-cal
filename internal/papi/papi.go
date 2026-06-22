@@ -78,6 +78,8 @@ func (quietLogger) Debugf(string, ...any) {}
 type API interface {
 	Get(ctx context.Context, path string, query url.Values, out any) error
 	Put(ctx context.Context, path string, body, out any) error
+	Post(ctx context.Context, path string, body, out any) error
+	Delete(ctx context.Context, path string, out any) error
 }
 
 // Client couples a go-proton-api client with the session store and a raw
@@ -143,6 +145,11 @@ func (c *Client) Close() {
 
 // Proton exposes the typed go-proton-api client.
 func (c *Client) Proton() *proton.Client { return c.pc }
+
+// Manager exposes the owned go-proton-api Manager (nil unless the client was
+// built via FromSession, which is the only constructor that owns one). It is
+// needed for the SRP scope-elevation handshake (Manager.AuthInfo).
+func (c *Client) Manager() *proton.Manager { return c.m }
 
 // Store exposes the session store the client persists tokens to.
 func (c *Client) Store() *config.SessionStore { return c.store }
@@ -213,6 +220,16 @@ func (c *Client) Get(ctx context.Context, path string, query url.Values, out any
 // Put performs a raw authenticated PUT with a JSON body.
 func (c *Client) Put(ctx context.Context, path string, body, out any) error {
 	return c.Do(ctx, http.MethodPut, path, nil, body, out)
+}
+
+// Post performs a raw authenticated POST with a JSON body.
+func (c *Client) Post(ctx context.Context, path string, body, out any) error {
+	return c.Do(ctx, http.MethodPost, path, nil, body, out)
+}
+
+// Delete performs a raw authenticated DELETE (no body).
+func (c *Client) Delete(ctx context.Context, path string, out any) error {
+	return c.Do(ctx, http.MethodDelete, path, nil, nil, out)
 }
 
 // Do performs a raw authenticated request. On 401 it re-reads the persisted
