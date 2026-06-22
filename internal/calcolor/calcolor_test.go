@@ -54,8 +54,8 @@ func TestResolveErrors(t *testing.T) {
 		_, err := Resolve(in)
 		if err == nil {
 			t.Errorf("Resolve(%q) should error", in)
-		} else if !strings.Contains(err.Error(), "strawberry") {
-			t.Errorf("Resolve(%q) error should hint friendly names: %v", in, err)
+		} else if !strings.Contains(err.Error(), "strawberry (#EC3E7C)") {
+			t.Errorf("Resolve(%q) error should hint friendly names with hex: %v", in, err)
 		}
 	}
 }

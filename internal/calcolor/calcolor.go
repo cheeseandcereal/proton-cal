@@ -119,13 +119,14 @@ func Label(hex string) string {
 	return hex
 }
 
-// Names returns the friendly names as a comma-separated, sorted list (for
-// error hints).
+// Names returns the friendly palette colors as a comma-separated, sorted
+// list with each name's hex in parentheses, e.g. "carrot (#F78400), ..."
+// (for error hints).
 func Names() string {
-	names := make([]string, 0, len(palette))
+	entries := make([]string, 0, len(palette))
 	for _, c := range palette {
-		names = append(names, c.Name)
+		entries = append(entries, c.Name+" ("+c.Hex+")")
 	}
-	sort.Strings(names)
-	return strings.Join(names, ", ")
+	sort.Strings(entries)
+	return strings.Join(entries, ", ")
 }
