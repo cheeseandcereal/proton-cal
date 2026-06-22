@@ -26,11 +26,11 @@ type Event struct {
 	AllDay           bool   `json:"all_day"`
 	Recurring        bool   `json:"recurring"`
 	EditedOccurrence bool   `json:"edited_occurrence"`
-	// OccurrenceStartTS is the unix start of ONE expanded occurrence - the
-	// value to pass back as the occurrence selector to update/delete a single
-	// occurrence. It is only meaningful for the expanded listing (`events`);
-	// the single-event view (`get event`) renders the stored row itself, not
-	// an occurrence, so the field is omitted there (omitempty).
+	// OccurrenceStartTS is the selector to pass back to update/delete one
+	// occurrence of a recurring series. It is set (and emitted) only for a
+	// master row's expanded occurrences; it is omitted for non-recurring
+	// events, already-edited occurrences, and the single-event view, where
+	// there is no series occurrence to address.
 	OccurrenceStartTS int64          `json:"occurrence_start_ts,omitempty"`
 	RRule             string         `json:"rrule,omitempty"`
 	CalendarID        string         `json:"calendar_id,omitempty"`
@@ -174,11 +174,7 @@ func Occurrence(l event.Listed, loc *time.Location, set calendar.Settings, cal c
 	j.End = time.Unix(l.Occurrence.End, 0).In(z).Format(time.RFC3339)
 	j.Recurring = raw.IsMaster()
 	j.EditedOccurrence = raw.IsException()
-	// occurrence_start_ts is the selector for ONE occurrence of a recurring
-	// series, so it is meaningful only for a master row's expanded
-	// occurrences. A non-recurring event has no occurrence to address, and an
-	// already-edited occurrence (exception) is addressed by its own event ID.
-	if raw.IsMaster() {
+	if j.Recurring { // only series occurrences carry a usable selector
 		j.OccurrenceStartTS = l.Occurrence.Start
 	}
 	return j
