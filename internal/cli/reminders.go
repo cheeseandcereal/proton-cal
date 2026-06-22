@@ -2,10 +2,11 @@ package cli
 
 import (
 	"errors"
-	"fmt"
 
 	"github.com/spf13/cobra"
 
+	"github.com/cheeseandcereal/proton-cal/internal/calcolor"
+	"github.com/cheeseandcereal/proton-cal/internal/calsvc"
 	"github.com/cheeseandcereal/proton-cal/internal/caltypes"
 	"github.com/cheeseandcereal/proton-cal/internal/event"
 	"github.com/cheeseandcereal/proton-cal/internal/reminders"
@@ -27,7 +28,7 @@ func addCreateReminderColorFlags(cmd *cobra.Command, f *reminderColorFlags) {
 	cmd.Flags().StringArrayVar(&f.reminder, "reminder", nil,
 		"reminder before the event, repeatable: 15m, 1h30m, 2d, 1w (prefix email: for an email reminder; default notify)")
 	cmd.Flags().BoolVar(&f.noReminders, "no-reminders", false, "create the event with no reminders (overrides the calendar default)")
-	cmd.Flags().StringVar(&f.color, "color", "", "event color #RRGGBB (default: the calendar color)")
+	cmd.Flags().StringVar(&f.color, "color", "", "event color: a Proton color name (e.g. strawberry) or its hex (default: the calendar color)")
 }
 
 // addUpdateReminderColorFlags registers the update-side flags, including the
@@ -37,8 +38,8 @@ func addUpdateReminderColorFlags(cmd *cobra.Command, f *reminderColorFlags) {
 		"replace reminders, repeatable: 15m, 1h30m, 2d, 1w (prefix email:; default notify)")
 	cmd.Flags().BoolVar(&f.noReminders, "no-reminders", false, "remove all reminders from the event")
 	cmd.Flags().BoolVar(&f.remindersDefault, "reminders-default", false, "revert reminders to the calendar default")
-	cmd.Flags().StringVar(&f.color, "color", "", "set the event color #RRGGBB")
-	cmd.Flags().BoolVar(&f.noColor, "no-color", false, "use the calendar color (clear the per-event color)")
+	cmd.Flags().StringVar(&f.color, "color", "", "set the event color: a Proton color name (e.g. strawberry) or its hex")
+	cmd.Flags().BoolVar(&f.noColor, "no-color", false, "revert to the calendar color")
 }
 
 // validateExclusive rejects conflicting reminder/color flag combinations,
@@ -58,14 +59,24 @@ func (f *reminderColorFlags) validateExclusive(cmd *cobra.Command) error {
 		return errors.New("--color and --no-color are mutually exclusive")
 	}
 	if cmd.Flags().Changed("color") && f.color == "" {
-		return errors.New("--color requires a value like #RRGGBB; use --no-color to inherit the calendar color")
+		return errors.New("--color requires a value (a Proton color name or hex); use --no-color for the calendar color")
 	}
 	if f.color != "" {
-		if _, _, _, ok := parseHexColor(f.color); !ok {
-			return fmt.Errorf("invalid --color %q (want #RRGGBB)", f.color)
+		if _, err := calcolor.Resolve(f.color); err != nil {
+			return err
 		}
 	}
 	return nil
+}
+
+// createColor resolves the create-side color to a canonical palette hex
+// ("" when no --color was given, i.e. inherit the calendar color, which a
+// create with a null Color does naturally).
+func (f *reminderColorFlags) createColor() (string, error) {
+	if f.color == "" {
+		return "", nil
+	}
+	return calcolor.Resolve(f.color)
 }
 
 // createReminders resolves the create-side reminder list + set flag:
@@ -105,14 +116,20 @@ func (f *reminderColorFlags) updateReminders() (*event.RemindersUpdate, error) {
 	}
 }
 
-// updateColor resolves the update-side color intent into a *event.ColorUpdate
-// (nil = keep current). --no-color or an explicit --color set it.
-func (f *reminderColorFlags) updateColor(cmd *cobra.Command) *event.ColorUpdate {
+// updateColor resolves the update-side color intent into a *calsvc.ColorUpdate
+// (nil = keep current). --no-color reverts to the calendar color; an explicit
+// --color sets a palette color. validateExclusive must have run first so the
+// color value is already known-valid.
+func (f *reminderColorFlags) updateColor(cmd *cobra.Command) (*calsvc.ColorUpdate, error) {
 	if f.noColor {
-		return &event.ColorUpdate{Value: ""}
+		return &calsvc.ColorUpdate{Inherit: true}, nil
 	}
 	if cmd.Flags().Changed("color") {
-		return &event.ColorUpdate{Value: f.color}
+		hex, err := calcolor.Resolve(f.color)
+		if err != nil {
+			return nil, err
+		}
+		return &calsvc.ColorUpdate{Hex: hex}, nil
 	}
-	return nil
+	return nil, nil
 }

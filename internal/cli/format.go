@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cheeseandcereal/proton-cal/internal/calcolor"
 	"github.com/cheeseandcereal/proton-cal/internal/calendar"
 	"github.com/cheeseandcereal/proton-cal/internal/calsvc"
 	"github.com/cheeseandcereal/proton-cal/internal/caltypes"
@@ -47,7 +48,7 @@ func eventDetailRows(ev *event.Event, sel fieldSet, set calendar.Settings, cal c
 	}
 	if sel.has(fieldColor) {
 		if c := eventview.EffectiveColor(ev, cal); c != "" {
-			rows = append(rows, labeled{"Color", swatch(c) + c})
+			rows = append(rows, labeled{"Color", swatch(c) + calcolor.Label(c)})
 		}
 	}
 	return rows
@@ -328,7 +329,7 @@ func calendarDetailLines(c calendar.Info, set calendar.Settings, isDefault bool,
 	b.addIf(calFieldName, "Name", c.Name)
 	b.addIf(calFieldType, "Type", c.TypeString())
 	if sel.has(calFieldColor) && c.Color != "" {
-		b.add("Color", swatch(c.Color)+c.Color)
+		b.add("Color", swatch(c.Color)+calcolor.Label(c.Color))
 	}
 	b.addIf(calFieldDescription, "Description", c.Description)
 	if sel.has(calFieldDefaultReminders) {

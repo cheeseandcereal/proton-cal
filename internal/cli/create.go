@@ -5,6 +5,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/cheeseandcereal/proton-cal/internal/calcolor"
 	"github.com/cheeseandcereal/proton-cal/internal/caljson"
 	"github.com/cheeseandcereal/proton-cal/internal/calsvc"
 	"github.com/cheeseandcereal/proton-cal/internal/eventview"
@@ -30,7 +31,11 @@ func newCreateCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			in.Reminders, in.RemindersSet, in.Color = reminders, set, rc.color
+			color, err := rc.createColor()
+			if err != nil {
+				return err
+			}
+			in.Reminders, in.RemindersSet, in.Color = reminders, set, color
 
 			svc, err := serviceFactory()
 			if err != nil {
@@ -56,7 +61,7 @@ func newCreateCmd() *cobra.Command {
 				fmt.Fprintf(w, "  Repeats: %s\n", created.RRule)
 			}
 			if created.Color != "" {
-				fmt.Fprintf(w, "  Color: %s%s\n", swatch(created.Color), created.Color)
+				fmt.Fprintf(w, "  Color: %s%s\n", swatch(created.Color), calcolor.Label(created.Color))
 			}
 			for _, n := range created.Reminders {
 				fmt.Fprintf(w, "  Reminder (%s): %s\n", eventview.ReminderKind(n.Type), n.Trigger)

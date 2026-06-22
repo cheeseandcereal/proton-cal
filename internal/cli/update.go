@@ -53,7 +53,11 @@ rule and a matching weekday).`,
 				return err
 			}
 			in.Reminders = rem
-			in.Color = rc.updateColor(cmd)
+			col, err := rc.updateColor(cmd)
+			if err != nil {
+				return err
+			}
+			in.Color = col
 
 			svc, err := serviceFactory()
 			if err != nil {

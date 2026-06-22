@@ -274,11 +274,24 @@ type UpdateEventInput struct {
 	Recurrence  Recurrence
 	Calendar    string
 	TZ          string
-	// Reminders/Color: nil = keep current; non-nil overrides (the frontend
-	// resolves the keep/inherit/none/custom intent into these). Reusing the
-	// event package's tri-state types keeps the mapping a straight pass.
+	// Reminders: nil = keep current; non-nil overrides (the frontend resolves
+	// the keep/inherit/none/custom intent). Reusing the event package's
+	// tri-state type keeps the mapping a straight pass.
 	Reminders *event.RemindersUpdate
-	Color     *event.ColorUpdate
+	// Color: nil = keep current; non-nil overrides. Proton has no color
+	// "inherit" sentinel - reverting to the calendar default means setting
+	// the event color to the calendar's own color, which UpdateEvent resolves
+	// (it knows the resolved calendar), so this carries the intent rather than
+	// a literal hex.
+	Color *ColorUpdate
+}
+
+// ColorUpdate is the calsvc-level color change intent. Inherit reverts to the
+// calendar's color (resolved at apply time); otherwise Hex is the canonical
+// palette color to set.
+type ColorUpdate struct {
+	Inherit bool
+	Hex     string
 }
 
 // validate rejects conflicting update option combinations.
@@ -320,7 +333,6 @@ func (s *Service) UpdateEvent(ctx context.Context, in UpdateEventInput) (*event.
 		Description: in.Description,
 		Location:    in.Location,
 		Reminders:   in.Reminders,
-		Color:       in.Color,
 	}
 	if in.Start != "" {
 		t, err := parseWhen(in.Start, tz)
@@ -348,6 +360,17 @@ func (s *Service) UpdateEvent(ctx context.Context, in UpdateEventInput) (*event.
 	}
 
 	return withAccessResult(ctx, s, in.Calendar, func(info calendar.Info, access *calendar.Access) (*event.UpdateOutcome, bool, error) {
+		// Resolve the color intent now that the calendar is known: "inherit"
+		// maps to the calendar's own color (Proton has no clear/null for
+		// color; reverting means setting the calendar color explicitly).
+		if in.Color != nil {
+			hex := in.Color.Hex
+			if in.Color.Inherit {
+				hex = info.Color
+			}
+			opts.Color = &event.ColorUpdate{Value: hex}
+		}
+
 		// Recurrence options need the event's all-day-ness for the UNTIL
 		// form, so fetch the raw row first - only in that case (the
 		// occurrence path never builds an RRULE).

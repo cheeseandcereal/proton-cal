@@ -81,7 +81,7 @@ func TestCLICreateReminderColorValidation(t *testing.T) {
 	}{
 		{"bad reminder", []string{"create", "X", "--start", "2026-06-15 09:00", "--end", "2026-06-15 10:00", "--reminder", "soon"}, "invalid reminder offset"},
 		{"reminder + no-reminders", []string{"create", "X", "--start", "2026-06-15 09:00", "--end", "2026-06-15 10:00", "--reminder", "15m", "--no-reminders"}, "mutually exclusive"},
-		{"bad color", []string{"create", "X", "--start", "2026-06-15 09:00", "--end", "2026-06-15 10:00", "--color", "red"}, "invalid --color"},
+		{"bad color", []string{"create", "X", "--start", "2026-06-15 09:00", "--end", "2026-06-15 10:00", "--color", "red"}, "invalid color"},
 		{"empty color", []string{"create", "X", "--start", "2026-06-15 09:00", "--end", "2026-06-15 10:00", "--color", ""}, "requires a value"},
 	}
 	for _, tt := range tests {

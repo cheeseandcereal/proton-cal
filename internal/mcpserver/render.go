@@ -5,6 +5,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cheeseandcereal/proton-cal/internal/calcolor"
 	"github.com/cheeseandcereal/proton-cal/internal/calendar"
 	"github.com/cheeseandcereal/proton-cal/internal/calsvc"
 	"github.com/cheeseandcereal/proton-cal/internal/event"
@@ -30,7 +31,7 @@ func renderCalendars(cals []calendar.Info, defaultSelector string) string {
 func renderCalendarDetail(c calendar.Info, set calendar.Settings, isDefault bool) string {
 	lines := eventview.CalendarHeaderLines(c, "") // no default marker here
 	if c.Color != "" {
-		lines = append(lines, "  color: "+c.Color)
+		lines = append(lines, "  color: "+calcolor.Label(c.Color))
 	}
 	for _, n := range set.DefaultPartDayNotifications {
 		lines = append(lines, "  default reminder timed ("+eventview.ReminderKind(n.Type)+"): "+n.Trigger)
@@ -101,7 +102,7 @@ func renderEventExtras(ev *event.Event, set calendar.Settings, cal calendar.Info
 		lines = append(lines, "  reminder ("+eventview.ReminderKind(n.Type)+"): "+n.Trigger)
 	}
 	if c := eventview.EffectiveColor(ev, cal); c != "" {
-		lines = append(lines, "  color: "+c)
+		lines = append(lines, "  color: "+calcolor.Label(c))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -165,7 +166,7 @@ func renderCreated(created *calsvc.CreatedEvent) string {
 		out += "\n  Repeats: " + created.RRule
 	}
 	if created.Color != "" {
-		out += "\n  color: " + created.Color
+		out += "\n  color: " + calcolor.Label(created.Color)
 	}
 	if len(created.Reminders) > 0 {
 		lines := make([]string, len(created.Reminders))

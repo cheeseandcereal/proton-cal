@@ -179,7 +179,10 @@ type RemindersUpdate struct {
 }
 
 // ColorUpdate expresses an update to an event's color, distinct from "keep
-// current" (a nil *ColorUpdate). Value "" means inherit the calendar color.
+// current" (a nil *ColorUpdate). Value is the canonical palette hex to set.
+// (Proton has no "inherit" sentinel for color: reverting to the calendar
+// default means explicitly setting the event color to the calendar's own
+// color, which the calsvc layer resolves before constructing this.)
 type ColorUpdate struct {
 	Value string
 }

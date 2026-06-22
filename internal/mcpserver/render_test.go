@@ -168,7 +168,7 @@ func TestRenderCalendarDetail(t *testing.T) {
 	for _, want := range []string{
 		"Personal (normal)",
 		"  ID: id-1",
-		"  color: #415DF0",
+		"  color: slateblue (#415DF0)",
 		"  default reminder timed (notify): -PT15M",
 		"  default reminder all-day (notify): -PT16H",
 		"  default duration: 30 min",
@@ -215,7 +215,7 @@ func TestRenderCreated(t *testing.T) {
 		"location: Cafe",
 		"description: with team",
 		"Repeats: FREQ=DAILY",
-		"color: #EC3E7C",
+		"color: strawberry (#EC3E7C)",
 		"reminder (notify): -PT15M",
 		"ID: ev1",
 	} {
@@ -258,7 +258,7 @@ func TestRenderEventDetail(t *testing.T) {
 		"organizer: Boss <boss@co>",
 		"attendee: Me <me@co> (accepted)",
 		"reminder (notify): -PT10M", // inherited calendar default
-		"color: #415DF0",
+		"color: slateblue (#415DF0)",
 		"ID: ev1",
 	} {
 		if !strings.Contains(got, want) {

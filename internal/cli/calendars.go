@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/cheeseandcereal/proton-cal/internal/calcolor"
 	"github.com/cheeseandcereal/proton-cal/internal/calendar"
 	"github.com/cheeseandcereal/proton-cal/internal/caljson"
 	"github.com/cheeseandcereal/proton-cal/internal/eventview"
@@ -48,7 +49,7 @@ func renderCalendars(w io.Writer, cals []calendar.Info, defaultSel string) {
 		for _, line := range eventview.CalendarHeaderLines(c, defaultSel) {
 			fmt.Fprintln(w, line)
 		}
-		fmt.Fprintf(w, "  Color: %s%s\n", swatch(c.Color), c.Color)
+		fmt.Fprintf(w, "  Color: %s%s\n", swatch(c.Color), calcolor.Label(c.Color))
 		if c.Description != "" {
 			fmt.Fprintf(w, "  Description: %s\n", c.Description)
 		}

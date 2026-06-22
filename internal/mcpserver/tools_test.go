@@ -100,12 +100,12 @@ func TestApplyClearFields(t *testing.T) {
 	if in.Description != nil {
 		t.Errorf("description should be untouched: %v", in.Description)
 	}
-	// "color" reverts to the calendar color (empty ColorUpdate).
+	// "color" reverts to the calendar color (Inherit intent).
 	if err := applyClearFields(&in, []string{"color"}); err != nil {
 		t.Fatalf("clear color: %v", err)
 	}
-	if in.Color == nil || in.Color.Value != "" {
-		t.Errorf("color not cleared to inherit: %+v", in.Color)
+	if in.Color == nil || !in.Color.Inherit {
+		t.Errorf("color not set to inherit: %+v", in.Color)
 	}
 	if err := applyClearFields(&in, []string{"bogus"}); err == nil || !strings.Contains(err.Error(), "unknown field") {
 		t.Fatalf("want unknown-field error, got %v", err)
