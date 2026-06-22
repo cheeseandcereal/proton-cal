@@ -196,7 +196,7 @@ func TestEventDetailEnrichment(t *testing.T) {
 	if j.Conference == nil || j.Conference.Provider != "Proton Meet" {
 		t.Errorf("conference = %+v", j.Conference)
 	}
-	if len(j.Notifications) != 1 || j.Notifications[0].Trigger != "-PT1H" {
+	if len(j.Notifications) != 1 || j.Notifications[0].Trigger != "-PT1H" || j.Notifications[0].Type != "notify" {
 		t.Errorf("notifications = %+v", j.Notifications)
 	}
 }

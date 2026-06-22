@@ -75,9 +75,10 @@ type Conference struct {
 	Host     string `json:"host,omitempty"`
 }
 
-// Notification is the JSON shape of one reminder.
+// Notification is the JSON shape of one reminder. Type is a string enum
+// ("email" or "notify") rather than the raw API integer.
 type Notification struct {
-	Type    int    `json:"type"`
+	Type    string `json:"type"`
 	Trigger string `json:"trigger"`
 }
 
@@ -147,7 +148,7 @@ func enrich(j *Event, ev *event.Event, set calendar.Settings, cal calendar.Info)
 		}
 	}
 	for _, n := range eventview.EffectiveReminders(ev, set) {
-		j.Notifications = append(j.Notifications, Notification{Type: n.Type, Trigger: n.Trigger})
+		j.Notifications = append(j.Notifications, Notification{Type: eventview.ReminderKind(n.Type), Trigger: n.Trigger})
 	}
 }
 
@@ -237,7 +238,7 @@ func CreatedOf(c *calsvc.CreatedEvent) Created {
 		Color:   c.Color,
 	}
 	for _, n := range c.Reminders {
-		out.Notifications = append(out.Notifications, Notification{Type: n.Type, Trigger: n.Trigger})
+		out.Notifications = append(out.Notifications, Notification{Type: eventview.ReminderKind(n.Type), Trigger: n.Trigger})
 	}
 	return out
 }

@@ -31,7 +31,7 @@ func TestE2EMCPRemindersAndColor(t *testing.T) {
 	if created.Color != "#EC3E7C" || len(created.Notifications) != 2 {
 		t.Errorf("create structured reminders/color = %+v / %q", created.Notifications, created.Color)
 	}
-	if created.Notifications[0].Trigger != "-PT15M" || created.Notifications[1].Type != 0 {
+	if created.Notifications[0].Trigger != "-PT15M" || created.Notifications[1].Type != "email" {
 		t.Errorf("create notifications = %+v", created.Notifications)
 	}
 

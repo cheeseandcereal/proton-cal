@@ -28,7 +28,7 @@ func TestE2ECLIRemindersAndColor(t *testing.T) {
 		ID            string `json:"id"`
 		Color         string `json:"color"`
 		Notifications []struct {
-			Type    int    `json:"type"`
+			Type    string `json:"type"`
 			Trigger string `json:"trigger"`
 		} `json:"notifications"`
 	}
