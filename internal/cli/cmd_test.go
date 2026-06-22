@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cheeseandcereal/proton-cal/internal/calcolor"
 	"github.com/cheeseandcereal/proton-cal/internal/calendar"
 	"github.com/cheeseandcereal/proton-cal/internal/calsvc"
 	"github.com/cheeseandcereal/proton-cal/internal/config"
@@ -359,5 +360,40 @@ func TestCLIUpdateCalendarRejectsDefaultColor(t *testing.T) {
 	_, _, err := runCLI(t, detachedFactory, "update", "calendar", "Work", "--color", "default")
 	if err == nil || !strings.Contains(err.Error(), "no inheritable default color") {
 		t.Fatalf("want default-color rejection, got %v", err)
+	}
+}
+
+func TestSwatchedColorErrorPassthrough(t *testing.T) {
+	if got := swatchedColorError(nil); got != nil {
+		t.Errorf("nil error should stay nil, got %v", got)
+	}
+	plain := errors.New("some unrelated failure")
+	if got := swatchedColorError(plain); !errors.Is(got, plain) {
+		t.Errorf("non-color error should be returned unchanged, got %v", got)
+	}
+}
+
+func TestValidColorHintPlainWhenColorDisabled(t *testing.T) {
+	// In tests outWriter is a buffer, so colorEnabled() is false and swatch()
+	// is empty: the hint is the plain "name (#HEX)" list, equal to Names().
+	var buf bytes.Buffer
+	prevOut := outWriter
+	t.Cleanup(func() { outWriter = prevOut })
+	outWriter = &buf
+
+	if got, want := validColorHint(), calcolor.Names(); got != want {
+		t.Errorf("validColorHint() = %q, want %q", got, want)
+	}
+	if strings.Contains(validColorHint(), "\x1b[") {
+		t.Error("hint should contain no ANSI when color is disabled")
+	}
+}
+
+func TestResolveWrapsErrInvalidColor(t *testing.T) {
+	if _, err := calcolor.Resolve("red"); !errors.Is(err, calcolor.ErrInvalidColor) {
+		t.Errorf("Resolve(\"red\") err = %v, want wrap of ErrInvalidColor", err)
+	}
+	if _, err := calcolor.Resolve(""); !errors.Is(err, calcolor.ErrInvalidColor) {
+		t.Errorf("Resolve(\"\") err = %v, want wrap of ErrInvalidColor", err)
 	}
 }

@@ -7,13 +7,26 @@
 package calcolor
 
 import (
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
 )
 
+// ErrInvalidColor wraps the failures returned by Resolve for an unknown or
+// empty color spec. Callers (e.g. the CLI) can detect it with errors.Is to
+// re-render the valid-color hint in a richer form (such as with terminal
+// swatches) instead of relying on the plain text.
+var ErrInvalidColor = errors.New("invalid color")
+
 // color pairs a friendly name with its canonical uppercase hex.
 type color struct {
+	Name string
+	Hex  string
+}
+
+// Color is a palette entry: a friendly Name and its canonical uppercase Hex.
+type Color struct {
 	Name string
 	Hex  string
 }
@@ -81,7 +94,7 @@ func IsDefault(spec string) bool {
 func Resolve(spec string) (string, error) {
 	s := strings.TrimSpace(spec)
 	if s == "" {
-		return "", fmt.Errorf("empty color (valid colors: %s, or %q)", Names(), DefaultSentinel)
+		return "", fmt.Errorf("%w: empty color (valid colors: %s, or %q)", ErrInvalidColor, Names(), DefaultSentinel)
 	}
 	if hex, ok := byName[strings.ToLower(s)]; ok {
 		return hex, nil
@@ -93,7 +106,7 @@ func Resolve(spec string) (string, error) {
 	if _, ok := byHex[hex]; ok {
 		return hex, nil
 	}
-	return "", fmt.Errorf("invalid color %q; valid colors: %s, or %q for the calendar color", spec, Names(), DefaultSentinel)
+	return "", fmt.Errorf("%w %q; valid colors: %s, or %q for the calendar color", ErrInvalidColor, spec, Names(), DefaultSentinel)
 }
 
 // Valid reports whether hex (canonical uppercase, "#RRGGBB") is in the palette.
@@ -129,4 +142,16 @@ func Names() string {
 	}
 	sort.Strings(entries)
 	return strings.Join(entries, ", ")
+}
+
+// Palette returns the valid colors sorted by friendly name, so callers can
+// render the valid-color list themselves (e.g. with terminal swatches). The
+// ordering matches Names().
+func Palette() []Color {
+	out := make([]Color, len(palette))
+	for i, c := range palette {
+		out[i] = Color(c)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
 }

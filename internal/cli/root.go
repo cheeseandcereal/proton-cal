@@ -122,5 +122,8 @@ func executeRoot(root *cobra.Command) error {
 		fmt.Fprint(w, cmd.UsageString())
 		return ErrReported
 	}
-	return err
+	// On a terminal, enrich an invalid-color error with per-color swatches
+	// (no-op otherwise). The error is still printed by the caller (main),
+	// so the swatched list appears on the "Error:" line.
+	return swatchedColorError(err)
 }
