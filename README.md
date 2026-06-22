@@ -32,7 +32,8 @@ The reverse-engineered API details are documented in [docs/](docs/).
   calendar's default reminders and event duration
 - **`-o/--output json`** on every read/write command (machine-readable JSON
   on stdout; human messages on stderr)
-- **MCP server**: stdio server exposing the same operations as 5 tools
+- **MCP server**: stdio server exposing the same operations as 7 tools
+  (text + machine-readable structured results)
 
 ## Install
 
@@ -146,8 +147,13 @@ session (re-login discards it) and `proton-cal logout` deletes it. Pass
 ## MCP server
 
 `proton-cal mcp` speaks MCP over stdio, exposing `list_calendars`,
-`list_events`, `create_event`, `update_event` and `delete_event` (each tool
-takes an optional `calendar` argument). Run `proton-cal login` once first.
+`get_calendar`, `list_events`, `get_event`, `create_event`, `update_event` and
+`delete_event` (each tool takes an optional `calendar` argument). Read tools
+return both a human-readable text block and machine-readable structured content
+(the same JSON schema as the CLI's `-o json`). Because JSON arguments can't tell
+an omitted string from an empty one, `update_event` treats empty fields as
+"keep"; pass `clear_fields: ["location", ...]` to blank summary/description/
+location. Run `proton-cal login` once first.
 
 ```json
 {
