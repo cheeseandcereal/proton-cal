@@ -15,9 +15,9 @@ func newUpdateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "update",
 		Short: "Update a resource (event or calendar)",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return cmd.Help()
+		Args:  requireArgs(cobra.NoArgs),
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return errMissingSubcommand
 		},
 	}
 	cmd.AddCommand(newUpdateEventCmd(), newUpdateCalendarCmd())
@@ -43,7 +43,7 @@ Recurring events keep their recurrence; use --repeat/--rrule to change it or
 removes its edited occurrences (they no longer apply). Note: the server
 requires the start time to match the recurrence pattern (e.g. a weekly BYDAY
 rule and a matching weekday).`,
-		Args: cobra.ExactArgs(1),
+		Args: requireArgs(cobra.ExactArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			in.EventID = args[0]
 

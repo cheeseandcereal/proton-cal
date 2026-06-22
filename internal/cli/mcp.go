@@ -31,7 +31,7 @@ Example MCP client configuration (e.g. in an mcpServers section):
       }
     }
   }`,
-		Args: cobra.NoArgs,
+		Args: requireArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			return mcpserver.Run(cmd.Context())
 		},

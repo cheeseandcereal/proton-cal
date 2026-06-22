@@ -15,9 +15,9 @@ func newGetCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "get",
 		Short: "Show a single resource in detail (event or calendar)",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return cmd.Help()
+		Args:  requireArgs(cobra.NoArgs),
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return errMissingSubcommand
 		},
 	}
 	cmd.AddCommand(newGetEventCmd(), newGetCalendarCmd())
@@ -44,7 +44,7 @@ func newGetEventCmd() *cobra.Command {
 			"Use -o/--output json for structured JSON (always the full field set).\n" +
 			"In text output, --fields selects which fields to show and --all reveals\n" +
 			"everything (including uid, calendar_id and the raw RRULE).",
-		Args: cobra.ExactArgs(1),
+		Args: requireArgs(cobra.ExactArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if ics && outputJSON() {
 				return errors.New("--ics cannot be combined with --output json")
@@ -115,7 +115,7 @@ func newGetCalendarCmd() *cobra.Command {
 			"Use -o/--output json for structured JSON. In text output, --fields\n" +
 			"selects which fields to show and --all reveals everything (including\n" +
 			"the account email and member/address IDs).",
-		Args: cobra.MaximumNArgs(1),
+		Args: requireArgs(cobra.MaximumNArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if len(args) == 1 {
 				selector = args[0]

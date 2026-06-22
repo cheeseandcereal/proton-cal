@@ -34,10 +34,12 @@ func runCLI(t *testing.T, factory func() (*calsvc.Service, error), args ...strin
 	outputFormat, noColor, noCache = "text", false, false
 
 	// A fresh root tree avoids cobra retaining flag state across runs.
+	// Route through executeRoot so tests exercise the same usage-error
+	// handling as production (Execute).
 	root := newRootCmd()
 	root.SetArgs(args)
 	root.SetOut(&outBuf)
 	root.SetErr(&errBuf)
-	err = root.Execute()
+	err = executeRoot(root)
 	return outBuf.String(), errBuf.String(), err
 }

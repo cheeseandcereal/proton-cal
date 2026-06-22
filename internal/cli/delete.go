@@ -14,9 +14,9 @@ func newDeleteCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "delete",
 		Short: "Delete a resource (event or calendar)",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return cmd.Help()
+		Args:  requireArgs(cobra.NoArgs),
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return errMissingSubcommand
 		},
 	}
 	cmd.AddCommand(newDeleteEventCmd(), newDeleteCalendarCmd())
@@ -34,7 +34,7 @@ func newDeleteEventCmd() *cobra.Command {
 Recurring events: deletes the whole series (master + edited occurrences)
 unless --occurrence limits it to one occurrence. Passing an edited
 occurrence's own ID deletes just that occurrence.`,
-		Args: cobra.ExactArgs(1),
+		Args: requireArgs(cobra.ExactArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			in.EventID = args[0]
 

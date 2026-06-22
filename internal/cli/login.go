@@ -13,7 +13,7 @@ func newLoginCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "login",
 		Short: "Authenticate with Proton and save the session",
-		Args:  cobra.NoArgs,
+		Args:  requireArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			cfg, err := config.Load()
 			if err != nil {
@@ -42,7 +42,7 @@ func newLogoutCmd() *cobra.Command {
 	return &cobra.Command{
 		Use:   "logout",
 		Short: "Clear the saved session",
-		Args:  cobra.NoArgs,
+		Args:  requireArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, _ []string) error {
 			if err := auth.Logout(cmd.Context()); err != nil {
 				return err

@@ -16,9 +16,9 @@ func newCreateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create",
 		Short: "Create a resource (event)",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, _ []string) error {
-			return cmd.Help()
+		Args:  requireArgs(cobra.NoArgs),
+		RunE: func(_ *cobra.Command, _ []string) error {
+			return errMissingSubcommand
 		},
 	}
 	cmd.AddCommand(newCreateEventCmd())
@@ -34,7 +34,7 @@ func newCreateEventCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "event SUMMARY",
 		Short: "Create a new calendar event (optionally recurring or all-day)",
-		Args:  cobra.ExactArgs(1),
+		Args:  requireArgs(cobra.ExactArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			in.Summary = args[0]
 

@@ -36,7 +36,7 @@ func newUpdateCalendarCmd() *cobra.Command {
 			"Default reminders (--reminder / --full-day-reminder) are repeatable and\n" +
 			"replace the calendar's corresponding default set; pass an empty value\n" +
 			"(e.g. --reminder \"\") to clear that set.",
-		Args: cobra.MaximumNArgs(1),
+		Args: requireArgs(cobra.MaximumNArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			var in calsvc.UpdateCalendarInput
 			if len(args) == 1 {
@@ -143,7 +143,7 @@ func newDeleteCalendarCmd() *cobra.Command {
 			"login password (prompted interactively, or via --password for\n" +
 			"non-interactive use). Holidays calendars are removed without a password.\n" +
 			"Subscribed calendars cannot be deleted here (unsubscribe in the app).",
-		Args: cobra.ExactArgs(1),
+		Args: requireArgs(cobra.ExactArgs(1)),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			svc, err := serviceFactory()
 			if err != nil {

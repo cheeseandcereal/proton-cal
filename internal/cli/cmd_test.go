@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/url"
 	"strings"
 	"testing"
@@ -199,29 +200,139 @@ func TestRenderCalendarsEmpty(t *testing.T) {
 	}
 }
 
-// TestCLIGetParentShowsHelp verifies the bare "get" command prints help to
-// the captured stdout rather than erroring (it has subcommands).
-func TestCLIGetParentHelp(t *testing.T) {
-	out, _, err := runCLI(t, nil, "get")
-	if err != nil {
-		t.Fatalf("get help: %v", err)
+// TestCLIGetParentNoSubcommand verifies the bare "get" command (no
+// subcommand) errors as a usage error: usage goes to stderr (naming its
+// subcommands), stdout stays empty, and ErrReported is returned.
+func TestCLIGetParentNoSubcommand(t *testing.T) {
+	out, errOut, err := runCLI(t, nil, "get")
+	if !errors.Is(err, ErrReported) {
+		t.Fatalf("get: err = %v, want ErrReported", err)
 	}
-	if !strings.Contains(out, "event") || !strings.Contains(out, "calendar") {
-		t.Errorf("get help missing subcommands; got:\n%s", out)
+	if out != "" {
+		t.Errorf("stdout should be empty on usage error; got:\n%s", out)
+	}
+	if !strings.Contains(errOut, "event") || !strings.Contains(errOut, "calendar") {
+		t.Errorf("get usage missing subcommands; got:\n%s", errOut)
+	}
+	if !strings.Contains(errOut, "Error:") || !strings.Contains(errOut, "Usage:") {
+		t.Errorf("get usage missing Error/Usage lines; got:\n%s", errOut)
 	}
 }
 
-// The restructured create/update/delete are parents: bare invocation prints
-// help (with subcommands) instead of treating an arg as an event.
-func TestCLIMutationParentsShowHelp(t *testing.T) {
+// The restructured create/update/delete are parents: a bare invocation (no
+// subcommand) is a usage error that prints usage to stderr and exits
+// non-zero, rather than treating an arg as an event.
+func TestCLIMutationParentsNoSubcommand(t *testing.T) {
 	for _, parent := range []string{"create", "update", "delete"} {
-		out, _, err := runCLI(t, nil, parent)
+		out, errOut, err := runCLI(t, nil, parent)
+		if !errors.Is(err, ErrReported) {
+			t.Fatalf("%s: err = %v, want ErrReported", parent, err)
+		}
+		if out != "" {
+			t.Errorf("%s: stdout should be empty; got:\n%s", parent, out)
+		}
+		if !strings.Contains(errOut, "event") {
+			t.Errorf("%s usage missing event subcommand; got:\n%s", parent, errOut)
+		}
+	}
+}
+
+// TestCLIBareRootNoSubcommand verifies the bare root command is a usage
+// error: usage to stderr, empty stdout, ErrReported.
+func TestCLIBareRootNoSubcommand(t *testing.T) {
+	out, errOut, err := runCLI(t, nil)
+	if !errors.Is(err, ErrReported) {
+		t.Fatalf("bare root: err = %v, want ErrReported", err)
+	}
+	if out != "" {
+		t.Errorf("stdout should be empty; got:\n%s", out)
+	}
+	if !strings.Contains(errOut, "Usage:") {
+		t.Errorf("bare root usage missing; got:\n%s", errOut)
+	}
+}
+
+// TestCLILeafMissingArg verifies leaf commands that require a positional
+// argument emit a usage error (Error: + usage on stderr, empty stdout,
+// ErrReported) when invoked without it.
+func TestCLILeafMissingArg(t *testing.T) {
+	for _, args := range [][]string{
+		{"get", "event"},
+		{"create", "event"},
+		{"update", "event"},
+		{"delete", "event"},
+		{"delete", "calendar"},
+	} {
+		name := strings.Join(args, " ")
+		out, errOut, err := runCLI(t, nil, args...)
+		if !errors.Is(err, ErrReported) {
+			t.Errorf("%s: err = %v, want ErrReported", name, err)
+			continue
+		}
+		if out != "" {
+			t.Errorf("%s: stdout should be empty; got:\n%s", name, out)
+		}
+		if !strings.Contains(errOut, "Error:") || !strings.Contains(errOut, "Usage:") {
+			t.Errorf("%s: stderr missing Error/Usage; got:\n%s", name, errOut)
+		}
+		// The conventional order is the Error line first, then usage.
+		if i, j := strings.Index(errOut, "Error:"), strings.Index(errOut, "Usage:"); i >= j {
+			t.Errorf("%s: want Error line before Usage block; got:\n%s", name, errOut)
+		}
+	}
+}
+
+// TestCLIHelpFlagSucceeds verifies an explicit --help prints to stdout and
+// returns no error (exit 0), even for commands that require arguments.
+func TestCLIHelpFlagSucceeds(t *testing.T) {
+	for _, args := range [][]string{
+		{"--help"},
+		{"get", "--help"},
+		{"get", "event", "--help"},
+		{"create", "event", "-h"},
+	} {
+		name := strings.Join(args, " ")
+		out, _, err := runCLI(t, nil, args...)
 		if err != nil {
-			t.Fatalf("%s help: %v", parent, err)
+			t.Errorf("%s: err = %v, want nil", name, err)
 		}
-		if !strings.Contains(out, "event") {
-			t.Errorf("%s help missing event subcommand; got:\n%s", parent, out)
+		if !strings.Contains(out, "Usage:") {
+			t.Errorf("%s: help missing from stdout; got:\n%s", name, out)
 		}
+	}
+}
+
+// TestCLIRuntimeErrorNoUsage verifies a genuine runtime error (here, the
+// service failing to build) after successful arg validation is NOT treated
+// as a usage error: no usage block, and the error is returned verbatim (not
+// ErrReported) so main prints it.
+func TestCLIRuntimeErrorNoUsage(t *testing.T) {
+	boom := errors.New("service unavailable")
+	factory := func() (*calsvc.Service, error) { return nil, boom }
+	out, errOut, err := runCLI(t, factory, "get", "event", "evt")
+	if !errors.Is(err, boom) {
+		t.Fatalf("err = %v, want %v", err, boom)
+	}
+	if errors.Is(err, ErrReported) {
+		t.Error("runtime error must not be ErrReported")
+	}
+	if strings.Contains(out, "Usage:") || strings.Contains(errOut, "Usage:") {
+		t.Errorf("runtime error must not print usage; stdout=%q stderr=%q", out, errOut)
+	}
+}
+
+// TestCLIUnknownSubcommand verifies an unknown subcommand under a parent is
+// a usage error (usage printed, ErrReported).
+func TestCLIUnknownSubcommand(t *testing.T) {
+	out, errOut, err := runCLI(t, nil, "get", "bogus")
+	if !errors.Is(err, ErrReported) {
+		t.Fatalf("err = %v, want ErrReported", err)
+	}
+	if out != "" {
+		t.Errorf("stdout should be empty; got:\n%s", out)
+	}
+	if !strings.Contains(errOut, "Usage:") {
+		t.Errorf("unknown subcommand usage missing; got:\n%s", errOut)
 	}
 }
 
