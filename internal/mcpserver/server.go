@@ -4,7 +4,7 @@
 // (Claude Code, opencode, ...) can use the calendar natively.
 //
 // Every tool takes an optional `calendar` argument (ID or name) instead of
-// hardcoding the first calendar; the default comes from the configured
+// hardcoding the first calendar; the default comes from the account's
 // default calendar, else the first calendar. Time-taking tools take an
 // optional `tz` override, defaulting to the configured timezone.
 //

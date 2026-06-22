@@ -245,11 +245,12 @@ func notificationsJSON(ns []caltypes.Notification) []Notification {
 	return out
 }
 
-// Calendars maps a calendar list to JSON, marking the default by selector.
-func Calendars(cals []calendar.Info, defaultSel string) []Calendar {
+// Calendars maps a calendar list to JSON, marking the calendar whose ID
+// equals defaultID (Proton's server-side default calendar) as the default.
+func Calendars(cals []calendar.Info, defaultID string) []Calendar {
 	rows := make([]Calendar, 0, len(cals))
 	for _, c := range cals {
-		rows = append(rows, CalendarOf(c, c.Matches(defaultSel)))
+		rows = append(rows, CalendarOf(c, defaultID != "" && c.ID == defaultID))
 	}
 	return rows
 }

@@ -179,26 +179,28 @@ func TestResolve(t *testing.T) {
 	}
 
 	tests := []struct {
-		name            string
-		cals            []Info
-		selector        string
-		defaultSelector string
-		wantID          string
-		wantErr         string
+		name      string
+		cals      []Info
+		selector  string
+		defaultID string
+		wantID    string
+		wantErr   string
 	}{
 		{name: "by ID", cals: cals, selector: "id3", wantID: "id3"},
 		{name: "by unique name case-insensitive", cals: cals, selector: "WORK", wantID: "id1"},
 		{name: "ambiguous name", cals: cals, selector: "personal", wantErr: "ambiguous"},
 		{name: "no match", cals: cals, selector: "nope", wantErr: "no calendar with ID or name"},
-		{name: "empty selector uses default", cals: cals, defaultSelector: "work", wantID: "id1"},
-		{name: "selector beats default", cals: cals, selector: "id2", defaultSelector: "work", wantID: "id2"},
+		{name: "empty selector uses default ID", cals: cals, defaultID: "id2", wantID: "id2"},
+		{name: "selector beats default", cals: cals, selector: "id3", defaultID: "id2", wantID: "id3"},
 		{name: "empty both picks first", cals: cals, wantID: "id1"},
+		{name: "dangling default falls back to first", cals: cals, defaultID: "nonexistent", wantID: "id1"},
+		{name: "default is ID-only (a name is not honored)", cals: cals, defaultID: "Work", wantID: "id1"},
 		{name: "no calendars", cals: nil, wantErr: "no calendars"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := Resolve(tt.cals, tt.selector, tt.defaultSelector)
+			got, err := Resolve(tt.cals, tt.selector, tt.defaultID)
 			if tt.wantErr != "" {
 				if err == nil {
 					t.Fatalf("Resolve: got %+v, want error containing %q", got, tt.wantErr)

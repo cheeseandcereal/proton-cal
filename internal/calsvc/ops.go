@@ -338,11 +338,14 @@ type GotCalendar struct {
 // (reminders/duration), and reports whether it is the configured default.
 // The bootstrap fetch is cached, so repeat calls add no network round-trips.
 func (s *Service) GetCalendar(ctx context.Context, selector string) (*GotCalendar, error) {
+	// The server-side default ID determines IsDefault. A failure to read it
+	// is non-fatal: the calendar is simply not marked default.
+	defaultID, _ := s.DefaultCalendarID(ctx)
 	return withAccessResult(ctx, s, selector, func(info calendar.Info, access *calendar.Access) (*GotCalendar, bool, error) {
 		return &GotCalendar{
 			Info:      info,
 			Settings:  access.Settings,
-			IsDefault: info.Matches(s.cfg.DefaultCalendar),
+			IsDefault: defaultID != "" && info.ID == defaultID,
 		}, false, nil
 	})
 }

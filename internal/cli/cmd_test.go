@@ -145,7 +145,7 @@ func TestRenderCalendars(t *testing.T) {
 		{ID: "id1", Name: "Personal", Color: "#415DF0", Type: 0, Description: "my cal"},
 		{ID: "id2", Name: "Work", Color: "#EC3E7C", Type: 0},
 	}
-	renderCalendars(&buf, cals, "Work")
+	renderCalendars(&buf, cals, "id2")
 	out := buf.String()
 	if !strings.Contains(out, "Personal (normal)") || !strings.Contains(out, "ID: id1") {
 		t.Errorf("missing Personal header/id:\n%s", out)

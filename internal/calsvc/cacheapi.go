@@ -41,6 +41,10 @@ func cacheTTL(path string) (time.Duration, bool) {
 		return keyMaterialTTL, true
 	case path == calendar.APIPath:
 		return calendarListTTL, true
+	case path == calendar.UserSettingsPath:
+		// The server default calendar (and other user prefs) change rarely;
+		// staleness is cosmetic and invalidated explicitly on a default change.
+		return calendarListTTL, true
 	case calKeyMaterialRe.MatchString(path):
 		return keyMaterialTTL, true
 	}

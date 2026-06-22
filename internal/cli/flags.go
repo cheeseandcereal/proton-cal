@@ -11,7 +11,7 @@ import (
 
 // addCalendarFlag registers the --calendar selector flag.
 func addCalendarFlag(cmd *cobra.Command, target *string) {
-	cmd.Flags().StringVar(target, "calendar", "", "calendar ID or name (default: configured default, else first)")
+	cmd.Flags().StringVar(target, "calendar", "", "calendar ID or name (default: account's default calendar, else first)")
 }
 
 // addTZFlag registers the --tz flag with a per-command default description.

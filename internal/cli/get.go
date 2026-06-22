@@ -111,7 +111,7 @@ func newGetCalendarCmd() *cobra.Command {
 		Use:   "calendar [SELECTOR]",
 		Short: "Show a single calendar in detail",
 		Long: "Show a single calendar (by ID or name) in detail. With no selector,\n" +
-			"shows the configured default calendar (else the first).\n\n" +
+			"shows the account's default calendar (else the first).\n\n" +
 			"Use -o/--output json for structured JSON. In text output, --fields\n" +
 			"selects which fields to show and --all reveals everything (including\n" +
 			"the account email and member/address IDs).",

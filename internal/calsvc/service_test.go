@@ -50,21 +50,32 @@ func TestServiceCalendars(t *testing.T) {
 	}
 }
 
-func TestServiceDefaultCalendarSelector(t *testing.T) {
-	s := NewDetached(config.Config{DefaultCalendar: "Work"})
-	if got := s.DefaultCalendarSelector(); got != "Work" {
-		t.Errorf("DefaultCalendarSelector = %q, want Work", got)
+// userSettingsBody is a GET /settings/calendar response naming the given
+// default calendar ID.
+func userSettingsBody(defaultID string) string {
+	return `{"CalendarUserSettings":{"DefaultCalendarID":"` + defaultID + `"}}`
+}
+
+func TestServiceDefaultCalendarID(t *testing.T) {
+	fake := &fakeRawAPI{bodies: map[string]string{
+		calendar.UserSettingsPath: userSettingsBody("id2"),
+	}}
+	s := detachedWithAPI(config.Config{}, fake)
+	got, err := s.DefaultCalendarID(context.Background())
+	if err != nil {
+		t.Fatalf("DefaultCalendarID: %v", err)
 	}
-	if got := NewDetached(config.Config{}).DefaultCalendarSelector(); got != "" {
-		t.Errorf("empty default = %q, want empty", got)
+	if got != "id2" {
+		t.Errorf("DefaultCalendarID = %q, want id2", got)
 	}
 }
 
 func TestResolveCalendarByNameAndDefault(t *testing.T) {
 	fake := &fakeRawAPI{bodies: map[string]string{
-		calendar.APIPath: calListBody(t, [2]string{"id1", "Personal"}, [2]string{"id2", "Work"}),
+		calendar.APIPath:          calListBody(t, [2]string{"id1", "Personal"}, [2]string{"id2", "Work"}),
+		calendar.UserSettingsPath: userSettingsBody("id2"),
 	}}
-	s := detachedWithAPI(config.Config{DefaultCalendar: "Work"}, fake)
+	s := detachedWithAPI(config.Config{}, fake)
 	ctx := context.Background()
 
 	// Explicit name (case-insensitive).
@@ -76,7 +87,7 @@ func TestResolveCalendarByNameAndDefault(t *testing.T) {
 		t.Errorf("got %s, want id1", info.ID)
 	}
 
-	// Empty selector -> configured default ("Work").
+	// Empty selector -> server default (id2 / Work).
 	info, err = s.resolveCalendar(ctx, "")
 	if err != nil {
 		t.Fatalf("resolve default: %v", err)
@@ -92,6 +103,23 @@ func TestResolveCalendarByNameAndDefault(t *testing.T) {
 	}
 	if info.Name != "Personal" {
 		t.Errorf("got %q", info.Name)
+	}
+}
+
+// With no server default set, an empty selector falls back to the first
+// calendar in the list.
+func TestResolveCalendarEmptyDefaultFallsBackToFirst(t *testing.T) {
+	fake := &fakeRawAPI{bodies: map[string]string{
+		calendar.APIPath:          calListBody(t, [2]string{"id1", "Personal"}, [2]string{"id2", "Work"}),
+		calendar.UserSettingsPath: userSettingsBody(""),
+	}}
+	s := detachedWithAPI(config.Config{}, fake)
+	info, err := s.resolveCalendar(context.Background(), "")
+	if err != nil {
+		t.Fatalf("resolve default: %v", err)
+	}
+	if info.ID != "id1" {
+		t.Errorf("default resolved to %s, want id1 (first)", info.ID)
 	}
 }
 

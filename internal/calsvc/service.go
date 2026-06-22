@@ -112,10 +112,13 @@ func (s *Service) EffectiveTimezone(override string) string {
 	return s.cfg.EffectiveTimezone()
 }
 
-// DefaultCalendarSelector returns the configured default-calendar selector
-// ("" when none), for rendering default markers.
-func (s *Service) DefaultCalendarSelector() string {
-	return s.cfg.DefaultCalendar
+// DefaultCalendarID returns the account's server-side default calendar ID
+// (Proton's own default, the source of truth for default markers and for
+// resolving an unspecified calendar selector). The fetch is cached
+// (GET /settings/calendar) so repeat calls add no network round-trips. An
+// empty result means no default is set.
+func (s *Service) DefaultCalendarID(ctx context.Context) (string, error) {
+	return calendar.DefaultCalendarID(ctx, s.api)
 }
 
 // Calendars fetches the calendar list fresh (the user asked for the truth:
@@ -144,7 +147,7 @@ func (s *Service) fetchCalendars(ctx context.Context, api papi.API) ([]calendar.
 }
 
 // resolveCalendar resolves a calendar selector (ID or name; "" = the
-// configured default calendar, else the first calendar) against the cached
+// server-side default calendar, else the first calendar) against the cached
 // calendar list (in-memory, then disk), falling back to one fresh fetch
 // when a cached list does not match (the calendar may have been created or
 // renamed since).
@@ -163,7 +166,15 @@ func (s *Service) resolveCalendar(ctx context.Context, selector string) (calenda
 		fresh = s.cacheAPI == nil || !s.cacheAPI.servedAny(calendar.APIPath)
 	}
 
-	info, err := calendar.Resolve(cals, selector, s.cfg.DefaultCalendar)
+	// The server default is only consulted when no selector is given; avoid
+	// the extra fetch otherwise. A failure to read it is non-fatal — Resolve
+	// then falls back to the first calendar.
+	defaultID := ""
+	if selector == "" {
+		defaultID, _ = s.DefaultCalendarID(ctx)
+	}
+
+	info, err := calendar.Resolve(cals, selector, defaultID)
 	if err != nil && !fresh {
 		// The list came from memory or disk; it may be stale. One fresh
 		// fetch, then the resolution error is final.
@@ -171,7 +182,7 @@ func (s *Service) resolveCalendar(ctx context.Context, selector string) (calenda
 		if ferr != nil {
 			return calendar.Info{}, ferr
 		}
-		info, err = calendar.Resolve(cals, selector, s.cfg.DefaultCalendar)
+		info, err = calendar.Resolve(cals, selector, defaultID)
 	}
 	return info, err
 }

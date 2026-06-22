@@ -18,7 +18,7 @@ func TestRenderCalendars(t *testing.T) {
 		{ID: "id-2", Name: "Holidays in Sweden", Type: 2},
 		{ID: "id-3", Name: "Feeds", Type: 1},
 	}
-	got := renderCalendars(cals, "personal")
+	got := renderCalendars(cals, "id-1")
 	for _, want := range []string{
 		"Personal (normal)  [default]",
 		"  ID: id-1",

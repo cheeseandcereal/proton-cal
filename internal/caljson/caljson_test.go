@@ -278,7 +278,7 @@ func TestCalendars(t *testing.T) {
 		{ID: "id1", Name: "Personal"},
 		{ID: "id2", Name: "Work"},
 	}
-	rows := Calendars(cals, "Work")
+	rows := Calendars(cals, "id2")
 	if len(rows) != 2 {
 		t.Fatalf("want 2 rows, got %d", len(rows))
 	}
@@ -286,7 +286,7 @@ func TestCalendars(t *testing.T) {
 		t.Error("Personal must not be default")
 	}
 	if !rows[1].IsDefault {
-		t.Error("Work must be marked default by selector")
+		t.Error("Work must be marked default by its ID")
 	}
 }
 

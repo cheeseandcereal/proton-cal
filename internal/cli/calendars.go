@@ -28,25 +28,27 @@ func newCalendarsCmd() *cobra.Command {
 			if err != nil {
 				return err
 			}
-			defaultSel := svc.DefaultCalendarSelector()
+			// Best-effort: a failure to read the server default just leaves
+			// no calendar marked default.
+			defaultID, _ := svc.DefaultCalendarID(cmd.Context())
 
 			if outputJSON() {
-				return printJSON(caljson.Calendars(cals, defaultSel))
+				return printJSON(caljson.Calendars(cals, defaultID))
 			}
-			renderCalendars(humanOut(), cals, defaultSel)
+			renderCalendars(humanOut(), cals, defaultID)
 			return nil
 		},
 	}
 }
 
-func renderCalendars(w io.Writer, cals []calendar.Info, defaultSel string) {
+func renderCalendars(w io.Writer, cals []calendar.Info, defaultID string) {
 	if len(cals) == 0 {
 		fmt.Fprintln(w, "No calendars found.")
 		return
 	}
 	for _, c := range cals {
 		// Shared header + ID lines, then the CLI's extra color/description.
-		for _, line := range eventview.CalendarHeaderLines(c, defaultSel) {
+		for _, line := range eventview.CalendarHeaderLines(c, defaultID) {
 			fmt.Fprintln(w, line)
 		}
 		fmt.Fprintf(w, "  Color: %s%s\n", swatch(c.Color), calcolor.Label(c.Color))

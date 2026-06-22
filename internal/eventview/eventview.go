@@ -122,12 +122,14 @@ func EffectiveColor(ev *event.Event, cal calendar.Info) string {
 }
 
 // CalendarHeaderLines renders the lines shared by every calendar listing: the
-// "<name> (<type>)" header with a "  [default]" marker when the calendar
-// matches defaultSelector, then an indented "  ID: <id>" line. Surfaces that
-// want more (e.g. the CLI adds color/description rows) append to these.
-func CalendarHeaderLines(c calendar.Info, defaultSelector string) []string {
+// "<name> (<type>)" header with a "  [default]" marker when the calendar's ID
+// equals defaultID (Proton's server-side default calendar), then an indented
+// "  ID: <id>" line. Surfaces that want more (e.g. the CLI adds
+// color/description rows) append to these. Pass "" for defaultID to suppress
+// the marker.
+func CalendarHeaderLines(c calendar.Info, defaultID string) []string {
 	header := c.Name + " (" + c.TypeString() + ")"
-	if c.Matches(defaultSelector) {
+	if defaultID != "" && c.ID == defaultID {
 		header += "  [default]"
 	}
 	return []string{header, "  ID: " + c.ID}

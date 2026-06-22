@@ -19,6 +19,39 @@ import (
 // APIPath is the route prefix of the Proton Calendar API.
 const APIPath = "/calendar/v1"
 
+// UserSettingsPath is the per-account calendar user-settings endpoint. It
+// carries DefaultCalendarID (the server-side default calendar) among other
+// preferences. GET reads it; PUT writes a partial update.
+const UserSettingsPath = "/settings/calendar"
+
+// userSettingsResponse is the wire shape of GET /settings/calendar.
+type userSettingsResponse struct {
+	CalendarUserSettings struct {
+		DefaultCalendarID string `json:"DefaultCalendarID"`
+	} `json:"CalendarUserSettings"`
+}
+
+// DefaultCalendarID fetches the account's server-side default calendar ID
+// (empty when none is set). This is the source of truth for which calendar is
+// "the default" — both for display and for resolving an unspecified selector.
+func DefaultCalendarID(ctx context.Context, client papi.API) (string, error) {
+	var resp userSettingsResponse
+	if err := client.Get(ctx, UserSettingsPath, nil, &resp); err != nil {
+		return "", fmt.Errorf("fetching calendar user settings: %w", err)
+	}
+	return resp.CalendarUserSettings.DefaultCalendarID, nil
+}
+
+// SetDefaultCalendarID sets the account's server-side default calendar via a
+// partial PUT to /settings/calendar.
+func SetDefaultCalendarID(ctx context.Context, client papi.API, calendarID string) error {
+	body := map[string]any{"DefaultCalendarID": calendarID}
+	if err := client.Put(ctx, UserSettingsPath, body, nil); err != nil {
+		return fmt.Errorf("setting default calendar: %w", err)
+	}
+	return nil
+}
+
 // apiCalendar is one entry of GET /calendar/v1. Display metadata
 // (Name/Description/Color) lives on the per-user member entry (verified
 // live; older API responses had them top-level, supported as fallback).
@@ -126,23 +159,30 @@ func firstNonEmpty(values ...string) string {
 	return ""
 }
 
-// Resolve picks a calendar: by exact ID match, then case-insensitive unique
-// name match, from the given selector; empty selector → defaultSelector
-// (same matching); empty both → first calendar. Errors are user-actionable
+// Resolve picks a calendar. A non-empty selector matches by exact ID, then
+// by case-insensitive unique name. An empty selector falls back to the
+// server-side default calendar (defaultID, an exact ID match) when it names a
+// listed calendar, else to the first calendar. Errors are user-actionable
 // (no calendars / no match / ambiguous name listing the candidates).
-func Resolve(cals []Info, selector, defaultSelector string) (Info, error) {
+func Resolve(cals []Info, selector, defaultID string) (Info, error) {
 	if len(cals) == 0 {
 		return Info{}, errors.New("no calendars found on this account")
 	}
 
-	sel := selector
-	if sel == "" {
-		sel = defaultSelector
-	}
-	if sel == "" {
+	if selector == "" {
+		// Empty selector: prefer the server default when it resolves to a
+		// listed calendar; otherwise fall back to the first calendar.
+		if defaultID != "" {
+			for _, c := range cals {
+				if c.ID == defaultID {
+					return c, nil
+				}
+			}
+		}
 		return cals[0], nil
 	}
 
+	sel := selector
 	for _, c := range cals {
 		if c.ID == sel {
 			return c, nil

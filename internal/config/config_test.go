@@ -36,7 +36,7 @@ func TestConfigSaveLoadRoundTrip(t *testing.T) {
 		t.Errorf("missing config not zero: %+v", got)
 	}
 
-	want := Config{Username: "u@proton.me", Timezone: "America/New_York", DefaultCalendar: "Work", BaseURL: "https://h.test"}
+	want := Config{Username: "u@proton.me", Timezone: "America/New_York", BaseURL: "https://h.test"}
 	if err := Save(want); err != nil {
 		t.Fatalf("Save: %v", err)
 	}

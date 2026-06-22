@@ -14,13 +14,13 @@ import (
 
 // renderCalendars renders the list_calendars reply: name, type, ID and a
 // default marker.
-func renderCalendars(cals []calendar.Info, defaultSelector string) string {
+func renderCalendars(cals []calendar.Info, defaultID string) string {
 	if len(cals) == 0 {
 		return "No calendars found."
 	}
 	var lines []string
 	for _, c := range cals {
-		lines = append(lines, eventview.CalendarHeaderLines(c, defaultSelector)...)
+		lines = append(lines, eventview.CalendarHeaderLines(c, defaultID)...)
 	}
 	return strings.Join(lines, "\n")
 }

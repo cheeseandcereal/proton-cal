@@ -100,7 +100,7 @@ func (s *server) register(srv *mcp.Server) {
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "get_calendar",
-		Description: "Get a single calendar in detail by ID or name (default: the configured " +
+		Description: "Get a single calendar in detail by ID or name (default: the account's " +
 			"default calendar, else the first): name, type, color, the calendar's default " +
 			"reminders (timed and all-day) and default event duration.",
 	}, s.getCalendar)
@@ -154,14 +154,16 @@ func (s *server) listCalendars(ctx context.Context, _ *mcp.CallToolRequest, _ li
 	if err != nil {
 		return nil, nil, err
 	}
-	defaultSel := svc.DefaultCalendarSelector()
-	return textResult(renderCalendars(cals, defaultSel)), caljson.Calendars(cals, defaultSel), nil
+	// Best-effort: a failure to read the server default just leaves no
+	// calendar marked default.
+	defaultID, _ := svc.DefaultCalendarID(ctx)
+	return textResult(renderCalendars(cals, defaultID)), caljson.Calendars(cals, defaultID), nil
 }
 
 // ---------------------------------------------------------------- get_calendar
 
 type getCalendarArgs struct {
-	Calendar string `json:"calendar,omitempty" jsonschema:"Calendar ID or name (optional; default: the configured default calendar, else the first calendar)"`
+	Calendar string `json:"calendar,omitempty" jsonschema:"Calendar ID or name (optional; default: the account's default calendar, else the first calendar)"`
 }
 
 func (s *server) getCalendar(ctx context.Context, _ *mcp.CallToolRequest, args getCalendarArgs) (*mcp.CallToolResult, any, error) {
@@ -182,7 +184,7 @@ func (s *server) getCalendar(ctx context.Context, _ *mcp.CallToolRequest, args g
 type listEventsArgs struct {
 	Days     int    `json:"days,omitempty" jsonschema:"Number of days to look ahead (default 7)"`
 	From     string `json:"from,omitempty" jsonschema:"Window start \"YYYY-MM-DD HH:MM\" or \"YYYY-MM-DD\" (optional; default: now; days counts from it)"`
-	Calendar string `json:"calendar,omitempty" jsonschema:"Calendar ID or name (optional; default: the configured default calendar, else the first calendar)"`
+	Calendar string `json:"calendar,omitempty" jsonschema:"Calendar ID or name (optional; default: the account's default calendar, else the first calendar)"`
 	TZ       string `json:"tz,omitempty" jsonschema:"IANA timezone for queries and display (optional; default: the configured timezone)"`
 }
 
@@ -212,7 +214,7 @@ func (s *server) listEvents(ctx context.Context, _ *mcp.CallToolRequest, args li
 
 type getEventArgs struct {
 	EventID  string `json:"event_id" jsonschema:"The event ID (get from list_events)"`
-	Calendar string `json:"calendar,omitempty" jsonschema:"Calendar ID or name the event lives in (optional; default: the configured default calendar, else the first calendar)"`
+	Calendar string `json:"calendar,omitempty" jsonschema:"Calendar ID or name the event lives in (optional; default: the account's default calendar, else the first calendar)"`
 	TZ       string `json:"tz,omitempty" jsonschema:"IANA timezone for display (optional; default: the configured timezone)"`
 	Format   string `json:"format,omitempty" jsonschema:"Output format: \"detail\" (default, human-readable) or \"ics\" (raw iCalendar document)"`
 	NoSeries bool   `json:"no_series,omitempty" jsonschema:"With format \"ics\" on a recurring event, export only the single addressed VEVENT instead of the whole series (master + edited occurrences). Ignored for non-recurring events."`
@@ -261,7 +263,7 @@ type createEventArgs struct {
 	Reminders   []string `json:"reminders,omitempty" jsonschema:"Reminders before the event, e.g. [\"15m\",\"1h30m\",\"2d\"]; prefix \"email:\" for an email reminder (default a notification). Raw iCal triggers like \"-PT15M\" also accepted. Omit to inherit the calendar default; pass no_reminders to set none."`
 	NoReminders bool     `json:"no_reminders,omitempty" jsonschema:"Create the event with no reminders (overrides the calendar default)"`
 	Color       string   `json:"color,omitempty" jsonschema:"Event color: a Proton color name (e.g. \"strawberry\", \"pacific\") or its hex (optional; default: the calendar color). Only Proton's fixed palette is accepted; \"default\" also means the calendar color."`
-	Calendar    string   `json:"calendar,omitempty" jsonschema:"Calendar ID or name (optional; default: the configured default calendar, else the first calendar)"`
+	Calendar    string   `json:"calendar,omitempty" jsonschema:"Calendar ID or name (optional; default: the account's default calendar, else the first calendar)"`
 	TZ          string   `json:"tz,omitempty" jsonschema:"IANA timezone for the event times (optional; default: the configured timezone)"`
 }
 
@@ -333,7 +335,7 @@ type updateEventArgs struct {
 	RemindersMode string   `json:"reminders_mode,omitempty" jsonschema:"How to change reminders: \"keep\" (default), \"inherit\" (calendar default), \"none\" (remove all), or \"custom\" (use the reminders list)."`
 	Color         string   `json:"color,omitempty" jsonschema:"Set the event color: a Proton color name (e.g. \"strawberry\") or its hex (only Proton's fixed palette). Pass \"default\" to revert to the calendar color."`
 	ClearFields   []string `json:"clear_fields,omitempty" jsonschema:"Fields to clear: any of \"summary\", \"description\", \"location\" (set empty) or \"color\" (revert to the calendar color; equivalent to color=\"default\"). Use this instead of passing an empty string, which is treated as \"keep current\"."`
-	Calendar      string   `json:"calendar,omitempty" jsonschema:"Calendar ID or name (optional; default: the configured default calendar, else the first calendar)"`
+	Calendar      string   `json:"calendar,omitempty" jsonschema:"Calendar ID or name (optional; default: the account's default calendar, else the first calendar)"`
 	TZ            string   `json:"tz,omitempty" jsonschema:"IANA timezone for the event times (optional; default: the configured timezone)"`
 }
 
@@ -408,7 +410,7 @@ func (s *server) updateEvent(ctx context.Context, _ *mcp.CallToolRequest, args u
 type deleteEventArgs struct {
 	EventID    string `json:"event_id" jsonschema:"The event ID (get from list_events)"`
 	Occurrence string `json:"occurrence,omitempty" jsonschema:"For recurring events only - the ORIGINAL start of the one occurrence to delete (\"YYYY-MM-DD HH:MM\", or \"YYYY-MM-DD\" for all-day events), as shown by list_events"`
-	Calendar   string `json:"calendar,omitempty" jsonschema:"Calendar ID or name (optional; default: the configured default calendar, else the first calendar)"`
+	Calendar   string `json:"calendar,omitempty" jsonschema:"Calendar ID or name (optional; default: the account's default calendar, else the first calendar)"`
 	TZ         string `json:"tz,omitempty" jsonschema:"IANA timezone for occurrence (optional; default: the configured timezone)"`
 }
 

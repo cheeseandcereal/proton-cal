@@ -39,10 +39,9 @@ const DefaultBaseURL = "https://mail-api.proton.me"
 
 // Config is the user-editable configuration stored in config.toml.
 type Config struct {
-	Username        string `toml:"username,omitempty"`
-	Timezone        string `toml:"timezone,omitempty"`
-	DefaultCalendar string `toml:"default_calendar,omitempty"`
-	BaseURL         string `toml:"base_url,omitempty"`
+	Username string `toml:"username,omitempty"`
+	Timezone string `toml:"timezone,omitempty"`
+	BaseURL  string `toml:"base_url,omitempty"`
 }
 
 // EffectiveBaseURL returns the configured base URL or the default.
