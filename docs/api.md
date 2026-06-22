@@ -48,10 +48,11 @@ event length. `create event` uses it to default a timed event's end when no
 explicit end is given (`Settings.DefaultDuration` -> `applyDefaultDuration`,
 resolved inside the unlocked-calendar closure so no extra fetch is needed); an
 explicit end is required only when the calendar defines no default. `get
-calendar` exposes the duration and both default-reminder sets in its JSON
-(`default_duration`, `default_normal_notifications`,
-`default_full_day_notifications`); the calendar *list* omits them since the
-list endpoint carries no settings.
+calendar` exposes the duration, both default-reminder sets, and the busy flag
+in its JSON (`default_duration`, `default_normal_notifications`,
+`default_full_day_notifications`, `makes_busy`); the calendar *list* omits them
+since the list endpoint carries no settings. `makes_busy` is always reported on
+the detail path (including `false`); the others are omitted when unset.
 
 **Response shape drift (live-verified June 2026):** `GET /calendar/v1`
 returns `Calendars[]` where display metadata (`Name`, `Description`,

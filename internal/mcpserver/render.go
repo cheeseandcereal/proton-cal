@@ -42,6 +42,7 @@ func renderCalendarDetail(c calendar.Info, set calendar.Settings, isDefault bool
 	if set.DefaultEventDuration > 0 {
 		lines = append(lines, fmt.Sprintf("  default duration: %d min", set.DefaultEventDuration))
 	}
+	lines = append(lines, fmt.Sprintf("  makes busy: %t", set.MakesUserBusy != 0))
 	if isDefault {
 		lines = append(lines, "  (default calendar)")
 	}

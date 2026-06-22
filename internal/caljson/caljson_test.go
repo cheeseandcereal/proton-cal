@@ -227,8 +227,8 @@ func TestCalendarOf(t *testing.T) {
 	if got.ID != "id1" || got.Name != "Personal" || got.Color != "#415DF0" || !got.IsDefault || got.Email != "a@b" {
 		t.Errorf("CalendarOf = %+v", got)
 	}
-	// CalendarOf must never carry default settings.
-	if got.DefaultDuration != 0 || got.DefaultNormalNotifications != nil || got.DefaultFullDayNotifications != nil {
+	// CalendarOf must never carry default settings (incl. makes_busy).
+	if got.DefaultDuration != 0 || got.DefaultNormalNotifications != nil || got.DefaultFullDayNotifications != nil || got.MakesBusy != nil {
 		t.Errorf("CalendarOf leaked settings: %+v", got)
 	}
 }
@@ -241,10 +241,14 @@ func TestCalendarDetailOf(t *testing.T) {
 			DefaultEventDuration:        30,
 			DefaultPartDayNotifications: []caltypes.Notification{{Type: 1, Trigger: "-PT15M"}},
 			DefaultFullDayNotifications: []caltypes.Notification{{Type: 0, Trigger: "-PT16H"}},
+			MakesUserBusy:               1,
 		}
 		got := CalendarDetailOf(c, set, true)
 		if got.ID != "id1" || got.Color != "#415DF0" || !got.IsDefault {
 			t.Errorf("base fields = %+v", got)
+		}
+		if got.MakesBusy == nil || !*got.MakesBusy {
+			t.Errorf("MakesBusy = %v, want true", got.MakesBusy)
 		}
 		if got.DefaultDuration != 30 {
 			t.Errorf("DefaultDuration = %d, want 30", got.DefaultDuration)
@@ -257,18 +261,25 @@ func TestCalendarDetailOf(t *testing.T) {
 		}
 	})
 
-	t.Run("empty settings omit fields", func(t *testing.T) {
+	t.Run("empty settings omit fields but report makes_busy", func(t *testing.T) {
 		got := CalendarDetailOf(c, calendar.Settings{}, false)
 		if got.DefaultDuration != 0 || got.DefaultNormalNotifications != nil || got.DefaultFullDayNotifications != nil {
 			t.Errorf("empty settings should omit fields: %+v", got)
 		}
-		// Confirm omitempty actually drops them from JSON.
+		// makes_busy is always reported on the detail path (including false).
+		if got.MakesBusy == nil || *got.MakesBusy {
+			t.Errorf("MakesBusy = %v, want non-nil false", got.MakesBusy)
+		}
+		// Confirm omitempty drops the unset default fields but keeps makes_busy.
 		b, err := json.Marshal(got)
 		if err != nil {
 			t.Fatal(err)
 		}
 		if strings.Contains(string(b), "default_duration") || strings.Contains(string(b), "default_normal_notifications") || strings.Contains(string(b), "default_full_day_notifications") {
 			t.Errorf("JSON should omit empty default fields: %s", b)
+		}
+		if !strings.Contains(string(b), `"makes_busy":false`) {
+			t.Errorf("JSON should report makes_busy:false: %s", b)
 		}
 	})
 }

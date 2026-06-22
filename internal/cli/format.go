@@ -265,6 +265,7 @@ const (
 	calFieldIsDefault        fieldKey = "is_default"
 	calFieldDefaultReminders fieldKey = "default_reminders"
 	calFieldDefaultDuration  fieldKey = "default_duration"
+	calFieldMakesBusy        fieldKey = "makes_busy"
 	calFieldEmail            fieldKey = "email"
 	calFieldMemberID         fieldKey = "member_id"
 	calFieldAddressID        fieldKey = "address_id"
@@ -319,6 +320,7 @@ var calendarFieldRegistry = []fieldRow{
 	{calFieldDescription, true},
 	{calFieldDefaultReminders, true},
 	{calFieldDefaultDuration, true},
+	{calFieldMakesBusy, true},
 	{calFieldID, true},
 	{calFieldIsDefault, true},
 	{calFieldEmail, false},
@@ -394,6 +396,9 @@ func calendarDetailLines(c calendar.Info, set calendar.Settings, isDefault bool,
 	if sel.has(calFieldDefaultDuration) && set.DefaultEventDuration > 0 {
 		b.add("Default duration", fmt.Sprintf("%d min", set.DefaultEventDuration))
 	}
+	if sel.has(calFieldMakesBusy) {
+		b.add("Makes busy", yesNo(set.MakesUserBusy != 0))
+	}
 	b.addIf(calFieldID, "ID", c.ID)
 	if sel.has(calFieldIsDefault) && isDefault {
 		b.add("Default", "yes")
@@ -402,6 +407,14 @@ func calendarDetailLines(c calendar.Info, set calendar.Settings, isDefault bool,
 	b.addIf(calFieldMemberID, "Member ID", c.MemberID)
 	b.addIf(calFieldAddressID, "Address ID", c.AddressID)
 	return alignLabeled(b.rows)
+}
+
+// yesNo renders a boolean as "yes"/"no" for labeled text rows.
+func yesNo(b bool) string {
+	if b {
+		return "yes"
+	}
+	return "no"
 }
 
 // defaultReminderRows renders one labeled row per default notification.

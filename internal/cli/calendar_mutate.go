@@ -104,7 +104,8 @@ func newUpdateCalendarCmd() *cobra.Command {
 	cmd.Flags().StringVar(&description, "description", "", "new description (empty clears it)")
 	cmd.Flags().StringVar(&color, "color", "", "new color: a Proton color name (e.g. strawberry) or its hex")
 	cmd.Flags().IntVar(&duration, "default-duration", 0, "default event duration in minutes")
-	cmd.Flags().BoolVar(&makesBusy, "makes-busy", false, "whether events on this calendar mark you busy")
+	cmd.Flags().BoolVar(&makesBusy, "makes-busy", false,
+		"whether events on this calendar mark you busy; pass --makes-busy=false to turn it off (omit to leave unchanged)")
 	cmd.Flags().BoolVar(&makeDefault, "make-default", false, "make this the account's default calendar")
 	cmd.Flags().StringArrayVar(&partDay, "reminder", nil,
 		"replace timed-event default reminders, repeatable: 15m, 1h30m, 2d, 1w (prefix email:; default notify)")

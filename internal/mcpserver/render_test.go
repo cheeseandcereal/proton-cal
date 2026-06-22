@@ -163,6 +163,7 @@ func TestRenderCalendarDetail(t *testing.T) {
 		DefaultEventDuration:        30,
 		DefaultPartDayNotifications: []caltypes.Notification{{Type: 1, Trigger: "-PT15M"}},
 		DefaultFullDayNotifications: []caltypes.Notification{{Type: 1, Trigger: "-PT16H"}},
+		MakesUserBusy:               1,
 	}
 	got := renderCalendarDetail(c, set, true)
 	for _, want := range []string{
@@ -172,6 +173,7 @@ func TestRenderCalendarDetail(t *testing.T) {
 		"  default reminder timed (notify): -PT15M",
 		"  default reminder all-day (notify): -PT16H",
 		"  default duration: 30 min",
+		"  makes busy: true",
 		"  (default calendar)",
 	} {
 		if !strings.Contains(got, want) {

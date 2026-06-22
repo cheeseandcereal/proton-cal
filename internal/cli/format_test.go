@@ -360,6 +360,7 @@ func TestCalendarDetailDefaultReminders(t *testing.T) {
 		DefaultEventDuration:        30,
 		DefaultPartDayNotifications: []caltypes.Notification{{Type: 1, Trigger: "-PT15M"}},
 		DefaultFullDayNotifications: []caltypes.Notification{{Type: 1, Trigger: "-PT16H"}},
+		MakesUserBusy:               1,
 	}
 	def, _ := selectFields(calendarFieldRegistry, nil, false)
 	joined := strings.Join(calendarDetailLines(c, set, false, def), "\n")
@@ -367,6 +368,7 @@ func TestCalendarDetailDefaultReminders(t *testing.T) {
 		"Default reminder (timed) (notify): -PT15M",
 		"Default reminder (all-day) (notify): -PT16H",
 		"Default duration: 30 min",
+		"Makes busy: yes",
 	} {
 		if !strings.Contains(joined, want) {
 			t.Errorf("calendar detail missing %q\n%s", want, joined)

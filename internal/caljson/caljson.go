@@ -99,6 +99,10 @@ type Calendar struct {
 	DefaultDuration             int            `json:"default_duration,omitempty"` // minutes; 0 = unset
 	DefaultNormalNotifications  []Notification `json:"default_normal_notifications,omitempty"`
 	DefaultFullDayNotifications []Notification `json:"default_full_day_notifications,omitempty"`
+	// MakesBusy is whether events on this calendar mark you busy. A pointer so
+	// the list path (no settings) omits it while the detail path always
+	// reports it (including false).
+	MakesBusy *bool `json:"makes_busy,omitempty"`
 }
 
 // Created is the JSON shape of a create-event outcome. ID/UID are empty when
@@ -229,6 +233,8 @@ func CalendarDetailOf(c calendar.Info, set calendar.Settings, isDefault bool) Ca
 	j.DefaultDuration = set.DefaultEventDuration
 	j.DefaultNormalNotifications = notificationsJSON(set.DefaultPartDayNotifications)
 	j.DefaultFullDayNotifications = notificationsJSON(set.DefaultFullDayNotifications)
+	makesBusy := set.MakesUserBusy != 0
+	j.MakesBusy = &makesBusy
 	return j
 }
 
