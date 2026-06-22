@@ -288,6 +288,41 @@ func (s *Service) staleCalendarList(err error) bool {
 	return true
 }
 
+// invalidateCache drops the given cache keys (no-op when caching is
+// disabled). Used after a write so a subsequent read reflects the change.
+func (s *Service) invalidateCache(keys ...string) {
+	if s.cacheAPI != nil {
+		s.cacheAPI.invalidate(keys...)
+	}
+}
+
+// invalidateCalendarList drops the cached calendar list (disk + in-memory) so
+// the next resolution re-fetches it (e.g. after a name/color change or a
+// calendar deletion).
+func (s *Service) invalidateCalendarList() {
+	s.invalidateCache(calendar.APIPath)
+	s.calMu.Lock()
+	s.cals = nil
+	s.calMu.Unlock()
+}
+
+// loginUsername resolves the username used for SRP re-authentication: the
+// persisted config value when present, else the account name from the live
+// user record.
+func (s *Service) loginUsername(ctx context.Context) (string, error) {
+	if s.cfg.Username != "" {
+		return s.cfg.Username, nil
+	}
+	user, err := s.client.Proton().GetUser(ctx)
+	if err != nil {
+		return "", fmt.Errorf("resolving account username: %w", err)
+	}
+	if user.Name == "" {
+		return "", errors.New("could not determine login username; re-run `proton-cal login`")
+	}
+	return user.Name, nil
+}
+
 // withAccess runs fn with resolved calendar access, retrying once when the
 // failure is plausibly caused by stale cached bootstrap data:
 //

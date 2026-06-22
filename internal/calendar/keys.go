@@ -108,6 +108,19 @@ type calendarKey struct {
 	Flags        int    `json:"Flags"`
 }
 
+// FetchSettings reads a calendar's default settings from the bootstrap
+// endpoint WITHOUT unlocking any keys. It is for operations (e.g. metadata or
+// settings updates) that need the settings for display but not the calendar
+// key material, avoiding the cost and the key-unlock failure modes of a full
+// Unlock.
+func FetchSettings(ctx context.Context, client papi.API, calendarID string) (Settings, error) {
+	var boot bootstrapResponse
+	if err := client.Get(ctx, BootstrapPath(calendarID), nil, &boot); err != nil {
+		return Settings{}, fmt.Errorf("fetching settings for calendar %s: %w", calendarID, err)
+	}
+	return boot.Settings, nil
+}
+
 // Unlock returns the calendar's unlocked private keyring plus the member
 // context and default settings needed for signing/writing/display, caching
 // per calendar ID.
