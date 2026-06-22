@@ -151,14 +151,5 @@ func renderCreated(created *calsvc.CreatedEvent) string {
 
 // renderDeleteResult renders the delete_event reply by result kind.
 func renderDeleteResult(res *event.DeleteResult, eventID string) string {
-	switch res.Kind {
-	case event.DeletedOccurrence:
-		return "Occurrence deleted."
-	case event.DeletedSeries:
-		return fmt.Sprintf("Recurring series deleted (%d row(s)).", res.RowsDeleted)
-	case event.DeletedEvent:
-		return fmt.Sprintf("Event %s deleted.", eventID)
-	default:
-		return fmt.Sprintf("Deleted (%s, %d row(s)).", res.Kind, res.RowsDeleted)
-	}
+	return eventview.DeleteResultMessage(res, eventID, true)
 }

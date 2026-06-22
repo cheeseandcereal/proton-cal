@@ -120,3 +120,38 @@ func EffectiveColor(ev *event.Event, cal calendar.Info) string {
 	}
 	return cal.Color
 }
+
+// UpdateOutcomeMessage renders the human-readable confirmation for an update.
+// The first string is the headline ("Event updated." / "Occurrence
+// updated."); the second is a follow-up note about removed exceptions, or ""
+// when none were removed. Callers join them however their surface formats
+// multi-line output.
+func UpdateOutcomeMessage(outcome *event.UpdateOutcome) (headline, note string) {
+	headline = "Event updated."
+	if outcome.EditedOccurrence {
+		headline = "Occurrence updated."
+	}
+	if outcome.RemovedExceptions > 0 {
+		note = fmt.Sprintf("Removed %d edited occurrence(s) invalidated by the series change.", outcome.RemovedExceptions)
+	}
+	return headline, note
+}
+
+// DeleteResultMessage renders the human-readable confirmation for a delete.
+// When withID is true the whole-event case names the event ID (the MCP form);
+// when false it is the bare "Event deleted." (the CLI form).
+func DeleteResultMessage(res *event.DeleteResult, eventID string, withID bool) string {
+	switch res.Kind {
+	case event.DeletedOccurrence:
+		return "Occurrence deleted."
+	case event.DeletedSeries:
+		return fmt.Sprintf("Recurring series deleted (%d row(s)).", res.RowsDeleted)
+	case event.DeletedEvent:
+		if withID {
+			return "Event " + eventID + " deleted."
+		}
+		return "Event deleted."
+	default:
+		return fmt.Sprintf("Deleted (%s, %d row(s)).", res.Kind, res.RowsDeleted)
+	}
+}

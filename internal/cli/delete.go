@@ -6,7 +6,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/cheeseandcereal/proton-cal/internal/calsvc"
-	"github.com/cheeseandcereal/proton-cal/internal/event"
+	"github.com/cheeseandcereal/proton-cal/internal/eventview"
 )
 
 func newDeleteCmd() *cobra.Command {
@@ -39,17 +39,7 @@ occurrence's own ID deletes just that occurrence.`,
 				return printJSON(res)
 			}
 
-			w := humanOut()
-			switch res.Kind {
-			case event.DeletedOccurrence:
-				fmt.Fprintln(w, "Occurrence deleted.")
-			case event.DeletedSeries:
-				fmt.Fprintf(w, "Recurring series deleted (%d row(s)).\n", res.RowsDeleted)
-			case event.DeletedEvent:
-				fmt.Fprintln(w, "Event deleted.")
-			default:
-				fmt.Fprintf(w, "Deleted (%s, %d row(s)).\n", res.Kind, res.RowsDeleted)
-			}
+			fmt.Fprintln(humanOut(), eventview.DeleteResultMessage(res, in.EventID, false))
 			return nil
 		},
 	}

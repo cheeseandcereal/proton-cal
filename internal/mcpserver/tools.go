@@ -3,11 +3,11 @@ package mcpserver
 import (
 	"context"
 	"errors"
-	"fmt"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/cheeseandcereal/proton-cal/internal/calsvc"
+	"github.com/cheeseandcereal/proton-cal/internal/eventview"
 )
 
 // textResult wraps a string as a successful text tool result.
@@ -236,12 +236,10 @@ func (s *server) updateEvent(ctx context.Context, _ *mcp.CallToolRequest, args u
 		return nil, nil, err
 	}
 
-	out := fmt.Sprintf("Event %s updated.", args.EventID)
-	if outcome.EditedOccurrence {
-		out = "Occurrence updated."
-	}
-	if outcome.RemovedExceptions > 0 {
-		out += fmt.Sprintf(" Removed %d edited occurrence(s) invalidated by the series change.", outcome.RemovedExceptions)
+	headline, note := eventview.UpdateOutcomeMessage(outcome)
+	out := headline
+	if note != "" {
+		out += " " + note
 	}
 	return textResult(out), nil, nil
 }

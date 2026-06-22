@@ -72,3 +72,39 @@ func TestNameAndPersonHelpers(t *testing.T) {
 		t.Errorf("AttendeeString = %q", AttendeeString(a))
 	}
 }
+
+func TestUpdateOutcomeMessage(t *testing.T) {
+	h, n := UpdateOutcomeMessage(&event.UpdateOutcome{})
+	if h != "Event updated." || n != "" {
+		t.Errorf("plain update = %q / %q", h, n)
+	}
+	h, n = UpdateOutcomeMessage(&event.UpdateOutcome{EditedOccurrence: true})
+	if h != "Occurrence updated." || n != "" {
+		t.Errorf("occurrence update = %q / %q", h, n)
+	}
+	h, n = UpdateOutcomeMessage(&event.UpdateOutcome{RemovedExceptions: 2})
+	if h != "Event updated." || n != "Removed 2 edited occurrence(s) invalidated by the series change." {
+		t.Errorf("removed-exceptions update = %q / %q", h, n)
+	}
+}
+
+func TestDeleteResultMessage(t *testing.T) {
+	tests := []struct {
+		kind   event.DeleteKind
+		rows   int
+		withID bool
+		want   string
+	}{
+		{event.DeletedOccurrence, 1, true, "Occurrence deleted."},
+		{event.DeletedSeries, 3, true, "Recurring series deleted (3 row(s))."},
+		{event.DeletedEvent, 1, true, "Event ev-9 deleted."},
+		{event.DeletedEvent, 1, false, "Event deleted."},
+		{event.DeleteKind("other"), 5, false, "Deleted (other, 5 row(s))."},
+	}
+	for _, tt := range tests {
+		res := &event.DeleteResult{Kind: tt.kind, RowsDeleted: tt.rows}
+		if got := DeleteResultMessage(res, "ev-9", tt.withID); got != tt.want {
+			t.Errorf("kind %s withID=%v: got %q, want %q", tt.kind, tt.withID, got, tt.want)
+		}
+	}
+}

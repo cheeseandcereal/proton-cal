@@ -6,6 +6,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/cheeseandcereal/proton-cal/internal/calsvc"
+	"github.com/cheeseandcereal/proton-cal/internal/eventview"
 )
 
 // updatedJSON is the machine-readable shape of an update outcome.
@@ -69,13 +70,10 @@ rule and a matching weekday).`,
 			}
 
 			w := humanOut()
-			if outcome.EditedOccurrence {
-				fmt.Fprintln(w, "Occurrence updated.")
-			} else {
-				fmt.Fprintln(w, "Event updated.")
-			}
-			if outcome.RemovedExceptions > 0 {
-				fmt.Fprintf(w, "Removed %d edited occurrence(s) invalidated by the series change.\n", outcome.RemovedExceptions)
+			headline, note := eventview.UpdateOutcomeMessage(outcome)
+			fmt.Fprintln(w, headline)
+			if note != "" {
+				fmt.Fprintln(w, note)
 			}
 			return nil
 		},
