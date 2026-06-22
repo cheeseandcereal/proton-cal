@@ -103,6 +103,17 @@ func TestOccurrenceStartTSPresenceByView(t *testing.T) {
 	if strings.Contains(string(detJSON), `"occurrence_start_ts"`) {
 		t.Errorf("get-event JSON must omit occurrence_start_ts (no expanded occurrence):\n%s", detJSON)
 	}
+
+	// A non-recurring event in the listing has no occurrence to address, so
+	// the field must be omitted there too.
+	single := listedTimed() // no RRule
+	singleJSON, err := json.Marshal(Occurrence(single, time.UTC, calendar.Settings{}, calendar.Info{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(singleJSON), `"occurrence_start_ts"`) {
+		t.Errorf("non-recurring listing entry must omit occurrence_start_ts:\n%s", singleJSON)
+	}
 }
 
 func TestOccurrenceEditedOccurrence(t *testing.T) {

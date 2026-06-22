@@ -174,7 +174,13 @@ func Occurrence(l event.Listed, loc *time.Location, set calendar.Settings, cal c
 	j.End = time.Unix(l.Occurrence.End, 0).In(z).Format(time.RFC3339)
 	j.Recurring = raw.IsMaster()
 	j.EditedOccurrence = raw.IsException()
-	j.OccurrenceStartTS = l.Occurrence.Start
+	// occurrence_start_ts is the selector for ONE occurrence of a recurring
+	// series, so it is meaningful only for a master row's expanded
+	// occurrences. A non-recurring event has no occurrence to address, and an
+	// already-edited occurrence (exception) is addressed by its own event ID.
+	if raw.IsMaster() {
+		j.OccurrenceStartTS = l.Occurrence.Start
+	}
 	return j
 }
 
