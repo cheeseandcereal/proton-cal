@@ -25,6 +25,10 @@ The reverse-engineered API details are documented in [docs/](docs/).
   client-side occurrence expansion, single-occurrence edit/delete (EXDATE +
   exception rows), series-wide changes with stale-exception cleanup
  - **All-day events**, multi-address signing
+- **Reminders & color**: set per-event reminders (`--reminder 15m`,
+  repeatable; `email:`/`notify:` prefix) and a color (a Proton palette color by
+  name or hex) on create/update; revert to the calendar default with
+  `--no-reminders`/`--reminders-default`/`--no-color`
 - **`get event` / `get calendar`**: full single-resource detail, with
   `--fields`/`--all` to control which fields show and color swatches in the
   terminal. Reminders and color reflect the calendar's defaults when an event
@@ -79,8 +83,20 @@ proton-cal create "Payday" --start "2026-05-29 09:00" --end "2026-05-29 09:05" \
 # All-day events take dates (end is inclusive and optional)
 proton-cal create "Conference" --all-day --start 2026-06-10 --end 2026-06-12
 
+# Reminders (repeatable; shorthand 15m/1h30m/2d/1w, prefix email: for email)
+# and a color (a Proton color name or its hex)
+proton-cal create "Dentist" --start "2026-06-10 14:00" --end "2026-06-10 14:30" \
+  --reminder 1d --reminder email:1h --color strawberry
+
 # Update (only the flags you pass change; recurrence is preserved)
 proton-cal update <event-id> --summary "Renamed standup" --location "In person"
+
+# Reminders: replace, remove all, or revert to the calendar default
+proton-cal update <event-id> --reminder 30m --reminder 1d
+proton-cal update <event-id> --no-reminders          # no reminders
+proton-cal update <event-id> --reminders-default     # use the calendar default
+proton-cal update <event-id> --color pacific         # set a Proton color
+proton-cal update <event-id> --no-color              # revert to the calendar color
 
 # Change or remove the recurrence (series changes drop edited occurrences)
 proton-cal update <event-id> --repeat daily --count 5
@@ -153,7 +169,11 @@ return both a human-readable text block and machine-readable structured content
 (the same JSON schema as the CLI's `-o json`). Because JSON arguments can't tell
 an omitted string from an empty one, `update_event` treats empty fields as
 "keep"; pass `clear_fields: ["location", ...]` to blank summary/description/
-location. Run `proton-cal login` once first.
+location (or `"color"` to revert it to the calendar color). `create_event` and
+`update_event` also take `reminders` (e.g. `["15m", "email:1h"]`) and `color`
+(a Proton color name or hex); `update_event` uses `reminders_mode`
+(`keep`/`inherit`/`none`/`custom`) to pick the reminder behavior. Run
+`proton-cal login` once first.
 
 ```json
 {
@@ -243,6 +263,9 @@ stored session it skips.
   pattern - adjust `--rrule` when moving a series' start.
 - **Attendees / invitations**: not supported; events are created without
   attendees.
+- **Event color**: only Proton's fixed palette is accepted, and a color
+  cannot be cleared to "none" - `--no-color` reverts to the calendar's color
+  (Proton has no per-event "no color" state once one is set).
 - **FIDO2-only 2FA**: not supported (TOTP only).
 - **API date filtering**: Proton ignores `Start`/`End` on the events listing
   and paginates everything at 100/page - the CLI paginates and filters

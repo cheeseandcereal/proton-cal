@@ -165,7 +165,11 @@ on read.
 These come back on every event row in the clear, with no decryption:
 
 - `Color` - per-event color override (CSS hex, e.g. `#EC3E7C`), empty when the
-  event uses the calendar color.
+  event uses the calendar color. Only Proton's fixed accent palette is accepted
+  (else `code 2011`); `proton-cal` validates client-side (see
+  `internal/calcolor`). A color cannot be cleared to empty via the API -
+  reverting to the calendar default sets the event color to the calendar's own
+  color.
 - `Notifications` - `[{Type, Trigger}]` reminders. `Type` is
   `NOTIFICATION_TYPE_API` (`0` email, `1` device/display); `Trigger` is an
   iCal duration offset (`-PT1H`, `-PT15M`). The web client synthesizes
@@ -181,7 +185,9 @@ These come back on every event row in the clear, with no decryption:
   records the tri-state via `NotificationsSet` (a custom `UnmarshalJSON`
   distinguishes `null` from `[]`), and the sync update re-sends it verbatim
   so an edit neither wipes reminders nor silently re-enables the default on
-  an event whose reminders were removed.
+  an event whose reminders were removed. `proton-cal` can also *set*
+  reminders (create/update): user input like `15m`/`email:1h`/`-PT15M` is
+  parsed by `internal/reminders` into the `{Type, Trigger}` array.
 - `Attendees` / `AttendeesInfo` - per-attendee `{ID, Token, Status}` plus a
   `MoreAttendees` flag. `Status` is `ATTENDEE_STATUS_API`: `0` needs-action,
   `1` tentative, `2` declined, `3` accepted. The identities (email/CN/role)

@@ -103,8 +103,14 @@ Operation shapes inside `Events[]`:
 Field-presence rules (the server is picky):
 
 - The content arrays must serialize as `[]`, never `null`.
-- On **create** `Notifications`/`Color` are explicit `null` and `Attendees`
-  is `[]` (no reminders/attendees yet).
+- On **create** `Notifications`/`Color` are `null` when the event inherits the
+  calendar defaults, but may also carry a custom reminder array / palette color
+  (proton-cal supports setting them). `Attendees` is `[]` (no attendees yet).
+- `Color` must be one of Proton's fixed accent palette colors (the web client's
+  `ACCENT_COLORS`); any other value is rejected with `code 2011: Not a valid
+  Proton color`. There is **no** way to clear a per-event color back to null:
+  reverting to the calendar default means setting the event color explicitly to
+  the calendar's own color (what the web client does).
 - `Permissions: 1` is accepted for self-owned events; `IsOrganizer` is
   optional.
 
@@ -127,7 +133,11 @@ silently destroys data. Two failure modes we hit and fixed:
   Sending the wrong value **wipes the reminders and attendee RSVP rows**.
   We re-send the event's existing `Notifications` (preserving the
   null/`[]`/array tri-state - see [crypto.md](crypto.md) "Plaintext row
-  fields"), `Color` and clear `Attendees` (token + live `Status`) on update.
+  fields"), `Color` and clear `Attendees` (token + live `Status`) on update -
+  unless the caller is explicitly changing reminders/color, in which case the
+  new value replaces the carried-over one. Note `Color: null` on a sync update
+  is ignored server-side (the color sticks); reverting requires setting the
+  calendar's own color explicitly.
 
 Note: reminders can also live in a member-specific personal card
 (`PersonalEvents`), but in practice the events observed live carry **no**
