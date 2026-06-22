@@ -59,3 +59,27 @@ func TestUpdateRemindersResolver(t *testing.T) {
 		}
 	})
 }
+
+func TestCreateColorResolver(t *testing.T) {
+	t.Run("empty -> inherit", func(t *testing.T) {
+		f := reminderColorFlags{}
+		got, err := f.createColor()
+		if err != nil || got != "" {
+			t.Errorf("got (%q, %v), want (empty, nil)", got, err)
+		}
+	})
+	t.Run("default -> inherit", func(t *testing.T) {
+		f := reminderColorFlags{color: "default"}
+		got, err := f.createColor()
+		if err != nil || got != "" {
+			t.Errorf("got (%q, %v), want (empty, nil)", got, err)
+		}
+	})
+	t.Run("name -> hex", func(t *testing.T) {
+		f := reminderColorFlags{color: "strawberry"}
+		got, err := f.createColor()
+		if err != nil || got != "#EC3E7C" {
+			t.Errorf("got (%q, %v)", got, err)
+		}
+	})
+}

@@ -63,13 +63,25 @@ var byHex = func() map[string]string {
 	return m
 }()
 
+// DefaultSentinel is the special color spec meaning "use the calendar's
+// color" (Proton has no per-event "no color" state once one is set; reverting
+// means setting the event color to the calendar's own color). Frontends
+// detect it with IsDefault before calling Resolve.
+const DefaultSentinel = "default"
+
+// IsDefault reports whether spec is the "default" sentinel (case-insensitive).
+func IsDefault(spec string) bool {
+	return strings.EqualFold(strings.TrimSpace(spec), DefaultSentinel)
+}
+
 // Resolve turns a user color spec (a friendly name like "strawberry" or a hex
 // like "#EC3E7C", case-insensitive) into the canonical uppercase hex. Unknown
-// colors error with a hint listing the valid friendly names.
+// colors (and the "default" sentinel, which callers must handle separately)
+// error with a hint listing the valid friendly names.
 func Resolve(spec string) (string, error) {
 	s := strings.TrimSpace(spec)
 	if s == "" {
-		return "", fmt.Errorf("empty color (valid colors: %s)", Names())
+		return "", fmt.Errorf("empty color (valid colors: %s, or %q)", Names(), DefaultSentinel)
 	}
 	if hex, ok := byName[strings.ToLower(s)]; ok {
 		return hex, nil
@@ -81,7 +93,7 @@ func Resolve(spec string) (string, error) {
 	if _, ok := byHex[hex]; ok {
 		return hex, nil
 	}
-	return "", fmt.Errorf("invalid color %q; valid colors: %s", spec, Names())
+	return "", fmt.Errorf("invalid color %q; valid colors: %s, or %q for the calendar color", spec, Names(), DefaultSentinel)
 }
 
 // Valid reports whether hex (canonical uppercase, "#RRGGBB") is in the palette.

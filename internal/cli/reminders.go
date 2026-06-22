@@ -18,8 +18,7 @@ type reminderColorFlags struct {
 	reminder         []string // repeatable --reminder
 	noReminders      bool     // --no-reminders (explicit none)
 	remindersDefault bool     // --reminders-default (inherit; update only)
-	color            string   // --color
-	noColor          bool     // --no-color (inherit)
+	color            string   // --color (a name/hex, or "default" for the calendar color)
 }
 
 // addCreateReminderColorFlags registers the create-side flags (no
@@ -32,14 +31,15 @@ func addCreateReminderColorFlags(cmd *cobra.Command, f *reminderColorFlags) {
 }
 
 // addUpdateReminderColorFlags registers the update-side flags, including the
-// extra states (inherit/none) and --no-color.
+// extra reminder states (inherit/none). Color "default" reverts to the
+// calendar color.
 func addUpdateReminderColorFlags(cmd *cobra.Command, f *reminderColorFlags) {
 	cmd.Flags().StringArrayVar(&f.reminder, "reminder", nil,
 		"replace reminders, repeatable: 15m, 1h30m, 2d, 1w (prefix email:; default notify)")
 	cmd.Flags().BoolVar(&f.noReminders, "no-reminders", false, "remove all reminders from the event")
 	cmd.Flags().BoolVar(&f.remindersDefault, "reminders-default", false, "revert reminders to the calendar default")
-	cmd.Flags().StringVar(&f.color, "color", "", "set the event color: a Proton color name (e.g. strawberry) or its hex")
-	cmd.Flags().BoolVar(&f.noColor, "no-color", false, "revert to the calendar color")
+	cmd.Flags().StringVar(&f.color, "color", "",
+		`set the event color: a Proton color name (e.g. strawberry) or its hex; "default" reverts to the calendar color`)
 }
 
 // validateExclusive rejects conflicting reminder/color flag combinations,
@@ -55,13 +55,10 @@ func (f *reminderColorFlags) validateExclusive(cmd *cobra.Command) error {
 	if n > 1 {
 		return errors.New("--reminder, --no-reminders and --reminders-default are mutually exclusive")
 	}
-	if cmd.Flags().Changed("color") && f.noColor {
-		return errors.New("--color and --no-color are mutually exclusive")
-	}
 	if cmd.Flags().Changed("color") && f.color == "" {
-		return errors.New("--color requires a value (a Proton color name or hex); use --no-color for the calendar color")
+		return errors.New(`--color requires a value (a Proton color name or hex, or "default" for the calendar color)`)
 	}
-	if f.color != "" {
+	if f.color != "" && !calcolor.IsDefault(f.color) {
 		if _, err := calcolor.Resolve(f.color); err != nil {
 			return err
 		}
@@ -70,10 +67,10 @@ func (f *reminderColorFlags) validateExclusive(cmd *cobra.Command) error {
 }
 
 // createColor resolves the create-side color to a canonical palette hex
-// ("" when no --color was given, i.e. inherit the calendar color, which a
-// create with a null Color does naturally).
+// ("" when no --color was given or "default" was passed - a created event
+// with a null Color already inherits the calendar color).
 func (f *reminderColorFlags) createColor() (string, error) {
-	if f.color == "" {
+	if f.color == "" || calcolor.IsDefault(f.color) {
 		return "", nil
 	}
 	return calcolor.Resolve(f.color)
@@ -117,19 +114,19 @@ func (f *reminderColorFlags) updateReminders() (*event.RemindersUpdate, error) {
 }
 
 // updateColor resolves the update-side color intent into a *calsvc.ColorUpdate
-// (nil = keep current). --no-color reverts to the calendar color; an explicit
-// --color sets a palette color. validateExclusive must have run first so the
-// color value is already known-valid.
+// (nil = keep current). --color default reverts to the calendar color; any
+// other --color value sets a palette color. validateExclusive must have run
+// first so the color value is already known-valid.
 func (f *reminderColorFlags) updateColor(cmd *cobra.Command) (*calsvc.ColorUpdate, error) {
-	if f.noColor {
+	if !cmd.Flags().Changed("color") {
+		return nil, nil
+	}
+	if calcolor.IsDefault(f.color) {
 		return &calsvc.ColorUpdate{Inherit: true}, nil
 	}
-	if cmd.Flags().Changed("color") {
-		hex, err := calcolor.Resolve(f.color)
-		if err != nil {
-			return nil, err
-		}
-		return &calsvc.ColorUpdate{Hex: hex}, nil
+	hex, err := calcolor.Resolve(f.color)
+	if err != nil {
+		return nil, err
 	}
-	return nil, nil
+	return &calsvc.ColorUpdate{Hex: hex}, nil
 }

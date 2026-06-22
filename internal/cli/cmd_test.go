@@ -102,7 +102,8 @@ func TestCLIUpdateReminderConflicts(t *testing.T) {
 	}{
 		{"reminder + reminders-default", []string{"update", "evt", "--reminder", "15m", "--reminders-default"}, "mutually exclusive"},
 		{"no-reminders + reminders-default", []string{"update", "evt", "--no-reminders", "--reminders-default"}, "mutually exclusive"},
-		{"color + no-color", []string{"update", "evt", "--color", "#EC3E7C", "--no-color"}, "mutually exclusive"},
+		{"bad color", []string{"update", "evt", "--color", "chartreuse"}, "invalid color"},
+		{"empty color", []string{"update", "evt", "--color", ""}, "requires a value"},
 		{"bad reminder", []string{"update", "evt", "--reminder", "nope"}, "invalid reminder offset"},
 	}
 	for _, tt := range tests {

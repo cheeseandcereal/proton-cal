@@ -31,6 +31,24 @@ func TestResolve(t *testing.T) {
 	}
 }
 
+func TestIsDefault(t *testing.T) {
+	for _, s := range []string{"default", "Default", "  DEFAULT  "} {
+		if !IsDefault(s) {
+			t.Errorf("IsDefault(%q) = false, want true", s)
+		}
+	}
+	for _, s := range []string{"", "strawberry", "#EC3E7C", "defaults"} {
+		if IsDefault(s) {
+			t.Errorf("IsDefault(%q) = true, want false", s)
+		}
+	}
+	// "default" is not a palette color: Resolve must reject it (callers
+	// handle the sentinel before calling Resolve).
+	if _, err := Resolve("default"); err == nil {
+		t.Error("Resolve(\"default\") should error; it is a sentinel, not a color")
+	}
+}
+
 func TestResolveErrors(t *testing.T) {
 	for _, in := range []string{"", "  ", "#00FF00", "chartreuse", "navy", "#123"} {
 		_, err := Resolve(in)

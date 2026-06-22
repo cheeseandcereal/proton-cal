@@ -255,7 +255,7 @@ type createEventArgs struct {
 	RRule       string   `json:"rrule,omitempty" jsonschema:"Raw RRULE value (advanced; replaces the repeat/every/count/until args)"`
 	Reminders   []string `json:"reminders,omitempty" jsonschema:"Reminders before the event, e.g. [\"15m\",\"1h30m\",\"2d\"]; prefix \"email:\" for an email reminder (default a notification). Raw iCal triggers like \"-PT15M\" also accepted. Omit to inherit the calendar default; pass no_reminders to set none."`
 	NoReminders bool     `json:"no_reminders,omitempty" jsonschema:"Create the event with no reminders (overrides the calendar default)"`
-	Color       string   `json:"color,omitempty" jsonschema:"Event color: a Proton color name (e.g. \"strawberry\", \"pacific\") or its hex (optional; default: the calendar color). Only Proton's fixed palette is accepted."`
+	Color       string   `json:"color,omitempty" jsonschema:"Event color: a Proton color name (e.g. \"strawberry\", \"pacific\") or its hex (optional; default: the calendar color). Only Proton's fixed palette is accepted; \"default\" also means the calendar color."`
 	Calendar    string   `json:"calendar,omitempty" jsonschema:"Calendar ID or name (optional; default: the configured default calendar, else the first calendar)"`
 	TZ          string   `json:"tz,omitempty" jsonschema:"IANA timezone for the event times (optional; default: the configured timezone)"`
 }
@@ -277,9 +277,11 @@ func (s *server) createEvent(ctx context.Context, _ *mcp.CallToolRequest, args c
 		}
 		remSet = true
 	}
-	color := args.Color
-	if color != "" {
-		if color, err = calcolor.Resolve(color); err != nil {
+	// On create, "default" (or empty) means inherit the calendar color, which
+	// a create with no color does naturally.
+	color := ""
+	if args.Color != "" && !calcolor.IsDefault(args.Color) {
+		if color, err = calcolor.Resolve(args.Color); err != nil {
 			return nil, nil, err
 		}
 	}
@@ -324,8 +326,8 @@ type updateEventArgs struct {
 	NoRepeat      bool     `json:"no_repeat,omitempty" jsonschema:"Remove the recurrence from this event"`
 	Reminders     []string `json:"reminders,omitempty" jsonschema:"New reminders, e.g. [\"15m\",\"email:1h\"] (prefix \"email:\"; default a notification). Setting this implies reminders_mode=custom. Raw iCal triggers like \"-PT15M\" also accepted."`
 	RemindersMode string   `json:"reminders_mode,omitempty" jsonschema:"How to change reminders: \"keep\" (default), \"inherit\" (calendar default), \"none\" (remove all), or \"custom\" (use the reminders list)."`
-	Color         string   `json:"color,omitempty" jsonschema:"Set the event color: a Proton color name (e.g. \"strawberry\") or its hex (only Proton's fixed palette). To revert to the calendar color, pass \"color\" in clear_fields instead."`
-	ClearFields   []string `json:"clear_fields,omitempty" jsonschema:"Fields to clear: any of \"summary\", \"description\", \"location\" (set empty) or \"color\" (revert to the calendar color). Use this instead of passing an empty string, which is treated as \"keep current\"."`
+	Color         string   `json:"color,omitempty" jsonschema:"Set the event color: a Proton color name (e.g. \"strawberry\") or its hex (only Proton's fixed palette). Pass \"default\" to revert to the calendar color."`
+	ClearFields   []string `json:"clear_fields,omitempty" jsonschema:"Fields to clear: any of \"summary\", \"description\", \"location\" (set empty) or \"color\" (revert to the calendar color; equivalent to color=\"default\"). Use this instead of passing an empty string, which is treated as \"keep current\"."`
 	Calendar      string   `json:"calendar,omitempty" jsonschema:"Calendar ID or name (optional; default: the configured default calendar, else the first calendar)"`
 	TZ            string   `json:"tz,omitempty" jsonschema:"IANA timezone for the event times (optional; default: the configured timezone)"`
 }
@@ -362,11 +364,15 @@ func (s *server) updateEvent(ctx context.Context, _ *mcp.CallToolRequest, args u
 		in.Location = &args.Location
 	}
 	if args.Color != "" {
-		hex, cerr := calcolor.Resolve(args.Color)
-		if cerr != nil {
-			return nil, nil, cerr
+		if calcolor.IsDefault(args.Color) {
+			in.Color = &calsvc.ColorUpdate{Inherit: true}
+		} else {
+			hex, cerr := calcolor.Resolve(args.Color)
+			if cerr != nil {
+				return nil, nil, cerr
+			}
+			in.Color = &calsvc.ColorUpdate{Hex: hex}
 		}
-		in.Color = &calsvc.ColorUpdate{Hex: hex}
 	}
 	rem, err := resolveUpdateReminders(args.RemindersMode, args.Reminders)
 	if err != nil {
