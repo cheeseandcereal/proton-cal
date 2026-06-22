@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
@@ -13,6 +14,29 @@ import (
 // textResult wraps a string as a successful text tool result.
 func textResult(text string) *mcp.CallToolResult {
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}
+}
+
+// emptyString is the addressable empty value clear_fields points the update
+// input at (a non-nil "" pointer clears the field; see calsvc.UpdateEventInput).
+var emptyString string
+
+// applyClearFields sets the named text fields to "clear" on the update input.
+// JSON args can't express "explicitly empty", so clearing is opt-in here;
+// each name maps to a non-nil empty-string pointer. Unknown names error.
+func applyClearFields(in *calsvc.UpdateEventInput, fields []string) error {
+	for _, f := range fields {
+		switch f {
+		case "summary":
+			in.Summary = &emptyString
+		case "description":
+			in.Description = &emptyString
+		case "location":
+			in.Location = &emptyString
+		default:
+			return fmt.Errorf("clear_fields: unknown field %q (valid: summary, description, location)", f)
+		}
+	}
+	return nil
 }
 
 // register adds all proton-calendar tools to the MCP server.
@@ -55,7 +79,8 @@ func (s *server) register(srv *mcp.Server) {
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "update_event",
-		Description: "Update an existing calendar event. Only non-empty fields are changed. " +
+		Description: "Update an existing calendar event. Only non-empty fields are changed; " +
+			"to blank out summary/description/location, list them in clear_fields. " +
 			"Recurring events keep their recurrence unless repeat/rrule/no_repeat change it. " +
 			"Changing a series' times or recurrence removes its edited occurrences. " +
 			"Use occurrence to edit ONE occurrence instead of the whole series.",
@@ -216,21 +241,22 @@ func (s *server) createEvent(ctx context.Context, _ *mcp.CallToolRequest, args c
 // ---------------------------------------------------------------- update_event
 
 type updateEventArgs struct {
-	EventID     string `json:"event_id" jsonschema:"The event ID (get from list_events)"`
-	Summary     string `json:"summary,omitempty" jsonschema:"New event title (leave empty to keep current)"`
-	Start       string `json:"start,omitempty" jsonschema:"New start \"YYYY-MM-DD HH:MM\" (\"YYYY-MM-DD\" for all-day events)"`
-	End         string `json:"end,omitempty" jsonschema:"New end \"YYYY-MM-DD HH:MM\" (\"YYYY-MM-DD\" for all-day events)"`
-	Description string `json:"description,omitempty" jsonschema:"New description (leave empty to keep current)"`
-	Location    string `json:"location,omitempty" jsonschema:"New location (leave empty to keep current)"`
-	Occurrence  string `json:"occurrence,omitempty" jsonschema:"For recurring events - the ORIGINAL start of the one occurrence to edit (as shown by list_events); other fields then apply to just that occurrence"`
-	Repeat      string `json:"repeat,omitempty" jsonschema:"New recurrence: \"daily\", \"weekly\", \"monthly\" or \"yearly\""`
-	Every       int    `json:"every,omitempty" jsonschema:"Repeat interval (with repeat; default 1)"`
-	Count       int    `json:"count,omitempty" jsonschema:"Number of occurrences, max 49 (with repeat; 0 = unlimited)"`
-	Until       string `json:"until,omitempty" jsonschema:"Last day of the recurrence \"YYYY-MM-DD\" (with repeat)"`
-	RRule       string `json:"rrule,omitempty" jsonschema:"Raw RRULE value (advanced; replaces repeat/every/count/until)"`
-	NoRepeat    bool   `json:"no_repeat,omitempty" jsonschema:"Remove the recurrence from this event"`
-	Calendar    string `json:"calendar,omitempty" jsonschema:"Calendar ID or name (optional; default: the configured default calendar, else the first calendar)"`
-	TZ          string `json:"tz,omitempty" jsonschema:"IANA timezone for the event times (optional; default: the configured timezone)"`
+	EventID     string   `json:"event_id" jsonschema:"The event ID (get from list_events)"`
+	Summary     string   `json:"summary,omitempty" jsonschema:"New event title (leave empty to keep current)"`
+	Start       string   `json:"start,omitempty" jsonschema:"New start \"YYYY-MM-DD HH:MM\" (\"YYYY-MM-DD\" for all-day events)"`
+	End         string   `json:"end,omitempty" jsonschema:"New end \"YYYY-MM-DD HH:MM\" (\"YYYY-MM-DD\" for all-day events)"`
+	Description string   `json:"description,omitempty" jsonschema:"New description (leave empty to keep current)"`
+	Location    string   `json:"location,omitempty" jsonschema:"New location (leave empty to keep current)"`
+	Occurrence  string   `json:"occurrence,omitempty" jsonschema:"For recurring events - the ORIGINAL start of the one occurrence to edit (as shown by list_events); other fields then apply to just that occurrence"`
+	Repeat      string   `json:"repeat,omitempty" jsonschema:"New recurrence: \"daily\", \"weekly\", \"monthly\" or \"yearly\""`
+	Every       int      `json:"every,omitempty" jsonschema:"Repeat interval (with repeat; default 1)"`
+	Count       int      `json:"count,omitempty" jsonschema:"Number of occurrences, max 49 (with repeat; 0 = unlimited)"`
+	Until       string   `json:"until,omitempty" jsonschema:"Last day of the recurrence \"YYYY-MM-DD\" (with repeat)"`
+	RRule       string   `json:"rrule,omitempty" jsonschema:"Raw RRULE value (advanced; replaces repeat/every/count/until)"`
+	NoRepeat    bool     `json:"no_repeat,omitempty" jsonschema:"Remove the recurrence from this event"`
+	ClearFields []string `json:"clear_fields,omitempty" jsonschema:"Fields to clear (set empty): any of \"summary\", \"description\", \"location\". Use this instead of passing an empty string, which is treated as \"keep current\"."`
+	Calendar    string   `json:"calendar,omitempty" jsonschema:"Calendar ID or name (optional; default: the configured default calendar, else the first calendar)"`
+	TZ          string   `json:"tz,omitempty" jsonschema:"IANA timezone for the event times (optional; default: the configured timezone)"`
 }
 
 func (s *server) updateEvent(ctx context.Context, _ *mcp.CallToolRequest, args updateEventArgs) (*mcp.CallToolResult, any, error) {
@@ -239,8 +265,9 @@ func (s *server) updateEvent(ctx context.Context, _ *mcp.CallToolRequest, args u
 		return nil, nil, err
 	}
 
-	// Non-empty = change: pointers are built only for non-empty values
-	// (unlike the CLI, which keys off flag presence and can clear fields).
+	// Non-empty = change: pointers are built only for non-empty values, since
+	// JSON args cannot distinguish "absent" from "empty". Explicit clearing
+	// goes through clear_fields below (the CLI keys off flag presence instead).
 	in := calsvc.UpdateEventInput{
 		EventID:    args.EventID,
 		Start:      args.Start,
@@ -262,6 +289,9 @@ func (s *server) updateEvent(ctx context.Context, _ *mcp.CallToolRequest, args u
 	}
 	if args.Location != "" {
 		in.Location = &args.Location
+	}
+	if err := applyClearFields(&in, args.ClearFields); err != nil {
+		return nil, nil, err
 	}
 
 	outcome, err := svc.UpdateEvent(ctx, in)

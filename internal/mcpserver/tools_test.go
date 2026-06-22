@@ -86,6 +86,36 @@ func TestUpdateEventConflicts(t *testing.T) {
 	}
 }
 
+func TestApplyClearFields(t *testing.T) {
+	var in calsvc.UpdateEventInput
+	if err := applyClearFields(&in, []string{"summary", "location"}); err != nil {
+		t.Fatalf("applyClearFields: %v", err)
+	}
+	if in.Summary == nil || *in.Summary != "" {
+		t.Errorf("summary not cleared: %v", in.Summary)
+	}
+	if in.Location == nil || *in.Location != "" {
+		t.Errorf("location not cleared: %v", in.Location)
+	}
+	if in.Description != nil {
+		t.Errorf("description should be untouched: %v", in.Description)
+	}
+	if err := applyClearFields(&in, []string{"bogus"}); err == nil || !strings.Contains(err.Error(), "unknown field") {
+		t.Fatalf("want unknown-field error, got %v", err)
+	}
+}
+
+func TestUpdateEventUnknownClearField(t *testing.T) {
+	s := stubServer(config.Config{Timezone: "UTC"})
+	_, _, err := s.updateEvent(context.Background(), nil, updateEventArgs{
+		EventID:     "abc",
+		ClearFields: []string{"color"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "unknown field") {
+		t.Fatalf("want unknown clear field error, got %v", err)
+	}
+}
+
 func TestUpdateEventBadStart(t *testing.T) {
 	s := stubServer(config.Config{Timezone: "UTC"})
 	_, _, err := s.updateEvent(context.Background(), nil, updateEventArgs{
