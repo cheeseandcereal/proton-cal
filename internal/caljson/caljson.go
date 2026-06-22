@@ -26,6 +26,11 @@ type Event struct {
 	AllDay           bool   `json:"all_day"`
 	Recurring        bool   `json:"recurring"`
 	EditedOccurrence bool   `json:"edited_occurrence"`
+	// RecurrenceIDTS is the unix start of the ORIGINAL occurrence this row
+	// replaces (the iCal RECURRENCE-ID). It is set only for edited-occurrence
+	// (exception) rows; it identifies which occurrence of the series the edit
+	// applies to and is the selector to pass back to update/delete it.
+	RecurrenceIDTS int64 `json:"recurrence_id_ts,omitempty"`
 	// OccurrenceStartTS is the selector to pass back to update/delete one
 	// occurrence of a recurring series. It is set (and emitted) only for a
 	// master row's expanded occurrences; it is omitted for non-recurring
@@ -159,6 +164,14 @@ func base(ev *event.Event, set calendar.Settings, cal calendar.Info) Event {
 		RRule:       ev.RRule,
 		CalendarID:  ev.CalendarID,
 	}
+	// Recurrence classification from the row itself (consistent across the
+	// listing and single-event views): a master has an RRULE; an exception
+	// (edited occurrence) has a RECURRENCE-ID.
+	j.Recurring = ev.IsRecurring()
+	if !ev.RecurrenceID.IsZero() {
+		j.EditedOccurrence = true
+		j.RecurrenceIDTS = ev.RecurrenceID.Unix()
+	}
 	enrich(&j, ev, set, cal)
 	return j
 }
@@ -166,14 +179,11 @@ func base(ev *event.Event, set calendar.Settings, cal calendar.Info) Event {
 // Occurrence maps one listed occurrence to its JSON shape. Timed starts/ends
 // are RFC3339 in loc; all-day ones in UTC.
 func Occurrence(l event.Listed, loc *time.Location, set calendar.Settings, cal calendar.Info) Event {
-	raw := l.Occurrence.Event
 	ev := l.Event
 	z := renderZone(ev, loc)
 	j := base(ev, set, cal)
 	j.Start = time.Unix(l.Occurrence.Start, 0).In(z).Format(time.RFC3339)
 	j.End = time.Unix(l.Occurrence.End, 0).In(z).Format(time.RFC3339)
-	j.Recurring = raw.IsMaster()
-	j.EditedOccurrence = raw.IsException()
 	if j.Recurring { // only series occurrences carry a usable selector
 		j.OccurrenceStartTS = l.Occurrence.Start
 	}
@@ -187,7 +197,6 @@ func EventDetail(ev *event.Event, loc *time.Location, set calendar.Settings, cal
 	j := base(ev, set, cal)
 	j.Start = ev.Start.In(z).Format(time.RFC3339)
 	j.End = ev.End.In(z).Format(time.RFC3339)
-	j.Recurring = ev.IsRecurring()
 	return j
 }
 

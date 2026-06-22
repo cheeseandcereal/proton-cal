@@ -118,11 +118,47 @@ func TestOccurrenceStartTSPresenceByView(t *testing.T) {
 
 func TestOccurrenceEditedOccurrence(t *testing.T) {
 	l := listedTimed()
-	l.Occurrence.Event.RecurrenceID = ts(2026, 6, 12, 8, 0)
-	l.Event.RecurrenceID = time.Unix(ts(2026, 6, 12, 8, 0), 0).UTC()
+	recID := ts(2026, 6, 12, 8, 0)
+	l.Occurrence.Event.RecurrenceID = recID
+	l.Event.RecurrenceID = time.Unix(recID, 0).UTC()
 	got := Occurrence(l, time.UTC, calendar.Settings{}, calendar.Info{})
 	if !got.EditedOccurrence || got.Recurring {
 		t.Errorf("EditedOccurrence=%v Recurring=%v, want true/false", got.EditedOccurrence, got.Recurring)
+	}
+	// The recurrence-id (which original occurrence this row edits) is exposed.
+	if got.RecurrenceIDTS != recID {
+		t.Errorf("RecurrenceIDTS = %d, want %d", got.RecurrenceIDTS, recID)
+	}
+}
+
+// recurrence_id_ts is emitted only for an edited-occurrence (exception) row,
+// in both the listing and the single-event view; other rows omit it.
+func TestRecurrenceIDPresence(t *testing.T) {
+	recID := ts(2026, 6, 12, 8, 0)
+
+	exc := listedTimed()
+	exc.Occurrence.Event.RecurrenceID = recID
+	exc.Event.RecurrenceID = time.Unix(recID, 0).UTC()
+	for name, j := range map[string]Event{
+		"listing":     Occurrence(exc, time.UTC, calendar.Settings{}, calendar.Info{}),
+		"single view": EventDetail(exc.Event, time.UTC, calendar.Settings{}, calendar.Info{}),
+	} {
+		b, err := json.Marshal(j)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(string(b), `"recurrence_id_ts"`) {
+			t.Errorf("%s: exception JSON must carry recurrence_id_ts:\n%s", name, b)
+		}
+	}
+
+	// A plain (non-exception) row omits it.
+	b, err := json.Marshal(Occurrence(listedTimed(), time.UTC, calendar.Settings{}, calendar.Info{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(b), `"recurrence_id_ts"`) {
+		t.Errorf("non-exception JSON must omit recurrence_id_ts:\n%s", b)
 	}
 }
 

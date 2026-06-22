@@ -400,6 +400,28 @@ func TestEventDetailInheritsCalendarDefaults(t *testing.T) {
 	}
 }
 
+func TestEventDetailShowsEditedOccurrence(t *testing.T) {
+	// An exception row (RecurrenceID set, no RRULE) notes which original
+	// occurrence it edits.
+	ev := &event.Event{
+		EventID: "exc1", Summary: "Edited",
+		Start:        time.Unix(ts(2026, 6, 29, 10, 0), 0).UTC(),
+		End:          time.Unix(ts(2026, 6, 29, 10, 30), 0).UTC(),
+		RecurrenceID: time.Unix(ts(2026, 6, 29, 10, 0), 0).UTC(),
+	}
+	sel, _ := selectFields(eventFieldRegistry, nil, true)
+	joined := strings.Join(eventDetailLines(ev, time.UTC, sel, calendar.Settings{}, calendar.Info{}), "\n")
+	if !strings.Contains(joined, "Edits occurrence: 2026-06-29 10:00") {
+		t.Errorf("edited-occurrence detail missing the original occurrence:\n%s", joined)
+	}
+	// A plain event must not get the line.
+	plain := &event.Event{EventID: "p1", Summary: "Plain", Start: ev.Start, End: ev.End}
+	joined = strings.Join(eventDetailLines(plain, time.UTC, sel, calendar.Settings{}, calendar.Info{}), "\n")
+	if strings.Contains(joined, "Edits occurrence") {
+		t.Errorf("plain event must not show an edits-occurrence line:\n%s", joined)
+	}
+}
+
 func TestParseHexColor(t *testing.T) {
 	r, g, b, ok := parseHexColor("#EC3E7C")
 	if !ok || r != 0xEC || g != 0x3E || b != 0x7C {

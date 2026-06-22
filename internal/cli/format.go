@@ -147,6 +147,10 @@ func eventDetailLines(ev *event.Event, loc *time.Location, sel fieldSet, set cal
 	if sel.has(fieldRecurring) && ev.IsRecurring() {
 		b.add("Recurring", "yes")
 	}
+	if sel.has(fieldRecurring) && !ev.RecurrenceID.IsZero() {
+		// Exception row: note which original occurrence of the series it edits.
+		b.add("Edits occurrence", calsvc.FormatOccurrenceStart(ev.RecurrenceID.Unix(), ev.AllDay, loc))
+	}
 
 	// Body fields (location/description/organizer/attendees/conference/
 	// reminders/color), shared with the events-list sub-lines.
