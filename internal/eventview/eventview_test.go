@@ -108,3 +108,51 @@ func TestDeleteResultMessage(t *testing.T) {
 		}
 	}
 }
+
+func TestPersonOf(t *testing.T) {
+	if PersonOf(nil) != "" {
+		t.Error("nil person must be empty")
+	}
+	if got := PersonOf(&event.Person{Email: "a@b", CN: "Alice"}); got != "Alice <a@b>" {
+		t.Errorf("PersonOf = %q", got)
+	}
+}
+
+func TestSummaryOr(t *testing.T) {
+	if got := SummaryOr(&event.Event{Summary: "Hi"}); got != "Hi" {
+		t.Errorf("got %q", got)
+	}
+	if got := SummaryOr(&event.Event{}); got != "(no title)" {
+		t.Errorf("empty summary = %q, want (no title)", got)
+	}
+}
+
+func TestRecurrenceSuffix(t *testing.T) {
+	if got := RecurrenceSuffix(&caltypes.RawEvent{RRule: "FREQ=DAILY"}); got != "  (recurring)" {
+		t.Errorf("master = %q", got)
+	}
+	if got := RecurrenceSuffix(&caltypes.RawEvent{RecurrenceID: 123}); got != "  (edited occurrence)" {
+		t.Errorf("exception = %q", got)
+	}
+	if got := RecurrenceSuffix(&caltypes.RawEvent{}); got != "" {
+		t.Errorf("plain = %q, want empty", got)
+	}
+}
+
+func TestCalendarHeaderLines(t *testing.T) {
+	c := calendar.Info{ID: "cal1", Name: "Work", Type: 0}
+	lines := CalendarHeaderLines(c, "cal1")
+	if len(lines) != 2 {
+		t.Fatalf("want 2 lines, got %v", lines)
+	}
+	if lines[0] != "Work (normal)  [default]" {
+		t.Errorf("header = %q", lines[0])
+	}
+	if lines[1] != "  ID: cal1" {
+		t.Errorf("id line = %q", lines[1])
+	}
+	// Non-default: no marker.
+	if got := CalendarHeaderLines(c, "other")[0]; got != "Work (normal)" {
+		t.Errorf("non-default header = %q", got)
+	}
+}

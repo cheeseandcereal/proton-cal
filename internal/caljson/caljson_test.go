@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/cheeseandcereal/proton-cal/internal/calendar"
+	"github.com/cheeseandcereal/proton-cal/internal/calsvc"
 	"github.com/cheeseandcereal/proton-cal/internal/caltypes"
 	"github.com/cheeseandcereal/proton-cal/internal/event"
 	"github.com/cheeseandcereal/proton-cal/internal/recurrence"
@@ -151,5 +152,48 @@ func TestCalendarOf(t *testing.T) {
 	got := CalendarOf(c, true)
 	if got.ID != "id1" || got.Name != "Personal" || got.Color != "#415DF0" || !got.IsDefault || got.Email != "a@b" {
 		t.Errorf("CalendarOf = %+v", got)
+	}
+}
+
+func TestCalendars(t *testing.T) {
+	cals := []calendar.Info{
+		{ID: "id1", Name: "Personal"},
+		{ID: "id2", Name: "Work"},
+	}
+	rows := Calendars(cals, "Work")
+	if len(rows) != 2 {
+		t.Fatalf("want 2 rows, got %d", len(rows))
+	}
+	if rows[0].IsDefault {
+		t.Error("Personal must not be default")
+	}
+	if !rows[1].IsDefault {
+		t.Error("Work must be marked default by selector")
+	}
+}
+
+func TestCreatedOf(t *testing.T) {
+	start := time.Date(2026, 6, 15, 9, 0, 0, 0, time.UTC)
+	end := start.Add(30 * time.Minute)
+	c := &calsvc.CreatedEvent{
+		ID: "ev1", UID: "uid1", Summary: "Lunch",
+		Start: start, End: end, AllDay: false, RRule: "FREQ=DAILY",
+	}
+	got := CreatedOf(c)
+	if got.ID != "ev1" || got.UID != "uid1" || got.Summary != "Lunch" {
+		t.Errorf("CreatedOf identity = %+v", got)
+	}
+	if got.StartTS != start.Unix() || got.EndTS != end.Unix() {
+		t.Errorf("CreatedOf times = %d/%d", got.StartTS, got.EndTS)
+	}
+	if got.RRule != "FREQ=DAILY" || got.AllDay {
+		t.Errorf("CreatedOf recurrence/allday = %+v", got)
+	}
+}
+
+func TestUpdatedOf(t *testing.T) {
+	got := UpdatedOf(&event.UpdateOutcome{EditedOccurrence: true, RemovedExceptions: 2})
+	if !got.Updated || !got.EditedOccurrence || got.RemovedExceptions != 2 {
+		t.Errorf("UpdatedOf = %+v", got)
 	}
 }

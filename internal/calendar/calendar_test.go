@@ -9,6 +9,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/cheeseandcereal/proton-cal/internal/caltypes"
 	"github.com/cheeseandcereal/proton-cal/internal/config"
 	"github.com/cheeseandcereal/proton-cal/internal/papi"
 )
@@ -267,5 +268,18 @@ func TestInfoMatches(t *testing.T) {
 				t.Errorf("Matches(%q) = %v, want %v", tt.selector, got, tt.want)
 			}
 		})
+	}
+}
+
+func TestSettingsDefaultNotifications(t *testing.T) {
+	s := Settings{
+		DefaultPartDayNotifications: []caltypes.Notification{{Type: 1, Trigger: "-PT15M"}},
+		DefaultFullDayNotifications: []caltypes.Notification{{Type: 0, Trigger: "-PT16H"}},
+	}
+	if got := s.DefaultNotifications(false); len(got) != 1 || got[0].Trigger != "-PT15M" {
+		t.Errorf("part-day = %+v", got)
+	}
+	if got := s.DefaultNotifications(true); len(got) != 1 || got[0].Trigger != "-PT16H" {
+		t.Errorf("full-day = %+v", got)
 	}
 }

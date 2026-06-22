@@ -199,3 +199,66 @@ func TestRenderDeleteResult(t *testing.T) {
 		}
 	}
 }
+
+func TestRenderCreated(t *testing.T) {
+	start := time.Date(2026, 6, 15, 9, 0, 0, 0, time.UTC)
+	c := &calsvc.CreatedEvent{
+		ID: "ev1", Summary: "Lunch", Location: "Cafe", Description: "with team",
+		Start: start, End: start.Add(time.Hour), RRule: "FREQ=DAILY",
+	}
+	got := renderCreated(c)
+	for _, want := range []string{
+		"Event created: Lunch",
+		"Mon 15 Jun 09:00 - 10:00",
+		"location: Cafe",
+		"description: with team",
+		"Repeats: FREQ=DAILY",
+		"ID: ev1",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("renderCreated missing %q:\n%s", want, got)
+		}
+	}
+	// ID comes last (after Repeats).
+	if strings.Index(got, "ID: ev1") < strings.Index(got, "Repeats:") {
+		t.Errorf("ID should be the last line:\n%s", got)
+	}
+
+	// All-day omits the time range.
+	allDay := &calsvc.CreatedEvent{Summary: "Holiday", Start: start, End: start.Add(24 * time.Hour), AllDay: true}
+	if got := renderCreated(allDay); !strings.Contains(got, "Mon 15 Jun") || strings.Contains(got, "09:00") {
+		t.Errorf("all-day render = %q", got)
+	}
+}
+
+func TestRenderEventDetail(t *testing.T) {
+	start := time.Date(2026, 6, 15, 9, 0, 0, 0, time.UTC)
+	ev := &event.Event{
+		EventID:     "ev1",
+		Summary:     "Standup",
+		Location:    "Zoom",
+		Description: "daily sync",
+		Start:       start,
+		End:         start.Add(30 * time.Minute),
+		Organizer:   &event.Person{Email: "boss@co", CN: "Boss"},
+		Attendees:   []event.Attendee{{Email: "me@co", CN: "Me", Status: 3}},
+	}
+	set := calendar.Settings{DefaultPartDayNotifications: []caltypes.Notification{{Type: 1, Trigger: "-PT10M"}}}
+	cal := calendar.Info{Color: "#415DF0"}
+	got := renderEventDetail(ev, time.UTC, set, cal)
+	for _, want := range []string{
+		"Standup",
+		"Mon 15 Jun 09:00 - 09:30",
+		"location: Zoom",
+		"description: daily sync",
+		"organizer: Boss <boss@co>",
+		"attendee: Me <me@co> (accepted)",
+		"reminder (notify): -PT10M", // inherited calendar default
+		"color: #415DF0",
+		"ID: ev1",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("renderEventDetail missing %q:\n%s", want, got)
+		}
+	}
+}
