@@ -1,7 +1,9 @@
 package caljson
 
 import (
+	"encoding/json"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -75,6 +77,31 @@ func TestOccurrenceAllDayUsesUTC(t *testing.T) {
 	}
 	if !got.AllDay {
 		t.Error("AllDay = false, want true")
+	}
+}
+
+// occurrence_start_ts is meaningful only for expanded occurrences (the
+// `events` listing); the single-event view (`get event`) renders the stored
+// row, so the field must be omitted there rather than emitting a bogus 0.
+func TestOccurrenceStartTSPresenceByView(t *testing.T) {
+	l := listedTimed()
+	l.Occurrence.Event.RRule = "FREQ=DAILY"
+	l.Event.RRule = "FREQ=DAILY"
+
+	occJSON, err := json.Marshal(Occurrence(l, time.UTC, calendar.Settings{}, calendar.Info{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(occJSON), `"occurrence_start_ts"`) {
+		t.Errorf("occurrence JSON should carry occurrence_start_ts:\n%s", occJSON)
+	}
+
+	detJSON, err := json.Marshal(EventDetail(l.Event, time.UTC, calendar.Settings{}, calendar.Info{}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(detJSON), `"occurrence_start_ts"`) {
+		t.Errorf("get-event JSON must omit occurrence_start_ts (no expanded occurrence):\n%s", detJSON)
 	}
 }
 

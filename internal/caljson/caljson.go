@@ -16,17 +16,22 @@ import (
 // Event is the JSON shape of one event (an expanded occurrence or a single
 // fetched event).
 type Event struct {
-	ID                string         `json:"id"`
-	UID               string         `json:"uid,omitempty"`
-	Summary           string         `json:"summary,omitempty"`
-	Description       string         `json:"description,omitempty"`
-	Location          string         `json:"location,omitempty"`
-	Start             string         `json:"start,omitempty"`
-	End               string         `json:"end,omitempty"`
-	AllDay            bool           `json:"all_day"`
-	Recurring         bool           `json:"recurring"`
-	EditedOccurrence  bool           `json:"edited_occurrence"`
-	OccurrenceStartTS int64          `json:"occurrence_start_ts"`
+	ID               string `json:"id"`
+	UID              string `json:"uid,omitempty"`
+	Summary          string `json:"summary,omitempty"`
+	Description      string `json:"description,omitempty"`
+	Location         string `json:"location,omitempty"`
+	Start            string `json:"start,omitempty"`
+	End              string `json:"end,omitempty"`
+	AllDay           bool   `json:"all_day"`
+	Recurring        bool   `json:"recurring"`
+	EditedOccurrence bool   `json:"edited_occurrence"`
+	// OccurrenceStartTS is the unix start of ONE expanded occurrence - the
+	// value to pass back as the occurrence selector to update/delete a single
+	// occurrence. It is only meaningful for the expanded listing (`events`);
+	// the single-event view (`get event`) renders the stored row itself, not
+	// an occurrence, so the field is omitted there (omitempty).
+	OccurrenceStartTS int64          `json:"occurrence_start_ts,omitempty"`
 	RRule             string         `json:"rrule,omitempty"`
 	CalendarID        string         `json:"calendar_id,omitempty"`
 	Color             string         `json:"color,omitempty"`
