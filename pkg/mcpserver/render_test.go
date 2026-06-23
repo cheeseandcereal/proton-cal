@@ -39,12 +39,15 @@ func TestRenderCalendars(t *testing.T) {
 	}
 }
 
-// listedAt builds a Listed occurrence for tests. The raw row carries the
-// recurrence metadata (master/exception detection).
-func listedAt(raw *caltypes.RawEvent, ev *event.Event, start, end time.Time) event.Listed {
-	return event.Listed{
-		Occurrence: recurrence.Occurrence{Event: raw, Start: start.Unix(), End: end.Unix()},
-		Event:      ev,
+// listedAt builds a ListedItem occurrence for tests. The raw row carries the
+// recurrence metadata (master/exception detection). The calendar context is
+// empty unless a test needs to exercise calendar labeling.
+func listedAt(raw *caltypes.RawEvent, ev *event.Event, start, end time.Time) calsvc.ListedItem {
+	return calsvc.ListedItem{
+		Listed: event.Listed{
+			Occurrence: recurrence.Occurrence{Event: raw, Start: start.Unix(), End: end.Unix()},
+			Event:      ev,
+		},
 	}
 }
 
@@ -56,7 +59,7 @@ func TestRenderOccurrenceTimed(t *testing.T) {
 		&event.Event{EventID: "ev-1", Summary: "Standup", Location: "Room 1", Description: "Daily sync"},
 		start, end,
 	)
-	got := renderOccurrence(l, time.UTC, calendar.Settings{}, calendar.Info{})
+	got := renderOccurrence(l, time.UTC, false)
 	want := "- Mon 15 Jun 09:00 - 09:30  Standup  [Room 1]\n  Daily sync\n  ID: ev-1"
 	if got != want {
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)
@@ -71,7 +74,7 @@ func TestRenderOccurrenceRecurringMaster(t *testing.T) {
 		&event.Event{EventID: "ev-2", Summary: "Weekly", RRule: "FREQ=WEEKLY"},
 		start, end,
 	)
-	got := renderOccurrence(l, time.UTC, calendar.Settings{}, calendar.Info{})
+	got := renderOccurrence(l, time.UTC, false)
 	if !strings.Contains(got, "Weekly  (recurring)") {
 		t.Errorf("missing (recurring) marker:\n%s", got)
 	}
@@ -111,7 +114,7 @@ func TestRenderOccurrenceEdited(t *testing.T) {
 		&event.Event{EventID: "ev-3", Summary: "Moved mtg", RecurrenceID: start},
 		start, end,
 	)
-	got := renderOccurrence(edited, time.UTC, calendar.Settings{}, calendar.Info{})
+	got := renderOccurrence(edited, time.UTC, false)
 	if !strings.Contains(got, "Moved mtg  (edited occurrence)") {
 		t.Errorf("missing (edited occurrence) marker:\n%s", got)
 	}
@@ -120,7 +123,7 @@ func TestRenderOccurrenceEdited(t *testing.T) {
 	}
 
 	noTitle := listedAt(&caltypes.RawEvent{ID: "ev-4"}, &event.Event{EventID: "ev-4"}, start, end)
-	if got := renderOccurrence(noTitle, time.UTC, calendar.Settings{}, calendar.Info{}); !strings.Contains(got, "(no title)") {
+	if got := renderOccurrence(noTitle, time.UTC, false); !strings.Contains(got, "(no title)") {
 		t.Errorf("missing (no title):\n%s", got)
 	}
 }
@@ -135,25 +138,41 @@ func TestRenderOccurrenceAllDay(t *testing.T) {
 	)
 	// Render in a zone west of UTC: the date must not shift.
 	loc := time.FixedZone("UTC-8", -8*3600)
-	got := renderOccurrence(l, loc, calendar.Settings{}, calendar.Info{})
+	got := renderOccurrence(l, loc, false)
 	if !strings.HasPrefix(got, "- Mon 15 Jun (all day)  Midsummer") {
 		t.Errorf("all-day line wrong:\n%s", got)
 	}
 }
 
 func TestRenderEvents(t *testing.T) {
-	if got := renderEvents(nil, 7, time.UTC, calendar.Settings{}, calendar.Info{}); got != "No events in the next 7 days." {
+	if got := renderEvents(nil, 7, time.UTC, false); got != "No events in the next 7 days." {
 		t.Errorf("empty: got %q", got)
 	}
 
 	start := time.Date(2026, 6, 15, 9, 0, 0, 0, time.UTC)
 	l := listedAt(&caltypes.RawEvent{ID: "e"}, &event.Event{EventID: "e", Summary: "X"}, start, start.Add(time.Hour))
-	got := renderEvents([]event.Listed{l}, 3, time.UTC, calendar.Settings{}, calendar.Info{})
+	got := renderEvents([]calsvc.ListedItem{l}, 3, time.UTC, false)
 	if !strings.HasPrefix(got, "Events in the next 3 days:\n") {
 		t.Errorf("missing header:\n%s", got)
 	}
 	if !strings.Contains(got, "- Mon 15 Jun 09:00 - 10:00  X") {
 		t.Errorf("missing event line:\n%s", got)
+	}
+	if strings.Contains(got, "calendar:") {
+		t.Errorf("single-calendar listing must not label events with a calendar:\n%s", got)
+	}
+}
+
+func TestRenderEventsMultiCalendar(t *testing.T) {
+	start := time.Date(2026, 6, 15, 9, 0, 0, 0, time.UTC)
+	a := listedAt(&caltypes.RawEvent{ID: "a"}, &event.Event{EventID: "a", Summary: "A"}, start, start.Add(time.Hour))
+	a.Calendar = calendar.Info{ID: "id-work", Name: "Work"}
+	b := listedAt(&caltypes.RawEvent{ID: "b"}, &event.Event{EventID: "b", Summary: "B"}, start, start.Add(time.Hour))
+	b.Calendar = calendar.Info{ID: "id-home", Name: "Home"}
+
+	got := renderEvents([]calsvc.ListedItem{a, b}, 3, time.UTC, true)
+	if !strings.Contains(got, "calendar: Work") || !strings.Contains(got, "calendar: Home") {
+		t.Errorf("multi-calendar listing must label each event with its calendar:\n%s", got)
 	}
 }
 

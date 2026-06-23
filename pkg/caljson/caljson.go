@@ -36,6 +36,7 @@ type Event struct {
 	OccurrenceStartTS int64          `json:"occurrence_start_ts,omitempty"`
 	RRule             string         `json:"rrule,omitempty"`
 	CalendarID        string         `json:"calendar_id,omitempty"`
+	CalendarName      string         `json:"calendar_name,omitempty"`
 	Color             string         `json:"color,omitempty"`
 	IsOrganizer       bool           `json:"is_organizer,omitempty"`
 	Organizer         *Person        `json:"organizer,omitempty"`
@@ -159,14 +160,15 @@ func enrich(j *Event, ev *event.Event, set calendar.Settings, cal calendar.Info)
 // occurrence and single-event builders. Callers set the time/recurrence fields.
 func base(ev *event.Event, set calendar.Settings, cal calendar.Info) Event {
 	j := Event{
-		ID:          ev.EventID,
-		UID:         ev.UID,
-		Summary:     ev.Summary,
-		Description: ev.Description,
-		Location:    ev.Location,
-		AllDay:      ev.AllDay,
-		RRule:       ev.RRule,
-		CalendarID:  ev.CalendarID,
+		ID:           ev.EventID,
+		UID:          ev.UID,
+		Summary:      ev.Summary,
+		Description:  ev.Description,
+		Location:     ev.Location,
+		AllDay:       ev.AllDay,
+		RRule:        ev.RRule,
+		CalendarID:   ev.CalendarID,
+		CalendarName: cal.Name,
 	}
 	// Recurrence classification from the row itself (consistent across the
 	// listing and single-event views): a master has an RRULE; an exception

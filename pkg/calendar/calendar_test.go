@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -233,6 +234,87 @@ func TestResolveAmbiguousErrorListsCandidates(t *testing.T) {
 		if !strings.Contains(err.Error(), want) {
 			t.Errorf("ambiguous error %q does not list candidate %q", err, want)
 		}
+	}
+}
+
+func TestResolveMany(t *testing.T) {
+	cals := []Info{
+		{ID: "id1", Name: "Work"},
+		{ID: "id2", Name: "personal"},
+		{ID: "id3", Name: "Personal"},
+	}
+
+	tests := []struct {
+		name      string
+		selectors []string
+		defaultID string
+		wantIDs   []string
+		wantErr   string
+	}{
+		{name: "empty selectors use default", selectors: nil, defaultID: "id2", wantIDs: []string{"id2"}},
+		{name: "empty selectors no default picks first", selectors: nil, wantIDs: []string{"id1"}},
+		{name: "single by ID", selectors: []string{"id3"}, wantIDs: []string{"id3"}},
+		{name: "multiple by ID and name", selectors: []string{"id1", "id3"}, wantIDs: []string{"id1", "id3"}},
+		{name: "dedup by ID", selectors: []string{"id1", "Work", "id1"}, wantIDs: []string{"id1"}},
+		{name: "order preserved first-seen", selectors: []string{"id3", "id1"}, wantIDs: []string{"id3", "id1"}},
+		{name: "unknown fails all", selectors: []string{"id1", "nope"}, wantErr: "no calendar with ID or name"},
+		{name: "ambiguous fails all", selectors: []string{"id1", "personal"}, wantErr: "ambiguous"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := ResolveMany(cals, tt.selectors, tt.defaultID)
+			if tt.wantErr != "" {
+				if err == nil {
+					t.Fatalf("ResolveMany: got %+v, want error containing %q", got, tt.wantErr)
+				}
+				if !strings.Contains(err.Error(), tt.wantErr) {
+					t.Fatalf("ResolveMany error %q does not contain %q", err, tt.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("ResolveMany: %v", err)
+			}
+			gotIDs := make([]string, len(got))
+			for i, c := range got {
+				gotIDs[i] = c.ID
+			}
+			if !slices.Equal(gotIDs, tt.wantIDs) {
+				t.Fatalf("ResolveMany IDs = %v, want %v", gotIDs, tt.wantIDs)
+			}
+		})
+	}
+
+	if _, err := ResolveMany(nil, []string{"id1"}, ""); err == nil {
+		t.Error("ResolveMany with no calendars: expected error")
+	}
+}
+
+func TestResolveAll(t *testing.T) {
+	cals := []Info{
+		{ID: "id1", Name: "Work"},
+		{ID: "id2", Name: "Personal"},
+	}
+	got, err := ResolveAll(cals)
+	if err != nil {
+		t.Fatalf("ResolveAll: %v", err)
+	}
+	gotIDs := make([]string, len(got))
+	for i, c := range got {
+		gotIDs[i] = c.ID
+	}
+	if !slices.Equal(gotIDs, []string{"id1", "id2"}) {
+		t.Fatalf("ResolveAll IDs = %v, want [id1 id2]", gotIDs)
+	}
+	// Mutating the result must not alias the input.
+	got[0] = Info{ID: "mutated"}
+	if cals[0].ID != "id1" {
+		t.Error("ResolveAll returned a slice aliasing the input")
+	}
+
+	if _, err := ResolveAll(nil); err == nil {
+		t.Error("ResolveAll with no calendars: expected error")
 	}
 }
 

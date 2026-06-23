@@ -50,7 +50,8 @@ func renderCalendarDetail(c calendar.Info, set calendar.Settings, isDefault bool
 
 // renderOccurrence renders one listed occurrence as a text block in the
 // list_events line format. set/cal resolve the effective reminders and color.
-func renderOccurrence(l event.Listed, loc *time.Location, set calendar.Settings, cal calendar.Info) string {
+func renderOccurrence(item calsvc.ListedItem, loc *time.Location, multiCalendar bool) string {
+	l := item.Listed
 	raw := l.Occurrence.Event
 	ev := l.Event
 	summary := eventview.SummaryOr(ev)
@@ -70,10 +71,13 @@ func renderOccurrence(l event.Listed, loc *time.Location, set calendar.Settings,
 	if ev.Location != "" {
 		line += fmt.Sprintf("  [%s]", ev.Location)
 	}
+	if multiCalendar {
+		line += "\n  calendar: " + item.Calendar.Name
+	}
 	if ev.Description != "" {
 		line += "\n  " + ev.Description
 	}
-	if detail := renderEventExtras(ev, set, cal); detail != "" {
+	if detail := renderEventExtras(ev, item.Settings, item.Calendar); detail != "" {
 		line += "\n" + detail
 	}
 	line += "\n  ID: " + ev.EventID
@@ -133,14 +137,14 @@ func renderEventDetail(ev *event.Event, loc *time.Location, set calendar.Setting
 
 // renderEvents renders the list_events reply for a window of expanded
 // occurrences.
-func renderEvents(listed []event.Listed, days int, loc *time.Location, set calendar.Settings, cal calendar.Info) string {
-	if len(listed) == 0 {
+func renderEvents(items []calsvc.ListedItem, days int, loc *time.Location, multiCalendar bool) string {
+	if len(items) == 0 {
 		return fmt.Sprintf("No events in the next %d days.", days)
 	}
-	lines := make([]string, 0, len(listed)+1)
+	lines := make([]string, 0, len(items)+1)
 	lines = append(lines, fmt.Sprintf("Events in the next %d days:\n", days))
-	for _, l := range listed {
-		lines = append(lines, renderOccurrence(l, loc, set, cal))
+	for _, item := range items {
+		lines = append(lines, renderOccurrence(item, loc, multiCalendar))
 	}
 	return strings.Join(lines, "\n")
 }

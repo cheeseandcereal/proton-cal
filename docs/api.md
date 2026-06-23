@@ -334,6 +334,18 @@ client fires all four in parallel):
 
 The single-event endpoint wraps the row as `{"Event": {...}}`.
 
+### Multiple calendars
+
+The events listing endpoint is **per-calendar** (the calendar ID is in the
+path); there is no cross-calendar query. Listing several calendars (the CLI's
+repeatable `--calendar` / `--all-calendars`, or the MCP `list_events`
+`calendars`/`all_calendars` args) is a **client-side fan-out**: the same window
+is fetched for each calendar (bounded concurrency), each calendar's keys are
+unlocked independently, and the decrypted occurrences are merged and re-sorted
+by start time. Each result carries its originating calendar so events can be
+labeled. A failure for any one calendar fails the whole listing (no partial
+results).
+
 ### Raw event row (plaintext columns)
 
 Each row carries, unencrypted: `ID`, `UID`, `CalendarID`, `SharedEventID`,

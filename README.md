@@ -73,6 +73,11 @@ proton-cal events --days 7
 # else the first)
 proton-cal events --calendar Work
 
+# Merge several calendars into one chronological list (repeat --calendar),
+# or list every calendar at once. Each event is then labeled with its calendar.
+proton-cal events --calendar Work --calendar Personal
+proton-cal events --all-calendars
+
 # Create an event (--end is optional for timed events: it defaults to the
 # calendar's default duration)
 proton-cal create event "Team standup" \
@@ -190,7 +195,9 @@ session (re-login discards it) and `proton-cal logout` deletes it. Pass
 `proton-cal mcp` speaks MCP over stdio, exposing `list_calendars`,
 `get_calendar`, `list_events`, `get_event`, `create_event`, `update_event`,
 `delete_event`, `update_calendar` and `delete_calendar` (most tools take an
-optional `calendar` argument). `delete_calendar` requires `confirm: true` and,
+optional `calendar` argument; `list_events` instead takes a `calendars` array
+plus an `all_calendars` flag to merge events across calendars).
+`delete_calendar` requires `confirm: true` and,
 for an owned calendar, a `password` argument (the login password, used only for
 the deletion handshake); there is no `create_calendar`. Read tools
 return both a human-readable text block and machine-readable structured content

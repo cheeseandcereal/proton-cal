@@ -207,10 +207,11 @@ func (s *server) getCalendar(ctx context.Context, _ *mcp.CallToolRequest, args g
 // ---------------------------------------------------------------- list_events
 
 type listEventsArgs struct {
-	Days     int    `json:"days,omitempty" jsonschema:"Number of days to look ahead (default 7)"`
-	From     string `json:"from,omitempty" jsonschema:"Window start \"YYYY-MM-DD HH:MM\" or \"YYYY-MM-DD\" (optional; default: now; days counts from it)"`
-	Calendar string `json:"calendar,omitempty" jsonschema:"Calendar ID or name (optional; default: the account's default calendar, else the first calendar)"`
-	TZ       string `json:"tz,omitempty" jsonschema:"IANA timezone for queries and display (optional; default: the configured timezone)"`
+	Days         int      `json:"days,omitempty" jsonschema:"Number of days to look ahead (default 7)"`
+	From         string   `json:"from,omitempty" jsonschema:"Window start \"YYYY-MM-DD HH:MM\" or \"YYYY-MM-DD\" (optional; default: now; days counts from it)"`
+	Calendars    []string `json:"calendars,omitempty" jsonschema:"Calendar IDs or names to list (optional; default: the account's default calendar, else the first calendar). Provide several to merge events from multiple calendars into one chronological list."`
+	AllCalendars bool     `json:"all_calendars,omitempty" jsonschema:"List events across every calendar on the account (ignores calendars)"`
+	TZ           string   `json:"tz,omitempty" jsonschema:"IANA timezone for queries and display (optional; default: the configured timezone)"`
 }
 
 func (s *server) listEvents(ctx context.Context, _ *mcp.CallToolRequest, args listEventsArgs) (*mcp.CallToolResult, any, error) {
@@ -219,19 +220,20 @@ func (s *server) listEvents(ctx context.Context, _ *mcp.CallToolRequest, args li
 		return nil, nil, err
 	}
 	list, err := svc.ListEvents(ctx, calsvc.ListEventsInput{
-		Days:     args.Days,
-		From:     args.From,
-		Calendar: args.Calendar,
-		TZ:       args.TZ,
+		Days:         args.Days,
+		From:         args.From,
+		Calendars:    args.Calendars,
+		AllCalendars: args.AllCalendars,
+		TZ:           args.TZ,
 	})
 	if err != nil {
 		return nil, nil, err
 	}
 	rows := make([]caljson.Event, 0, len(list.Items))
-	for _, l := range list.Items {
-		rows = append(rows, caljson.Occurrence(l, list.Location, list.Settings, list.Calendar))
+	for _, item := range list.Items {
+		rows = append(rows, caljson.Occurrence(item.Listed, list.Location, item.Settings, item.Calendar))
 	}
-	text := renderEvents(list.Items, list.Days, list.Location, list.Settings, list.Calendar)
+	text := renderEvents(list.Items, list.Days, list.Location, !list.SingleCalendar())
 	return textResult(text), rows, nil
 }
 

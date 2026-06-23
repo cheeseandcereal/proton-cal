@@ -65,6 +65,14 @@ func TestOccurrenceTimed(t *testing.T) {
 	}
 }
 
+func TestOccurrenceCarriesCalendarName(t *testing.T) {
+	l := listedTimed()
+	got := Occurrence(l, time.UTC, calendar.Settings{}, calendar.Info{ID: "cal1", Name: "Work"})
+	if got.CalendarName != "Work" {
+		t.Errorf("CalendarName = %q, want Work", got.CalendarName)
+	}
+}
+
 func TestOccurrenceAllDayUsesUTC(t *testing.T) {
 	l := listedTimed()
 	l.Event.AllDay = true

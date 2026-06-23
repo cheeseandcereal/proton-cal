@@ -154,7 +154,7 @@ func TestE2EMCPLifecycle(t *testing.T) {
 	}
 
 	// list_events: structured rows include our event.
-	_, structured, err = s.listEvents(ctx, nil, listEventsArgs{Calendar: cal, TZ: "UTC", From: time.Now().UTC().AddDate(0, 0, 30).Format("2006-01-02") + " 00:00", Days: 2})
+	_, structured, err = s.listEvents(ctx, nil, listEventsArgs{Calendars: []string{cal}, TZ: "UTC", From: time.Now().UTC().AddDate(0, 0, 30).Format("2006-01-02") + " 00:00", Days: 2})
 	if err != nil {
 		t.Fatalf("listEvents: %v", err)
 	}

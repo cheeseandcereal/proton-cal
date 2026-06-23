@@ -176,7 +176,12 @@ func Resolve(cals []Info, selector, defaultID string) (Info, error) {
 		return cals[0], nil
 	}
 
-	sel := selector
+	return resolveOne(cals, selector)
+}
+
+// resolveOne matches a NON-empty selector by exact ID then unique
+// case-insensitive name, returning a none/ambiguous error otherwise.
+func resolveOne(cals []Info, sel string) (Info, error) {
 	for _, c := range cals {
 		if c.ID == sel {
 			return c, nil
@@ -208,4 +213,48 @@ func Resolve(cals []Info, selector, defaultID string) (Info, error) {
 		return Info{}, fmt.Errorf("calendar name %q is ambiguous, select by ID instead; matches: %s",
 			sel, strings.Join(candidates, ", "))
 	}
+}
+
+// ResolveMany resolves a set of selectors to calendars. An empty selector list
+// resolves to the single default-or-first calendar (matching Resolve), so the
+// common case still yields exactly one calendar. Each selector is matched as in
+// Resolve (exact ID then unique case-insensitive name); results are deduplicated
+// by ID preserving first-seen order. Any unresolved or ambiguous selector fails
+// the whole call (no partial results).
+func ResolveMany(cals []Info, selectors []string, defaultID string) ([]Info, error) {
+	if len(cals) == 0 {
+		return nil, errors.New("no calendars found on this account")
+	}
+	if len(selectors) == 0 {
+		info, err := Resolve(cals, "", defaultID)
+		if err != nil {
+			return nil, err
+		}
+		return []Info{info}, nil
+	}
+
+	out := make([]Info, 0, len(selectors))
+	seen := make(map[string]bool, len(selectors))
+	for _, sel := range selectors {
+		info, err := resolveOne(cals, sel)
+		if err != nil {
+			return nil, err
+		}
+		if seen[info.ID] {
+			continue
+		}
+		seen[info.ID] = true
+		out = append(out, info)
+	}
+	return out, nil
+}
+
+// ResolveAll returns every calendar on the account in list order.
+func ResolveAll(cals []Info) ([]Info, error) {
+	if len(cals) == 0 {
+		return nil, errors.New("no calendars found on this account")
+	}
+	out := make([]Info, len(cals))
+	copy(out, cals)
+	return out, nil
 }

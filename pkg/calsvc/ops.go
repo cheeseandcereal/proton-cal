@@ -15,32 +15,62 @@ import (
 	"github.com/cheeseandcereal/proton-cal/pkg/icaltime"
 )
 
-// ListEventsInput addresses a listing window with user-shaped strings.
+// ListEventsInput addresses a listing window with user-shaped strings. The
+// window spans one or more calendars: an empty Calendars (with AllCalendars
+// false) lists the default-or-first calendar; AllCalendars lists every calendar.
 type ListEventsInput struct {
-	Calendar string // calendar ID or name; "" = default, else first
-	TZ       string // IANA zone override; "" = configured / system
-	From     string // window start "YYYY-MM-DD [HH:MM]"; "" = now
-	Days     int    // days to look ahead; <= 0 = 7
+	Calendars    []string // calendar IDs or names; empty = default, else first
+	AllCalendars bool     // list every calendar (ignores Calendars)
+	TZ           string   // IANA zone override; "" = configured / system
+	From         string   // window start "YYYY-MM-DD [HH:MM]"; "" = now
+	Days         int      // days to look ahead; <= 0 = 7
 }
 
-// resolved is the calendar context shared by every read result (calendar,
-// default settings, display zone). Embedded so callers reach fields directly.
+// resolved is the calendar context shared by single-event read results
+// (calendar, default settings, display zone). Embedded so callers reach fields
+// directly.
 type resolved struct {
 	Calendar calendar.Info
 	Settings calendar.Settings // calendar default reminders (for inheritance)
 	Location *time.Location    // display zone the read was resolved in
 }
 
-// EventList is a resolved, expanded, decrypted listing window.
+// ListedItem is one expanded occurrence tagged with the calendar it came from.
+// event.Listed is embedded so callers reach Event/Occurrence directly; Calendar
+// and Settings give the per-item calendar context needed when a listing spans
+// multiple calendars (each calendar has its own color and default reminders).
+type ListedItem struct {
+	event.Listed
+	Calendar calendar.Info
+	Settings calendar.Settings
+}
+
+// EventList is a resolved, expanded, decrypted listing window. It may span
+// multiple calendars; each item carries its own calendar context.
 type EventList struct {
-	resolved
+	Calendars []calendar.Info // the resolved calendars this window covers
+	Location  *time.Location  // display zone the read was resolved in
 	From      time.Time
 	FromGiven bool // false when the window starts "now"
 	Days      int
-	Items     []event.Listed // sorted by occurrence start, then row ID
+	Items     []ListedItem // sorted by occurrence start, then row ID
 }
 
-// ListEvents lists all event occurrences in the addressed window.
+// SingleCalendar reports whether the window covers exactly one calendar (the
+// common case); frontends use it to decide whether to label each event with its
+// calendar.
+func (l *EventList) SingleCalendar() bool { return len(l.Calendars) <= 1 }
+
+// calendarListing is one calendar's portion of a multi-calendar window.
+type calendarListing struct {
+	info     calendar.Info
+	settings calendar.Settings
+	listed   []event.Listed
+	degraded bool
+}
+
+// ListEvents lists all event occurrences in the addressed window across one or
+// more calendars, merged and sorted by occurrence start.
 func (s *Service) ListEvents(ctx context.Context, in ListEventsInput) (*EventList, error) {
 	days := in.Days
 	if days <= 0 {
@@ -61,27 +91,42 @@ func (s *Service) ListEvents(ctx context.Context, in ListEventsInput) (*EventLis
 	}
 	end := start.AddDate(0, 0, days)
 
-	// Stale cached keys decrypt nothing silently; the degraded flag makes
-	// withAccessResult refetch keys and relist once, then accept a degraded pass.
-	return withAccessResult(ctx, s, in.Calendar, func(info calendar.Info, access *calendar.Access) (*EventList, bool, error) {
-		listed, err := event.ListWindow(ctx, s.client, access.KR, info.ID, start.Unix(), end.Unix(), tz)
-		if err != nil {
-			return nil, false, fmt.Errorf("listing events: %w", err)
+	cals, err := s.resolveCalendars(ctx, in.Calendars, in.AllCalendars)
+	if err != nil {
+		return nil, err
+	}
+	// Preserve the single-calendar notice: an empty selector resolving to one
+	// calendar tells the user which one was chosen.
+	if len(in.Calendars) == 0 && !in.AllCalendars && len(cals) == 1 {
+		s.notify("Using calendar: " + cals[0].Name)
+	}
+
+	listings, err := s.listAcrossCalendars(ctx, cals, start.Unix(), end.Unix(), tz)
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]ListedItem, 0)
+	for _, lg := range listings {
+		for _, l := range lg.listed {
+			items = append(items, ListedItem{Listed: l, Calendar: lg.info, Settings: lg.settings})
 		}
-		slices.SortStableFunc(listed, func(a, b event.Listed) int {
-			return cmp.Or(
-				cmp.Compare(a.Occurrence.Start, b.Occurrence.Start),
-				cmp.Compare(a.Occurrence.Event.ID, b.Occurrence.Event.ID),
-			)
-		})
-		return &EventList{
-			resolved:  resolved{Calendar: info, Settings: access.Settings, Location: loc},
-			From:      start,
-			FromGiven: in.From != "",
-			Days:      days,
-			Items:     listed,
-		}, anyDecryptFailed(listed), nil
+	}
+	slices.SortStableFunc(items, func(a, b ListedItem) int {
+		return cmp.Or(
+			cmp.Compare(a.Occurrence.Start, b.Occurrence.Start),
+			cmp.Compare(a.Occurrence.Event.ID, b.Occurrence.Event.ID),
+		)
 	})
+
+	return &EventList{
+		Calendars: cals,
+		Location:  loc,
+		From:      start,
+		FromGiven: in.From != "",
+		Days:      days,
+		Items:     items,
+	}, nil
 }
 
 // CreateEventInput describes a new event with user-shaped strings.

@@ -132,7 +132,7 @@ func TestE2EOccurrenceInheritsReminders(t *testing.T) {
 	}
 
 	// Find the edited exception row and assert it kept the master's reminders.
-	list, err := svc.ListEvents(ctx, ListEventsInput{Calendar: cal, TZ: "UTC", From: date + " 00:00", Days: 5})
+	list, err := svc.ListEvents(ctx, ListEventsInput{Calendars: []string{cal}, TZ: "UTC", From: date + " 00:00", Days: 5})
 	if err != nil {
 		t.Fatalf("ListEvents: %v", err)
 	}

@@ -29,6 +29,11 @@ import (
 	"github.com/cheeseandcereal/proton-cal/pkg/papi"
 )
 
+// maxConcurrentCalendars bounds how many calendars are listed in parallel for a
+// multi-calendar window. Each calendar already fans its own window out into
+// chunks, so this caps the outer concurrency to avoid hammering the API.
+const maxConcurrentCalendars = 4
+
 // Service bundles the authenticated state shared by calendar operations.
 // Construct with New; safe for concurrent use (the MCP server shares one).
 type Service struct {
@@ -181,6 +186,110 @@ func (s *Service) resolveCalendar(ctx context.Context, selector string) (calenda
 		info, err = calendar.Resolve(cals, selector, defaultID)
 	}
 	return info, err
+}
+
+// resolveCalendars resolves a set of selectors (or all calendars) to calendar
+// infos, with the same stale-cache refetch fallback as resolveCalendar: a list
+// from memory/disk that fails to resolve is refetched fresh once before the
+// error is final.
+func (s *Service) resolveCalendars(ctx context.Context, selectors []string, all bool) ([]calendar.Info, error) {
+	s.calMu.Lock()
+	cals := s.cals
+	s.calMu.Unlock()
+
+	fresh := false
+	if cals == nil {
+		var err error
+		cals, err = s.listCalendars(ctx)
+		if err != nil {
+			return nil, err
+		}
+		fresh = s.cacheAPI == nil || !s.cacheAPI.servedAny(calendar.APIPath)
+	}
+
+	// The server default is consulted only when no selector is given (and not
+	// listing all). A failure to read it is non-fatal — ResolveMany then falls
+	// back to the first calendar.
+	defaultID := ""
+	if !all && len(selectors) == 0 {
+		defaultID, _ = s.DefaultCalendarID(ctx)
+	}
+
+	resolve := func(cals []calendar.Info) ([]calendar.Info, error) {
+		if all {
+			return calendar.ResolveAll(cals)
+		}
+		return calendar.ResolveMany(cals, selectors, defaultID)
+	}
+
+	infos, err := resolve(cals)
+	if err != nil && !fresh {
+		// Possibly stale; one fresh fetch, then the error is final.
+		refetched, ferr := s.Calendars(ctx)
+		if ferr != nil {
+			return nil, ferr
+		}
+		infos, err = resolve(refetched)
+	}
+	return infos, err
+}
+
+// listAcrossCalendars lists the same window for each calendar concurrently
+// (bounded), then heals any calendar that came back degraded with a serial
+// relist. A failure for any calendar fails the whole listing (no partial
+// results). Healing is serial because it mutates the shared keychain; concurrent
+// stale-key healing across calendars is rare (it follows key rotation on a
+// cached account) and not worth the locking complexity.
+func (s *Service) listAcrossCalendars(ctx context.Context, cals []calendar.Info, start, end int64, tz string) ([]calendarListing, error) {
+	listings := make([]calendarListing, len(cals))
+
+	g, gctx := errgroup.WithContext(ctx)
+	g.SetLimit(maxConcurrentCalendars)
+	for i, info := range cals {
+		g.Go(func() error {
+			cl, err := s.listOneCalendar(gctx, info, start, end, tz)
+			if err != nil {
+				return err
+			}
+			listings[i] = cl
+			return nil
+		})
+	}
+	if err := g.Wait(); err != nil {
+		return nil, err
+	}
+
+	// Serial heal pass for any degraded calendar (stale cached keys).
+	for i := range listings {
+		if !listings[i].degraded || !s.healCalendarKeys(listings[i].info.ID) {
+			continue
+		}
+		cl, err := s.listOneCalendar(ctx, listings[i].info, start, end, tz)
+		if err != nil {
+			return nil, err
+		}
+		listings[i] = cl
+	}
+	return listings, nil
+}
+
+// listOneCalendar unlocks one calendar's keys and lists the window. The
+// degraded flag reports a partial-decrypt result (the caller may heal+retry).
+func (s *Service) listOneCalendar(ctx context.Context, info calendar.Info, start, end int64, tz string) (calendarListing, error) {
+	_, access, err := s.access(ctx, info.ID)
+	if err != nil {
+		return calendarListing{}, err
+	}
+	listed, err := event.ListWindow(ctx, s.client, access.KR, info.ID, start, end, tz)
+	if err != nil {
+		return calendarListing{}, fmt.Errorf("listing events for calendar %q: %w", info.Name, err)
+	}
+	return calendarListing{
+		info:     info,
+		settings: access.Settings,
+		listed:   listed,
+		degraded: anyDecryptFailed(listed),
+	}, nil
 }
 
 // access resolves the selector and unlocks that calendar's keys (account keys

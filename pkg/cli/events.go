@@ -21,16 +21,6 @@ func newEventsCmd() *cobra.Command {
 		Short: "List upcoming events (recurring events expanded into occurrences)",
 		Args:  requireArgs(cobra.NoArgs),
 		RunE: func(cmd *cobra.Command, _ []string) error {
-			// Default to a curated subset of detail sub-lines; --fields/--all
-			// override it.
-			sel := listDefaultFields()
-			if all || len(fields) > 0 {
-				var err error
-				if sel, err = selectFields(eventFieldRegistry, fields, all); err != nil {
-					return err
-				}
-			}
-
 			svc, err := serviceFactory()
 			if err != nil {
 				return err
@@ -42,10 +32,20 @@ func newEventsCmd() *cobra.Command {
 				return err
 			}
 
+			// Default to a curated subset of detail sub-lines (labeling each
+			// event with its calendar when the window spans several);
+			// --fields/--all override it.
+			sel := listDefaultFields(!list.SingleCalendar())
+			if all || len(fields) > 0 {
+				if sel, err = selectFields(eventFieldRegistry, fields, all); err != nil {
+					return err
+				}
+			}
+
 			if outputJSON() {
 				rows := make([]caljson.Event, 0, len(list.Items))
-				for _, l := range list.Items {
-					rows = append(rows, caljson.Occurrence(l, list.Location, list.Settings, list.Calendar))
+				for _, item := range list.Items {
+					rows = append(rows, caljson.Occurrence(item.Listed, list.Location, item.Settings, item.Calendar))
 				}
 				return printJSON(rows)
 			}
@@ -60,7 +60,7 @@ func newEventsCmd() *cobra.Command {
 			} else {
 				fmt.Fprintf(w, "Events in next %d days:\n", list.Days)
 			}
-			for _, line := range occurrenceListLines(list.Items, list.Location, sel, list.Settings, list.Calendar) {
+			for _, line := range occurrenceListLines(list.Items, list.Location, sel) {
 				fmt.Fprintln(w, line)
 			}
 			return nil
@@ -68,7 +68,9 @@ func newEventsCmd() *cobra.Command {
 	}
 
 	cmd.Flags().IntVar(&in.Days, "days", 7, "number of days to look ahead")
-	addCalendarFlag(cmd, &in.Calendar)
+	addCalendarsFlag(cmd, &in.Calendars)
+	cmd.Flags().BoolVar(&in.AllCalendars, "all-calendars", false, "list events across every calendar")
+	cmd.MarkFlagsMutuallyExclusive("calendar", "all-calendars")
 	addTZFlag(cmd, &in.TZ, "queries and display (default: from config / system)")
 	cmd.Flags().StringVar(&in.From, "from", "", "window start, YYYY-MM-DD [HH:MM] (default: now; --days counts from it)")
 	cmd.Flags().StringSliceVar(&fields, "fields", nil, "comma-separated detail fields to expand under each event (text output)")

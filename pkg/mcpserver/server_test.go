@@ -2,6 +2,7 @@ package mcpserver
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sort"
 	"strings"
@@ -56,6 +57,44 @@ func TestServerExposesAllTools(t *testing.T) {
 		if names[i] != want[i] {
 			t.Fatalf("tools = %v, want %v", names, want)
 		}
+	}
+}
+
+// list_events exposes a multi-calendar input: a "calendars" array and an
+// "all_calendars" flag, replacing the old single "calendar" string.
+func TestListEventsToolMultiCalendarSchema(t *testing.T) {
+	cs := connectTestClient(t, failingServer(errors.New("unused")))
+	res, err := cs.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var schema any
+	for _, tool := range res.Tools {
+		if tool.Name == "list_events" {
+			schema = tool.InputSchema
+		}
+	}
+	if schema == nil {
+		t.Fatal("list_events tool not found")
+	}
+	raw, err := json.Marshal(schema)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var doc struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := doc.Properties["calendars"]; !ok {
+		t.Errorf("list_events must expose a calendars property; schema=%s", raw)
+	}
+	if _, ok := doc.Properties["all_calendars"]; !ok {
+		t.Errorf("list_events must expose an all_calendars property; schema=%s", raw)
+	}
+	if _, ok := doc.Properties["calendar"]; ok {
+		t.Errorf("list_events must not expose the old single calendar property; schema=%s", raw)
 	}
 }
 

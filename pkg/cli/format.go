@@ -51,8 +51,11 @@ func eventDetailRows(ev *event.Event, sel fieldSet, set calendar.Settings, cal c
 }
 
 // occurrenceHeaderRows builds the header and labeled sub-rows for one listed
-// occurrence (times in loc, all-day dates in UTC) for the list renderer.
-func occurrenceHeaderRows(l event.Listed, loc *time.Location, sel fieldSet, set calendar.Settings, cal calendar.Info) (header string, rows []labeled) {
+// occurrence (times in loc, all-day dates in UTC) for the list renderer. The
+// item carries its own calendar context (color, default reminders, name) so a
+// window spanning multiple calendars renders each event correctly.
+func occurrenceHeaderRows(item calsvc.ListedItem, loc *time.Location, sel fieldSet) (header string, rows []labeled) {
+	l := item.Listed
 	raw := l.Occurrence.Event
 	ev := l.Event
 	header = eventview.SummaryOr(ev) + eventview.RecurrenceSuffix(raw)
@@ -60,8 +63,11 @@ func occurrenceHeaderRows(l event.Listed, loc *time.Location, sel fieldSet, set 
 	start := time.Unix(l.Occurrence.Start, 0)
 	end := time.Unix(l.Occurrence.End, 0)
 
-	rows = []labeled{{"Time", eventTimeRange(start, end, ev.AllDay, loc)}}
-	rows = append(rows, eventDetailRows(ev, sel, set, cal)...)
+	if sel.has(fieldCalendar) {
+		rows = append(rows, labeled{"Calendar", item.Calendar.Name})
+	}
+	rows = append(rows, labeled{"Time", eventTimeRange(start, end, ev.AllDay, loc)})
+	rows = append(rows, eventDetailRows(ev, sel, item.Settings, item.Calendar)...)
 	if raw.IsMaster() {
 		rows = append(rows, labeled{"Occurrence start", calsvc.FormatOccurrenceStart(l.Occurrence.Start, ev.AllDay, loc)})
 	}
@@ -71,12 +77,12 @@ func occurrenceHeaderRows(l event.Listed, loc *time.Location, sel fieldSet, set 
 
 // occurrenceListLines renders a window of listed occurrences with one shared
 // label-column width so every event's sub-field values align.
-func occurrenceListLines(items []event.Listed, loc *time.Location, sel fieldSet, set calendar.Settings, cal calendar.Info) []string {
+func occurrenceListLines(items []calsvc.ListedItem, loc *time.Location, sel fieldSet) []string {
 	headers := make([]string, len(items))
 	rowsPer := make([][]labeled, len(items))
 	width := 0
-	for i, l := range items {
-		headers[i], rowsPer[i] = occurrenceHeaderRows(l, loc, sel, set, cal)
+	for i, item := range items {
+		headers[i], rowsPer[i] = occurrenceHeaderRows(item, loc, sel)
 		if w := labelWidth(rowsPer[i]); w > width {
 			width = w
 		}
@@ -230,6 +236,7 @@ const (
 	fieldColor       fieldKey = "color"
 	fieldRRule       fieldKey = "rrule"
 	fieldUID         fieldKey = "uid"
+	fieldCalendar    fieldKey = "calendar"
 	fieldCalendarID  fieldKey = "calendar_id"
 	fieldID          fieldKey = "id"
 )
@@ -270,6 +277,7 @@ var eventFieldRegistry = []fieldRow{
 	{fieldConference, true},
 	{fieldReminders, true},
 	{fieldColor, true},
+	{fieldCalendar, true},
 	{fieldRRule, false},
 	{fieldUID, false},
 	{fieldCalendarID, false},
@@ -277,13 +285,20 @@ var eventFieldRegistry = []fieldRow{
 }
 
 // listDefaultFields is the curated events-list sub-line set when no
-// --fields/--all is given: location, description, conference (color omitted).
-func listDefaultFields() fieldSet {
-	return fieldSet{
+// --fields/--all is given: location, description, conference, and color. The
+// calendar field is added only when the listing spans multiple calendars, so
+// each event is labeled with which calendar it belongs to.
+func listDefaultFields(multiCalendar bool) fieldSet {
+	fs := fieldSet{
 		fieldLocation:    true,
 		fieldDescription: true,
 		fieldConference:  true,
+		fieldColor:       true,
 	}
+	if multiCalendar {
+		fs[fieldCalendar] = true
+	}
+	return fs
 }
 
 // calendarFieldRegistry is the ordered set of selectable calendar fields.

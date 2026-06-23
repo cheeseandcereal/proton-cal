@@ -180,7 +180,7 @@ func TestE2EServiceLifecycle(t *testing.T) {
 	}
 
 	// List: the (renamed) event appears in the window.
-	list, err := svc.ListEvents(ctx, ListEventsInput{Calendar: cal, TZ: "UTC", From: e2eFutureDate() + " 00:00", Days: 2})
+	list, err := svc.ListEvents(ctx, ListEventsInput{Calendars: []string{cal}, TZ: "UTC", From: e2eFutureDate() + " 00:00", Days: 2})
 	if err != nil {
 		t.Fatalf("ListEvents: %v", err)
 	}
@@ -277,7 +277,7 @@ func TestE2EErrorPaths(t *testing.T) {
 		}
 	})
 	t.Run("unresolvable calendar", func(t *testing.T) {
-		_, err := svc.ListEvents(ctx, ListEventsInput{Calendar: "no-such-calendar-xyz"})
+		_, err := svc.ListEvents(ctx, ListEventsInput{Calendars: []string{"no-such-calendar-xyz"}})
 		if err == nil || !strings.Contains(strings.ToLower(err.Error()), "calendar") {
 			t.Errorf("want calendar-resolution error, got %v", err)
 		}

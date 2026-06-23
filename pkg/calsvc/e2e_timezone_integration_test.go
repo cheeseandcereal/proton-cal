@@ -41,7 +41,7 @@ func TestE2ETimezoneWallTimeStable(t *testing.T) {
 	defer func() { _, _ = svc.DeleteEvent(ctx, DeleteEventInput{EventID: created.ID, Calendar: cal}) }()
 
 	list, err := svc.ListEvents(ctx, ListEventsInput{
-		Calendar: cal, TZ: zone,
+		Calendars: []string{cal}, TZ: zone,
 		From: startDay.Format("2006-01-02") + " 00:00", Days: 5,
 	})
 	if err != nil {

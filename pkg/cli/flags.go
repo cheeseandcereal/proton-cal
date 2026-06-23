@@ -14,6 +14,14 @@ func addCalendarFlag(cmd *cobra.Command, target *string) {
 	cmd.Flags().StringVar(target, "calendar", "", "calendar ID or name (default: account's default calendar, else first)")
 }
 
+// addCalendarsFlag registers a repeatable --calendar selector flag. StringArray
+// (not StringSlice) is used so values are NOT split on commas — calendar names
+// may contain commas. Repeat the flag to address several calendars.
+func addCalendarsFlag(cmd *cobra.Command, target *[]string) {
+	cmd.Flags().StringArrayVar(target, "calendar", nil,
+		"calendar ID or name (default: account's default calendar, else first); repeat for several")
+}
+
 // addTZFlag registers the --tz flag with a per-command default description.
 func addTZFlag(cmd *cobra.Command, target *string, what string) {
 	cmd.Flags().StringVar(target, "tz", "", "IANA timezone for "+what)

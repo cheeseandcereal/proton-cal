@@ -12,7 +12,7 @@ import (
 // given event UID, in ListWindow order.
 func occurrencesForUID(t *testing.T, svc *Service, calSel, uid string, from string, days int) []int64 {
 	t.Helper()
-	list, err := svc.ListEvents(context.Background(), ListEventsInput{Calendar: calSel, TZ: "UTC", From: from, Days: days})
+	list, err := svc.ListEvents(context.Background(), ListEventsInput{Calendars: []string{calSel}, TZ: "UTC", From: from, Days: days})
 	if err != nil {
 		t.Fatalf("ListEvents: %v", err)
 	}
