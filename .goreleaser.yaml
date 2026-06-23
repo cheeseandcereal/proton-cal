@@ -1,0 +1,53 @@
+version: 2
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - main: ./cmd/proton-cal
+    binary: proton-cal
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w
+      - -X github.com/cheeseandcereal/proton-cal/pkg/cli.version={{ .Version }}
+
+archives:
+  - formats: [binary]
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: checksums.txt
+
+changelog:
+  use: github
+  groups:
+    - title: Features
+      regexp: '^.*?feat(\(.+\))??!?:.+$'
+      order: 0
+    - title: Bug fixes
+      regexp: '^.*?fix(\(.+\))??!?:.+$'
+      order: 1
+    - title: Others
+      order: 999
+  filters:
+    exclude:
+      - '^.*?docs(\(.+\))??!?:'
+      - '^.*?test(\(.+\))??!?:'
+      - '^.*?chore(\(.+\))??!?:'
+      - '^.*?style(\(.+\))??!?:'
+      - '^.*?ci(\(.+\))??!?:'
+      - '^.*?refactor(\(.+\))??!?:'
+
+release:
+  prerelease: auto
