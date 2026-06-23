@@ -139,6 +139,15 @@ func (s *server) register(srv *mcp.Server) {
 	}, s.deleteEvent)
 
 	mcp.AddTool(srv, &mcp.Tool{
+		Name: "create_calendar",
+		Description: "Create a new owned calendar with the given name. Optionally set a " +
+			"description and color (a Proton color name like \"strawberry\" or its hex; " +
+			"if omitted, a random palette color is chosen), and/or make it the account " +
+			"default. Default reminders and event duration use the account defaults and " +
+			"can be changed afterwards with update_calendar.",
+	}, s.createCalendar)
+
+	mcp.AddTool(srv, &mcp.Tool{
 		Name: "update_calendar",
 		Description: "Update an owned calendar (by ID or name; default: the account's " +
 			"default, else the first). Change its name, description, color, default " +
@@ -444,6 +453,33 @@ func (s *server) deleteEvent(ctx context.Context, _ *mcp.CallToolRequest, args d
 		return nil, nil, err
 	}
 	return textResult(renderDeleteResult(res, args.EventID)), res, nil
+}
+
+// ---------------------------------------------------------------- create_calendar
+
+type createCalendarArgs struct {
+	Name        string `json:"name" jsonschema:"The new calendar's name"`
+	Description string `json:"description,omitempty" jsonschema:"Optional calendar description"`
+	Color       string `json:"color,omitempty" jsonschema:"Color: a Proton color name (e.g. \"strawberry\") or its hex (only Proton's fixed palette). Optional; defaults to a random palette color. A calendar has no inheritable default color, so \"default\" is not accepted."`
+	MakeDefault bool   `json:"make_default,omitempty" jsonschema:"Make this the account's default calendar"`
+}
+
+func (s *server) createCalendar(ctx context.Context, _ *mcp.CallToolRequest, args createCalendarArgs) (*mcp.CallToolResult, any, error) {
+	svc, err := s.service()
+	if err != nil {
+		return nil, nil, err
+	}
+	got, err := svc.CreateCalendar(ctx, calsvc.CreateCalendarInput{
+		Name:        args.Name,
+		Description: args.Description,
+		Color:       args.Color, // validated (incl. rejecting "default") in the service
+		MakeDefault: args.MakeDefault,
+	})
+	if err != nil {
+		return nil, nil, err
+	}
+	return textResult(renderCalendarDetail(got.Info, got.Settings, got.IsDefault)),
+		caljson.CalendarDetailOf(got.Info, got.Settings, got.IsDefault), nil
 }
 
 // ---------------------------------------------------------------- update_calendar

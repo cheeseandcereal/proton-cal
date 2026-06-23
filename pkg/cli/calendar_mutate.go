@@ -15,6 +15,59 @@ import (
 	"github.com/cheeseandcereal/proton-cal/pkg/reminders"
 )
 
+func newCreateCalendarCmd() *cobra.Command {
+	var (
+		description string
+		color       string
+		makeDefault bool
+	)
+
+	cmd := &cobra.Command{
+		Use:   "calendar NAME",
+		Short: "Create a new calendar",
+		Long: "Create a new owned calendar with the given name.\n\n" +
+			"The color is a Proton color name (e.g. strawberry) or its hex; if omitted,\n" +
+			"a random palette color is chosen. Default reminders and event duration use\n" +
+			"the account defaults and can be changed afterwards with `update calendar`.",
+		Args: requireArgs(cobra.ExactArgs(1)),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			in := calsvc.CreateCalendarInput{
+				Name:        args[0],
+				Description: description,
+				Color:       color,
+				MakeDefault: makeDefault,
+			}
+
+			svc, err := serviceFactory()
+			if err != nil {
+				return err
+			}
+			defer svc.Close()
+
+			got, err := svc.CreateCalendar(cmd.Context(), in)
+			if err != nil {
+				return err
+			}
+
+			if outputJSON() {
+				return printJSON(caljson.CalendarDetailOf(got.Info, got.Settings, got.IsDefault))
+			}
+			w := humanOut()
+			fmt.Fprintln(w, "Calendar created.")
+			sel, _ := selectFields(calendarFieldRegistry, nil, true)
+			for _, line := range calendarDetailLines(got.Info, got.Settings, got.IsDefault, sel) {
+				fmt.Fprintln(w, line)
+			}
+			return nil
+		},
+	}
+
+	cmd.Flags().StringVar(&description, "description", "", "calendar description")
+	cmd.Flags().StringVar(&color, "color", "", "color: a Proton color name (e.g. strawberry) or its hex (default: a random palette color)")
+	cmd.Flags().BoolVar(&makeDefault, "make-default", false, "make this the account's default calendar")
+	return cmd
+}
+
 func newUpdateCalendarCmd() *cobra.Command {
 	var (
 		name        string

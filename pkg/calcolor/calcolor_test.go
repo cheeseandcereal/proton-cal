@@ -87,3 +87,14 @@ func TestLabel(t *testing.T) {
 		t.Error("empty label")
 	}
 }
+
+func TestRandomHex(t *testing.T) {
+	// Every result must be a valid palette color. Run enough iterations to be
+	// confident the random selection stays within the palette.
+	for range 200 {
+		hex := RandomHex()
+		if !Valid(hex) {
+			t.Fatalf("RandomHex returned %q, not a palette color", hex)
+		}
+	}
+}

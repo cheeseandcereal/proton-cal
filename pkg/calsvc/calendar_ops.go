@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/cheeseandcereal/proton-cal/pkg/auth"
 	"github.com/cheeseandcereal/proton-cal/pkg/calcolor"
@@ -103,6 +104,106 @@ func (s *Service) UpdateCalendar(ctx context.Context, in UpdateCalendarInput) (*
 
 	// Return refreshed detail without a key unlock: the touched caches are now
 	// invalidated, so resolveCalendar and FetchSettings read fresh.
+	refreshed, err := s.resolveCalendar(ctx, info.ID)
+	if err != nil {
+		return nil, err
+	}
+	set, err := calendar.FetchSettings(ctx, s.api, info.ID)
+	if err != nil {
+		return nil, err
+	}
+	defaultID, _ := s.DefaultCalendarID(ctx)
+	return &GotCalendar{
+		Info:      refreshed,
+		Settings:  set,
+		IsDefault: defaultID != "" && refreshed.ID == defaultID,
+	}, nil
+}
+
+// maxCalendarNameLen and maxCalendarDescriptionLen mirror the web client's
+// MAX_CHARS_API (CALENDAR_NAME / CALENDAR_DESCRIPTION); enforced client-side for
+// a clean error before the round-trip.
+const (
+	maxCalendarNameLen        = 100
+	maxCalendarDescriptionLen = 255
+)
+
+// CreateCalendarInput describes a new owned calendar. Name is required; Color
+// is a Proton color name or hex (empty = a random palette color, as the web
+// client does). MakeDefault also sets it as the account's default calendar.
+type CreateCalendarInput struct {
+	Name        string
+	Description string
+	Color       string
+	MakeDefault bool
+}
+
+// CreateCalendar creates a new owned calendar and returns its refreshed detail.
+// It resolves the color (random when unset), unlocks the account keys to pick
+// the signing address, then performs the two-step create (metadata + keys). On
+// a key-setup failure the (keyless) calendar's ID is reported via the wrapped
+// error so it can be completed or removed.
+func (s *Service) CreateCalendar(ctx context.Context, in CreateCalendarInput) (*GotCalendar, error) {
+	name := strings.TrimSpace(in.Name)
+	if name == "" {
+		return nil, errors.New("a calendar name is required")
+	}
+	if len(name) > maxCalendarNameLen {
+		return nil, fmt.Errorf("calendar name is too long (%d chars; max %d)", len(name), maxCalendarNameLen)
+	}
+	if len(in.Description) > maxCalendarDescriptionLen {
+		return nil, fmt.Errorf("calendar description is too long (%d chars; max %d)", len(in.Description), maxCalendarDescriptionLen)
+	}
+
+	// Resolve the color up front (fail before any write). A calendar has no
+	// inheritable color, so the "default" sentinel is rejected; an empty color
+	// gets a random palette color like the web client.
+	var colorHex string
+	switch {
+	case in.Color == "":
+		colorHex = calcolor.RandomHex()
+	case calcolor.IsDefault(in.Color):
+		return nil, errors.New(`--color requires a Proton color name or hex (a calendar has no inheritable default color)`)
+	default:
+		hex, err := calcolor.Resolve(in.Color)
+		if err != nil {
+			return nil, err
+		}
+		colorHex = hex
+	}
+
+	kc, err := s.keychainLazy(ctx)
+	if err != nil {
+		return nil, err
+	}
+	addressID, addrKR, err := kc.SigningAddress()
+	if err != nil {
+		return nil, err
+	}
+
+	info, err := calendar.Create(ctx, s.api, calendar.CreateInput{
+		Name:        name,
+		Description: in.Description,
+		ColorHex:    colorHex,
+		AddressID:   addressID,
+		AddrKR:      addrKR,
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	// The new calendar must appear in subsequent resolutions/lists.
+	s.invalidateCalendarList()
+
+	if in.MakeDefault {
+		if err := calendar.SetDefaultCalendarID(ctx, s.api, info.ID); err != nil {
+			return nil, fmt.Errorf("calendar %q was created but could not be made the default: %w", info.Name, err)
+		}
+		s.invalidateCache(calendar.UserSettingsPath)
+	}
+
+	// Return refreshed detail without a key unlock: the bootstrap already
+	// carries the server-applied default settings for the new calendar.
 	refreshed, err := s.resolveCalendar(ctx, info.ID)
 	if err != nil {
 		return nil, err

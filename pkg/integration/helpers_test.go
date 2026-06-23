@@ -42,6 +42,10 @@ const (
 // testConfig is the shape of pkg/integration/config.toml.
 type testConfig struct {
 	Calendars []string `toml:"calendars"`
+	// Password is the account login password, optional. Present: the calendar
+	// create/delete lifecycle test runs (owned-calendar delete needs the
+	// elevated scope). Absent: that one test skips.
+	Password string `toml:"password"`
 }
 
 // suite is the shared, lazily-initialized plumbing for all tests. Uses the REAL

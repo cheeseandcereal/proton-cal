@@ -10,3 +10,10 @@
 # A name must match exactly one calendar; if names are ambiguous, use the
 # calendar ID (shown by `proton-cal calendars`).
 calendars = ["<calendar-id-or-name>"]
+
+# OPTIONAL. The account login password, enabling the calendar create/delete
+# test (TestCreateCalendarLifecycle). Deleting an owned calendar requires the
+# elevated "locked" scope (re-proving this password via SRP), so without it
+# that one test skips; all other tests run regardless. SENSITIVE: this file is
+# gitignored, but treat it like any credential.
+# password = "<account-login-password>"

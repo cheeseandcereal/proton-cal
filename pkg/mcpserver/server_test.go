@@ -48,7 +48,7 @@ func TestServerExposesAllTools(t *testing.T) {
 		names = append(names, tool.Name)
 	}
 	sort.Strings(names)
-	want := []string{"create_event", "delete_calendar", "delete_event", "get_calendar", "get_event", "list_calendars", "list_events", "update_calendar", "update_event"}
+	want := []string{"create_calendar", "create_event", "delete_calendar", "delete_event", "get_calendar", "get_event", "list_calendars", "list_events", "update_calendar", "update_event"}
 	if len(names) != len(want) {
 		t.Fatalf("tools = %v, want %v", names, want)
 	}
@@ -104,6 +104,16 @@ func TestToolErrorsAreToolResults(t *testing.T) {
 	})
 	if !isErr || !strings.Contains(text, "invalid datetime") {
 		t.Errorf("isErr=%v text=%q", isErr, text)
+	}
+
+	// create_calendar validates the name and color before any network use.
+	text, isErr = callText(t, cs2, "create_calendar", map[string]any{"name": ""})
+	if !isErr || !strings.Contains(text, "name is required") {
+		t.Errorf("create_calendar empty name: isErr=%v text=%q", isErr, text)
+	}
+	text, isErr = callText(t, cs2, "create_calendar", map[string]any{"name": "Work", "color": "default"})
+	if !isErr || !strings.Contains(text, "no inheritable default color") {
+		t.Errorf("create_calendar default color: isErr=%v text=%q", isErr, text)
 	}
 
 	// delete_calendar confirm=false dry-runs and refuses, naming the target.

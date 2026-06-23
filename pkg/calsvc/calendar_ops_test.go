@@ -167,6 +167,42 @@ func TestUpdateCalendarNothingToDo(t *testing.T) {
 	}
 }
 
+func TestCreateCalendarRejectsEmptyName(t *testing.T) {
+	s := detachedWithAPI(config.Config{}, nil)
+	for _, name := range []string{"", "   "} {
+		_, err := s.CreateCalendar(context.Background(), CreateCalendarInput{Name: name})
+		if err == nil || !strings.Contains(err.Error(), "name is required") {
+			t.Errorf("name %q: want required-name error, got %v", name, err)
+		}
+	}
+}
+
+func TestCreateCalendarRejectsTooLong(t *testing.T) {
+	s := detachedWithAPI(config.Config{}, nil)
+	long := strings.Repeat("x", maxCalendarNameLen+1)
+	if _, err := s.CreateCalendar(context.Background(), CreateCalendarInput{Name: long}); err == nil ||
+		!strings.Contains(err.Error(), "name is too long") {
+		t.Errorf("want name-too-long error, got %v", err)
+	}
+	desc := strings.Repeat("y", maxCalendarDescriptionLen+1)
+	if _, err := s.CreateCalendar(context.Background(), CreateCalendarInput{Name: "ok", Description: desc}); err == nil ||
+		!strings.Contains(err.Error(), "description is too long") {
+		t.Errorf("want description-too-long error, got %v", err)
+	}
+}
+
+func TestCreateCalendarRejectsDefaultAndInvalidColor(t *testing.T) {
+	s := detachedWithAPI(config.Config{}, nil)
+	_, err := s.CreateCalendar(context.Background(), CreateCalendarInput{Name: "ok", Color: "default"})
+	if err == nil || !strings.Contains(err.Error(), "no inheritable default color") {
+		t.Errorf(`color "default": want rejection, got %v`, err)
+	}
+	_, err = s.CreateCalendar(context.Background(), CreateCalendarInput{Name: "ok", Color: "#123456"})
+	if err == nil || !strings.Contains(err.Error(), "invalid color") {
+		t.Errorf("invalid color: want rejection, got %v", err)
+	}
+}
+
 func TestDeleteCalendarManagedRoute(t *testing.T) {
 	api := &recordingAPI{bodies: map[string]string{
 		"/calendar/v1": calListWithType("h1", "Holidays", 2),

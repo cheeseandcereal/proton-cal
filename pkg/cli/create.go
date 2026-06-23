@@ -15,13 +15,14 @@ import (
 func newCreateCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "create",
-		Short: "Create a resource (event)",
+		Short: "Create a resource (event, calendar)",
 		Args:  requireArgs(cobra.NoArgs),
 		RunE: func(_ *cobra.Command, _ []string) error {
 			return errMissingSubcommand
 		},
 	}
 	cmd.AddCommand(newCreateEventCmd())
+	cmd.AddCommand(newCreateCalendarCmd())
 	return cmd
 }
 

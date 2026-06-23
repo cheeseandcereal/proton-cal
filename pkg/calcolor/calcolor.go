@@ -9,6 +9,7 @@ package calcolor
 import (
 	"errors"
 	"fmt"
+	"math/rand/v2"
 	"sort"
 	"strings"
 )
@@ -134,6 +135,13 @@ func Names() string {
 	}
 	sort.Strings(entries)
 	return strings.Join(entries, ", ")
+}
+
+// RandomHex returns the canonical hex of a random palette color, for picking
+// a calendar color when the user supplies none (mirrors the web client, which
+// assigns a random accent color to a newly created calendar).
+func RandomHex() string {
+	return palette[rand.IntN(len(palette))].Hex
 }
 
 // Palette returns the valid colors sorted by friendly name (matching Names'

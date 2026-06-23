@@ -126,6 +126,34 @@ shapes they have on the standalone v1 routes, so the unlock logic is unchanged
    keep every key that unlocks, since old events may be encrypted to retired
    calendar keys.
 
+### Calendar key setup (create)
+
+Creating a calendar runs this chain **in reverse** to build the
+`POST /calendar/v1/{calID}/keys` body (see [api.md](api.md) for the two-step
+flow). It mirrors the web client's `generateCalendarKeyPayload`:
+
+1. **Passphrase** - 32 CSPRNG bytes encoded as standard base64. The base64
+   *string* (treated as UTF-8 text) is the passphrase used in every step below.
+2. **Calendar key** - generate a new OpenPGP key: legacy Ed25519 signing
+   primary + Curve25519 (cv25519) ECDH encryption subkey (gopenpgp's `"x25519"`
+   keyType). The user ID is name `"Calendar key"` with **no email** (so an
+   exported key is not mistaken for a personal one). Lock the private key with
+   the passphrase and armor it -> `PrivateKey`.
+3. **Encrypt + sign the passphrase to the member's address key** (a single
+   `pgp.EncryptAndSign`, the same primitive event creation uses): a fresh
+   session key encrypts the passphrase (SEIPD) -> `Passphrase.DataPacket`; that
+   session key is encrypted to the address key (PKESK) -> `Passphrase.KeyPacket`
+   (a split message - key packet and data packet serialized separately, both
+   binary then base64); and the passphrase **plaintext** is detached-signed with
+   the address key -> armored `Signature`.
+
+The passphrase is encrypted to the unlocked address **keyring**, which holds
+all active keys of that address; on an address with rotated keys this emits a
+PKESK per key (extra recipients) rather than the web client's primary-only
+packet. This is harmless - the read path (`decryptPassphrase`) tries every
+address key - and matches the existing event-create path. The resulting
+calendar unlocks through the normal bootstrap path unchanged.
+
 ## Event encryption model
 
 ### Data partitioning

@@ -10,7 +10,8 @@ See [crypto.md](crypto.md) for the encryption model these endpoints carry and
 | Method | Endpoint                             | Purpose |
 |--------|--------------------------------------|---------|
 | GET    | `/calendar/v1`                       | List calendars |
-| POST   | `/calendar/v1`                       | Create calendar (we don't create calendars; needs calendar-key generation) |
+| POST   | `/calendar/v1`                       | Create a calendar (metadata only; step 1 of 2 - see "Creating a calendar"); we call it for `create calendar` |
+| POST   | `/calendar/v1/{calID}/keys`          | Set up a new calendar's key material (step 2 of 2); we call it for `create calendar` |
 | GET    | `/calendar/v1/{calID}`               | Get one calendar (returns only ID/Type/Owner; metadata lives on the member) |
 | DELETE | `/calendar/v1/{calID}`               | Delete an OWNED calendar (we call it; needs the elevated "locked" scope) |
 | DELETE | `/calendar/v1/{calID}/managed`       | Delete/leave a backend-managed (holidays) calendar (we call it; normal scope) |
@@ -111,6 +112,43 @@ Both frontends first **resolve** the calendar as a dry run: without confirmation
 (`--yes` / `confirm=true`) they refuse and report the exact calendar that would
 be deleted (name, type, ID), guarding against deleting the wrong one. The
 resolved ID (not the raw selector) is then used for the delete.
+
+### Creating a calendar (live-verified)
+
+Creating an owned (`Type 0`) calendar is **two POSTs**, both with the **normal**
+session scope (no password, unlike delete). It mirrors the web client
+(`setupCalendarHelper`):
+
+1. **Metadata** - `POST /calendar/v1` with
+   `{Name, Description, Color, Display: 1, AddressID}`. `Display: 1` =
+   visible. `AddressID` is the creating member's address (we use the first
+   **active** address - enabled, sending and receiving - with an unlocked key).
+   The response is the full calendar, but its member carries `Flags: 8`
+   (`INCOMPLETE_SETUP`) and the calendar has **no keys yet** (a bootstrap at
+   this point returns `Keys: []`, `Passphrase: null`). `Color` must be a Proton
+   palette color, else `400 code 2001 "Color is not in allowed color list"`
+   (note: a different code from the member-update path's `2011`); we validate
+   client-side first (`pkg/calcolor`). `Name` <= 100 chars, `Description` <= 255
+   (web client `MAX_CHARS_API`). The number of calendars per account is capped
+   by plan (server-enforced).
+2. **Key material** - `POST /calendar/v1/{calID}/keys` with
+   `{AddressID, Signature, PrivateKey, Passphrase: {DataPacket, KeyPacket}}`
+   (see [crypto.md](crypto.md) "Calendar key setup"). On success the calendar
+   is fully usable and unlocks through the normal bootstrap path with no
+   read-side changes.
+
+The server applies **default settings** automatically (observed:
+`DefaultEventDuration: 30`, the standard default reminder sets, `MakesUserBusy:
+1`); `create calendar` exposes no settings flags - use `update calendar` to
+change them afterwards. An optional `--make-default` / `make_default` then
+writes `PUT /settings/calendar` as for `update calendar`.
+
+**Orphan/recovery.** If step 1 succeeds but step 2 fails, a keyless calendar is
+left behind (member `Flags: 8`). It is **recoverable**: re-running the
+setup-keys call completes it (verified live). `create calendar` surfaces the
+created calendar's ID in the error so it can be completed or removed. (We do
+not auto-roll-back: deleting an owned calendar needs the elevated scope, which
+the create path does not hold.)
 
 ### Event operations
 

@@ -67,6 +67,8 @@ func TestCLICreateValidationErrors(t *testing.T) {
 		{"bad start", []string{"create", "event", "Lunch", "--start", "nope", "--end", "2026-06-15 10:00"}, "invalid date"},
 		{"rrule conflicts repeat", []string{"create", "event", "X", "--start", "2026-06-15 09:00", "--end", "2026-06-15 10:00", "--rrule", "FREQ=DAILY", "--repeat", "daily"}, "rrule cannot be combined"},
 		{"modifiers require repeat", []string{"create", "event", "X", "--start", "2026-06-15 09:00", "--end", "2026-06-15 10:00", "--count", "3"}, "require repeat"},
+		{"calendar bad color", []string{"create", "calendar", "Work", "--color", "notacolor"}, "invalid color"},
+		{"calendar default color rejected", []string{"create", "calendar", "Work", "--color", "default"}, "no inheritable default color"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
@@ -255,6 +257,7 @@ func TestCLILeafMissingArg(t *testing.T) {
 	for _, args := range [][]string{
 		{"get", "event"},
 		{"create", "event"},
+		{"create", "calendar"},
 		{"update", "event"},
 		{"delete", "event"},
 		{"delete", "calendar"},
