@@ -229,8 +229,8 @@ func lock(path string) (func(), error) {
 	return func() { _ = fl.Unlock() }, nil
 }
 
-// writeFileAtomic writes data atomically and durably via natefinch/atomic.
-// Fresh files are mode 0600; existing files keep their permissions.
+// ponytail: single atomic-write chokepoint; not inlined so bytes/atomic
+// imports stay in one file. atomic.WriteFile handles fresh-file 0600 itself.
 func writeFileAtomic(path string, data []byte) error {
 	return atomic.WriteFile(path, bytes.NewReader(data))
 }

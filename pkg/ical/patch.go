@@ -9,7 +9,7 @@ import (
 
 // CardPatch describes property-level edits to a decrypted VEVENT card,
 // preserving every other line verbatim (so conferencing, attendees, organizer
-// and third-party properties survive a rebuild-from-fields would drop).
+// and third-party properties a rebuild-from-fields would drop survive).
 type CardPatch struct {
 	// Set replaces or inserts a single-valued property: key is the upper-case
 	// NAME, value is the line after NAME, e.g. ":new value" or ";TZID=...:...".
@@ -31,7 +31,7 @@ func PatchCard(card string, patch CardPatch) string {
 
 	// Partition into top-level property lines vs nested-component blocks,
 	// preserving order. We rebuild only the property region.
-	props := topLevelEventLines(lines)
+	props := eventContentLines(lines)
 	components := collectComponents(lines)
 
 	existing := make(map[string]bool, len(props))

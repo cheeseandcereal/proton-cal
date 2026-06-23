@@ -282,14 +282,8 @@ func TestDecryptRoundTrip(t *testing.T) {
 	if ev.Description != "fixture description" || ev.Location != "fixture location" {
 		t.Errorf("desc/location = %q/%q", ev.Description, ev.Location)
 	}
-	if ev.Status != "CONFIRMED" {
-		t.Errorf("status = %q", ev.Status)
-	}
 	if ev.Sequence != 3 {
 		t.Errorf("sequence = %d, want 3", ev.Sequence)
-	}
-	if ev.RawSharedSigned == "" || !strings.Contains(ev.RawSharedSigned, "DTSTART") {
-		t.Errorf("RawSharedSigned not captured: %q", ev.RawSharedSigned)
 	}
 	// Fragment DTSTART (09:00 Berlin = 07:00 UTC on 2026-06-15) overrides raw metadata.
 	wantStart := time.Date(2026, 6, 15, 7, 0, 0, 0, time.UTC).Unix()
@@ -359,7 +353,7 @@ func TestDecryptEnrichesAttendeesConferenceRowFields(t *testing.T) {
 	raw.Color = "#EC3E7C"
 	raw.IsOrganizer = 1
 	raw.Notifications = []caltypes.Notification{{Type: 1, Trigger: "-PT1H"}, {Type: 1, Trigger: "-PT15M"}}
-	raw.Attendees = []caltypes.AttendeeToken{{ID: "a1", Token: "tok123", Status: 3}}
+	raw.Attendees = []caltypes.AttendeeToken{{Token: "tok123", Status: 3}}
 	raw.AttendeesInfo = caltypes.AttendeesInfo{MoreAttendees: 0}
 
 	ev, err := Decrypt(raw, calKR)
@@ -413,9 +407,6 @@ func TestDecryptLenientOnBadCard(t *testing.T) {
 	}
 	if ev.Summary != "" {
 		t.Errorf("summary should be missing, got %q", ev.Summary)
-	}
-	if ev.Status != "CONFIRMED" {
-		t.Errorf("calendar-signed part should still parse, status = %q", ev.Status)
 	}
 	if !ev.DecryptFailed {
 		t.Error("DecryptFailed should be set when a card fails to decrypt")
@@ -805,7 +796,7 @@ func serveExisting(rec *syncRecorder, raw *caltypes.RawEvent, related ...*caltyp
 			}
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_ = json.NewEncoder(w).Encode(eventsResponse{Events: rows, Total: len(rows)})
+		_ = json.NewEncoder(w).Encode(eventsResponse{Events: rows})
 	})
 }
 
@@ -1061,7 +1052,7 @@ func TestUpdatePreservesUnknownProperties(t *testing.T) {
 		SharedKeyPacket: sharedKP,
 		Color:           "#EC3E7C",
 		Notifications:   []caltypes.Notification{{Type: 1, Trigger: "-PT1H"}, {Type: 0, Trigger: "-PT15M"}},
-		Attendees:       []caltypes.AttendeeToken{{ID: "a1", Token: "tok1", Status: 3}},
+		Attendees:       []caltypes.AttendeeToken{{Token: "tok1", Status: 3}},
 		SharedEvents: []caltypes.EventPart{
 			{Type: caltypes.CardSigned, Data: sharedSigned, Signature: sharedSignedSig},
 			{Type: caltypes.CardEncryptedAndSigned, Data: sharedData, Signature: sharedSig},

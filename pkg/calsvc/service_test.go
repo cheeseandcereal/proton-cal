@@ -6,22 +6,17 @@ import (
 
 	"github.com/cheeseandcereal/proton-cal/pkg/calendar"
 	"github.com/cheeseandcereal/proton-cal/pkg/config"
+	"github.com/cheeseandcereal/proton-cal/pkg/internal/papitest"
 )
 
 // calListBody is a GET /calendar/v1 response with the given calendars, each
-// expressed as id/name pairs on a single member entry.
-func calListBody(t *testing.T, cals ...[2]string) string {
-	t.Helper()
-	var b []byte
-	b = append(b, []byte(`{"Calendars":[`)...)
+// expressed as id/name pairs (Type 0) on a single member entry.
+func calListBody(_ *testing.T, cals ...[2]string) string {
+	specs := make([]papitest.CalSpec, len(cals))
 	for i, c := range cals {
-		if i > 0 {
-			b = append(b, ',')
-		}
-		b = append(b, []byte(`{"ID":"`+c[0]+`","Type":0,"Members":[{"ID":"m-`+c[0]+`","Name":"`+c[1]+`","Color":"#112233"}]}`)...)
+		specs[i] = papitest.CalSpec{ID: c[0], Name: c[1]}
 	}
-	b = append(b, []byte(`]}`)...)
-	return string(b)
+	return papitest.CalListBody(specs...)
 }
 
 // detachedWithAPI builds a Service backed by the given fake (no cache decorator)

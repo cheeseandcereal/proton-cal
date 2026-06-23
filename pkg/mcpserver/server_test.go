@@ -11,6 +11,7 @@ import (
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/cheeseandcereal/proton-cal/pkg/config"
+	"github.com/cheeseandcereal/proton-cal/pkg/internal/papitest"
 )
 
 // connectTestClient wires the given server to an MCP client over the
@@ -158,7 +159,7 @@ func TestToolErrorsAreToolResults(t *testing.T) {
 	// delete_calendar confirm=false dry-runs and refuses, naming the target.
 	// Needs an API-backed server so resolution succeeds offline.
 	cs3 := connectTestClient(t, apiStubServer(config.Config{Timezone: "UTC"}, map[string]string{
-		"/calendar/v1": `{"Calendars":[{"ID":"id-work","Type":0,"Members":[{"ID":"m1","Name":"Work","Color":"#112233"}]}]}`,
+		"/calendar/v1": papitest.CalListBody(papitest.CalSpec{ID: "id-work", Name: "Work"}),
 	}))
 	text, isErr = callText(t, cs3, "delete_calendar", map[string]any{"calendar": "Work", "confirm": false})
 	if !isErr || !strings.Contains(text, "confirm=true") || !strings.Contains(text, "id-work") {

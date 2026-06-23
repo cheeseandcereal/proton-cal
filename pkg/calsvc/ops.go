@@ -26,15 +26,6 @@ type ListEventsInput struct {
 	Days         int      // days to look ahead; <= 0 = 7
 }
 
-// resolved is the calendar context shared by single-event read results
-// (calendar, default settings, display zone). Embedded so callers reach fields
-// directly.
-type resolved struct {
-	Calendar calendar.Info
-	Settings calendar.Settings // calendar default reminders (for inheritance)
-	Location *time.Location    // display zone the read was resolved in
-}
-
 // ListedItem is one expanded occurrence tagged with the calendar it came from.
 // event.Listed is embedded so callers reach Event/Occurrence directly; Calendar
 // and Settings give the per-item calendar context needed when a listing spans
@@ -234,10 +225,12 @@ type GetEventInput struct {
 // GotEvent is a single decrypted event with its raw row, the resolved
 // calendar, the display zone, and (when requested) the reconstructed ICS.
 type GotEvent struct {
-	resolved
-	Event *event.Event
-	Raw   *caltypes.RawEvent
-	ICS   string // populated only when GetEventInput.WithICS
+	Calendar calendar.Info
+	Settings calendar.Settings // calendar default reminders (for inheritance)
+	Location *time.Location    // display zone the read was resolved in
+	Event    *event.Event
+	Raw      *caltypes.RawEvent
+	ICS      string // populated only when GetEventInput.WithICS
 }
 
 // ErrICSUndecryptable is the error frontends return when an ICS export was
@@ -268,7 +261,7 @@ func (s *Service) GetEvent(ctx context.Context, in GetEventInput) (*GotEvent, er
 		if err != nil {
 			return nil, false, fmt.Errorf("decrypting event: %w", err)
 		}
-		got := &GotEvent{resolved: resolved{Calendar: info, Settings: access.Settings, Location: loc}, Event: ev, Raw: raw}
+		got := &GotEvent{Calendar: info, Settings: access.Settings, Location: loc, Event: ev, Raw: raw}
 		degraded := ev.DecryptFailed
 		if in.WithICS {
 			ics, icsDegraded, ierr := s.buildEventICS(ctx, in.NoSeries, info, access, raw, ev)

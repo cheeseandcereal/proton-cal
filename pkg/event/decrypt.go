@@ -38,10 +38,7 @@ func Decrypt(raw *caltypes.RawEvent, calKR *crypto.KeyRing) (*Event, error) {
 		Start:            time.Unix(raw.StartTime, 0).UTC(),
 		End:              time.Unix(raw.EndTime, 0).UTC(),
 		StartTimezone:    raw.StartTimezone,
-		EndTimezone:      raw.EndTimezone,
 		AllDay:           raw.IsAllDay(),
-		Status:           "CONFIRMED",
-		Transp:           "OPAQUE",
 		RRule:            raw.RRule,
 		RecurrenceID:     recurrenceID,
 		Exdates:          exdates,
@@ -51,10 +48,10 @@ func Decrypt(raw *caltypes.RawEvent, calKR *crypto.KeyRing) (*Event, error) {
 		Notifications:    raw.Notifications,
 		NotificationsSet: raw.NotificationsSet,
 	}
-	// Shared parts (encrypted + signed); signed fragment kept verbatim for
-	// SEQUENCE handling on updates.
+	// Shared parts (encrypted + signed); the signed fragment carries SEQUENCE.
 	mergeParts(ev, raw.SharedEvents, raw.SharedKeyPacket, calKR, true)
-	// Calendar parts: STATUS/TRANSP (signed) and COMMENT (encrypted).
+	// Calendar parts (signed STATUS/TRANSP, encrypted COMMENT) decrypt fine
+	// but surface no fields beyond DecryptFailed tracking.
 	mergeParts(ev, raw.CalendarEvents, raw.CalendarKeyPacket, calKR, false)
 	// Attendee identities encrypted with the shared session key.
 	mergeParts(ev, raw.AttendeesEvents, raw.SharedKeyPacket, calKR, true)
@@ -134,9 +131,6 @@ func mergeParts(ev *Event, parts []caltypes.EventPart, keyPacketB64 string, calK
 			continue
 		}
 		// A non-encrypted card type we don't recognize yields empty data.
-		if signed && data != "" && shared {
-			ev.RawSharedSigned = data
-		}
 		if data == "" {
 			continue
 		}
@@ -161,18 +155,6 @@ func mergeParsed(ev *Event, p ical.VEvent) {
 	}
 	if p.Location != nil {
 		ev.Location = *p.Location
-	}
-	if p.Status != nil && *p.Status != "" {
-		ev.Status = *p.Status
-	}
-	if p.Transp != nil && *p.Transp != "" {
-		ev.Transp = *p.Transp
-	}
-	if p.Comment != nil {
-		ev.Comment = *p.Comment
-	}
-	if p.Created != nil {
-		ev.Created = p.Created.UTC()
 	}
 	if p.Start != nil {
 		ev.Start = p.Start.UTC()

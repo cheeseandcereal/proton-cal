@@ -209,7 +209,7 @@ func WithLockedScope(ctx context.Context, m *proton.Manager, raw *papi.Client, u
 	if err := unlockScope(ctx, m, raw, username, password); err != nil {
 		return fmt.Errorf("unlocking session scope: %w", err)
 	}
-	// Best-effort re-lock: drop the elevated scope as soon as we are done.
+	// Best-effort re-lock: drop the elevated scope when done.
 	defer func() { _ = raw.Put(ctx, "/core/v4/users/lock", struct{}{}, nil) }()
 	return fn()
 }

@@ -4,7 +4,7 @@ import (
 	"strings"
 )
 
-// MergeCard names one decrypted fragment fed to MergeFragments. Only
+// MergeCard names one decrypted fragment fed to MergeVEventBody. Only
 // SharedSigned matters: it wins ties on structural single-valued properties.
 type MergeCard struct {
 	// Shared reports whether this is the shared-signed card (the
@@ -42,18 +42,11 @@ var strippedProps = map[string]bool{
 	"X-PM-SESSION-KEY": true,
 }
 
-// MergeFragments reconstructs a single VCALENDAR/VEVENT from the decrypted
-// cards: unions property lines (unknown/nested preserved verbatim), resolves
-// duplicates (shared-signed wins structural, else first-seen), unions
-// multi-valued as a set, strips X-PM-SESSION-KEY, re-wraps with VERSION:2.0
-// and prodID. Values keep their decrypted TEXT escaping; lines are folded.
-func MergeFragments(prodID string, cards ...MergeCard) string {
-	return MergeVCalendar(prodID, MergeVEventBody(cards...))
-}
-
-// MergeVCalendar wraps pre-built VEVENT bodies in one VCALENDAR with
-// VERSION:2.0 and prodID (the multi-VEVENT series wrapper). The single-body
-// case reproduces MergeFragments byte-for-byte.
+// MergeVCalendar reconstructs a VCALENDAR from pre-built VEVENT bodies with
+// VERSION:2.0 and prodID. A single body is the decrypted-cards case: union
+// property lines (unknown/nested preserved verbatim), resolve duplicates
+// (shared-signed wins structural, else first-seen), union multi-valued as a
+// set, strip X-PM-SESSION-KEY. Values keep TEXT escaping; lines are folded.
 func MergeVCalendar(prodID string, bodies ...[]string) string {
 	out := make([]string, 0, 16)
 	out = append(out, "BEGIN:VCALENDAR", "VERSION:2.0", "PRODID:"+prodID)
@@ -65,7 +58,7 @@ func MergeVCalendar(prodID string, bodies ...[]string) string {
 }
 
 // MergeVEventBody reconstructs one VEVENT (no VCALENDAR wrapper, folded) from
-// the cards with MergeFragments's union/override/strip rules.
+// the cards with the union/override/strip rules.
 func MergeVEventBody(cards ...MergeCard) []string {
 	// Ordered list of merged top-level property lines (logical, unfolded),
 	// plus an index so structural overrides can replace in place.
@@ -79,7 +72,7 @@ func MergeVEventBody(cards ...MergeCard) []string {
 	for _, card := range cards {
 		lines := unfoldLines(card.Data)
 		components = append(components, collectComponents(lines)...)
-		for _, line := range topLevelEventLines(lines) {
+		for _, line := range eventContentLines(lines) {
 			name, _, _, ok := splitContentLine(line)
 			if !ok {
 				continue
@@ -118,55 +111,6 @@ func MergeVEventBody(cards ...MergeCard) []string {
 	}
 	out = append(out, components...)
 	out = append(out, "END:VEVENT")
-	return out
-}
-
-// topLevelEventLines returns the property lines directly inside the VEVENT
-// (not nested components or boundary lines). No VEVENT = bare property list.
-func topLevelEventLines(lines []string) []string {
-	hasVEvent := false
-	for _, l := range lines {
-		if strings.EqualFold(strings.TrimSpace(l), "BEGIN:VEVENT") {
-			hasVEvent = true
-			break
-		}
-	}
-
-	inEvent := !hasVEvent
-	depth := 0 // nesting depth below the VEVENT (e.g. inside VALARM)
-	out := make([]string, 0, len(lines))
-	for _, line := range lines {
-		name, _, value, ok := splitContentLine(line)
-		if ok {
-			switch name {
-			case "BEGIN":
-				if hasVEvent {
-					if strings.EqualFold(value, "VEVENT") && !inEvent && depth == 0 {
-						inEvent = true
-					} else if inEvent {
-						depth++
-					}
-				} else {
-					depth++
-				}
-				continue
-			case "END":
-				if hasVEvent {
-					if inEvent && depth > 0 {
-						depth--
-					} else if inEvent && strings.EqualFold(value, "VEVENT") {
-						inEvent = false
-					}
-				} else if depth > 0 {
-					depth--
-				}
-				continue
-			}
-		}
-		if inEvent && depth == 0 {
-			out = append(out, line)
-		}
-	}
 	return out
 }
 

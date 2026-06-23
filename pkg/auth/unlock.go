@@ -21,8 +21,6 @@ type Unlocked struct {
 	User proton.User
 	// Addresses are the user's addresses, in API order.
 	Addresses []proton.Address
-	// UserKR is the unlocked user keyring.
-	UserKR *crypto.KeyRing
 	// AddrKRs maps address ID to its unlocked keyring. Addresses whose keys
 	// could not be unlocked are absent.
 	AddrKRs map[string]*crypto.KeyRing
@@ -52,7 +50,7 @@ func UnlockKeys(ctx context.Context, store *config.SessionStore, api papi.API) (
 		return nil, err
 	}
 
-	userKR, addrKRs, err := proton.Unlock(user, addrs, sess.SaltedKeyPass, nil)
+	_, addrKRs, err := proton.Unlock(user, addrs, sess.SaltedKeyPass, nil)
 	if err != nil {
 		return nil, fmt.Errorf("unlocking keys: %w", err)
 	}
@@ -60,7 +58,6 @@ func UnlockKeys(ctx context.Context, store *config.SessionStore, api papi.API) (
 	return &Unlocked{
 		User:      user,
 		Addresses: addrs,
-		UserKR:    userKR,
 		AddrKRs:   addrKRs,
 	}, nil
 }

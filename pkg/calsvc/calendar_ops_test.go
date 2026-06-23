@@ -2,12 +2,14 @@ package calsvc
 
 import (
 	"context"
+	"encoding/json"
 	"net/url"
 	"strings"
 	"testing"
 
 	"github.com/cheeseandcereal/proton-cal/pkg/caltypes"
 	"github.com/cheeseandcereal/proton-cal/pkg/config"
+	"github.com/cheeseandcereal/proton-cal/pkg/internal/papitest"
 )
 
 // recordingAPI serves canned GET bodies and records write calls so routing and
@@ -48,28 +50,15 @@ func jsonUnmarshal(body string, out any) error {
 	if out == nil {
 		return nil
 	}
-	return (&fakeRawAPI{bodies: map[string]string{"x": body}}).Get(context.Background(), "x", nil, out)
+	return json.Unmarshal([]byte(body), out)
 }
 
 // calListWithType builds a one-calendar GET /calendar/v1 body with a given type.
 func calListWithType(id, name string, typ int) string {
-	return `{"Calendars":[{"ID":"` + id + `","Type":` + itoa(typ) +
-		`,"Members":[{"ID":"m-` + id + `","Name":"` + name + `","Color":"#112233"}]}]}`
+	return papitest.CalListBody(papitest.CalSpec{ID: id, Name: name, Type: typ})
 }
 
-func itoa(i int) string {
-	switch i {
-	case 0:
-		return "0"
-	case 1:
-		return "1"
-	case 2:
-		return "2"
-	}
-	return "0"
-}
-
-func strp(s string) *string { return &s }
+func strp(s string) *string { return papitest.Ptr(s) }
 
 func TestUpdateCalendarRefusesNonNormal(t *testing.T) {
 	api := &recordingAPI{bodies: map[string]string{
@@ -247,7 +236,7 @@ func TestDeleteCalendarSubscribedRefused(t *testing.T) {
 	}
 }
 
-func intp(i int) *int { return &i }
+func intp(i int) *int { return papitest.Ptr(i) }
 
 func TestUpdateCalendarReminderSets(t *testing.T) {
 	api := &recordingAPI{bodies: map[string]string{

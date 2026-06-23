@@ -128,7 +128,8 @@ func (s *Service) DefaultCalendarID(ctx context.Context) (string, error) {
 }
 
 // Calendars fetches the calendar list fresh (so a long-running MCP server sees
-// newly created calendars; the cache-staleness escape hatch), still updating both caches.
+// newly created calendars; the cache-staleness escape hatch), still updating
+// both caches.
 func (s *Service) Calendars(ctx context.Context) ([]calendar.Info, error) {
 	return s.fetchCalendars(ctx, s.freshAPI)
 }
@@ -150,10 +151,12 @@ func (s *Service) fetchCalendars(ctx context.Context, api papi.API) ([]calendar.
 	return cals, nil
 }
 
-// resolveCalendar resolves a selector ("" = server-side default, else first)
-// against the cached list (in-memory, then disk), falling back to one fresh
-// fetch when a cached list does not match (calendar created/renamed since).
-func (s *Service) resolveCalendar(ctx context.Context, selector string) (calendar.Info, error) {
+// resolveWith loads the cached calendar list (memory, then disk, then one
+// fresh fetch), applies resolve, and—if resolution fails on a possibly-stale
+// cached list—refetches fresh once before the error is final. needDefault
+// reports whether to consult the server default first (non-fatal on failure).
+func resolveWith[T any](ctx context.Context, s *Service, needDefault bool, resolve func(cals []calendar.Info, defaultID string) (T, error)) (T, error) {
+	var zero T
 	s.calMu.Lock()
 	cals := s.cals
 	s.calMu.Unlock()
@@ -163,75 +166,48 @@ func (s *Service) resolveCalendar(ctx context.Context, selector string) (calenda
 		var err error
 		cals, err = s.listCalendars(ctx)
 		if err != nil {
-			return calendar.Info{}, err
+			return zero, err
 		}
 		fresh = s.cacheAPI == nil || !s.cacheAPI.servedAny(calendar.APIPath)
 	}
 
-	// The server default is consulted only when no selector is given. A failure
-	// to read it is non-fatal — Resolve then falls back to the first calendar.
 	defaultID := ""
-	if selector == "" {
+	if needDefault {
 		defaultID, _ = s.DefaultCalendarID(ctx)
 	}
 
-	info, err := calendar.Resolve(cals, selector, defaultID)
+	out, err := resolve(cals, defaultID)
 	if err != nil && !fresh {
 		// The list came from memory or disk; it may be stale. One fresh
 		// fetch, then the resolution error is final.
-		cals, ferr := s.Calendars(ctx)
+		refetched, ferr := s.Calendars(ctx)
 		if ferr != nil {
-			return calendar.Info{}, ferr
+			return zero, ferr
 		}
-		info, err = calendar.Resolve(cals, selector, defaultID)
+		out, err = resolve(refetched, defaultID)
 	}
-	return info, err
+	return out, err
+}
+
+// resolveCalendar resolves a selector ("" = server-side default, else first)
+// against the cached list, refetching fresh once if a stale list fails.
+func (s *Service) resolveCalendar(ctx context.Context, selector string) (calendar.Info, error) {
+	return resolveWith(ctx, s, selector == "",
+		func(cals []calendar.Info, defaultID string) (calendar.Info, error) {
+			return calendar.Resolve(cals, selector, defaultID)
+		})
 }
 
 // resolveCalendars resolves a set of selectors (or all calendars) to calendar
-// infos, with the same stale-cache refetch fallback as resolveCalendar: a list
-// from memory/disk that fails to resolve is refetched fresh once before the
-// error is final.
+// infos, with the same stale-cache refetch fallback as resolveCalendar.
 func (s *Service) resolveCalendars(ctx context.Context, selectors []string, all bool) ([]calendar.Info, error) {
-	s.calMu.Lock()
-	cals := s.cals
-	s.calMu.Unlock()
-
-	fresh := false
-	if cals == nil {
-		var err error
-		cals, err = s.listCalendars(ctx)
-		if err != nil {
-			return nil, err
-		}
-		fresh = s.cacheAPI == nil || !s.cacheAPI.servedAny(calendar.APIPath)
-	}
-
-	// The server default is consulted only when no selector is given (and not
-	// listing all). A failure to read it is non-fatal — ResolveMany then falls
-	// back to the first calendar.
-	defaultID := ""
-	if !all && len(selectors) == 0 {
-		defaultID, _ = s.DefaultCalendarID(ctx)
-	}
-
-	resolve := func(cals []calendar.Info) ([]calendar.Info, error) {
-		if all {
-			return calendar.ResolveAll(cals)
-		}
-		return calendar.ResolveMany(cals, selectors, defaultID)
-	}
-
-	infos, err := resolve(cals)
-	if err != nil && !fresh {
-		// Possibly stale; one fresh fetch, then the error is final.
-		refetched, ferr := s.Calendars(ctx)
-		if ferr != nil {
-			return nil, ferr
-		}
-		infos, err = resolve(refetched)
-	}
-	return infos, err
+	return resolveWith(ctx, s, !all && len(selectors) == 0,
+		func(cals []calendar.Info, defaultID string) ([]calendar.Info, error) {
+			if all {
+				return calendar.ResolveAll(cals)
+			}
+			return calendar.ResolveMany(cals, selectors, defaultID)
+		})
 }
 
 // listAcrossCalendars lists the same window for each calendar concurrently

@@ -2,14 +2,13 @@ package mcpserver
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"net/url"
 	"strings"
 	"testing"
 
 	"github.com/cheeseandcereal/proton-cal/pkg/calsvc"
 	"github.com/cheeseandcereal/proton-cal/pkg/config"
+	"github.com/cheeseandcereal/proton-cal/pkg/internal/papitest"
 )
 
 // stubServer returns a server whose bootstrap yields a detached service (no
@@ -31,26 +30,9 @@ func failingServer(err error) *server {
 // resolution-dependent paths run offline. Writes and key-unlock still panic.
 func apiStubServer(cfg config.Config, bodies map[string]string) *server {
 	return &server{bootstrap: func() (*calsvc.Service, error) {
-		return calsvc.NewWithAPI(cfg, mcpFakeAPI{bodies: bodies}), nil
+		return calsvc.NewWithAPI(cfg, papitest.Fake{Bodies: bodies}), nil
 	}}
 }
-
-type mcpFakeAPI struct{ bodies map[string]string }
-
-func (f mcpFakeAPI) Get(_ context.Context, path string, _ url.Values, out any) error {
-	body := f.bodies[path]
-	if body == "" {
-		body = `{}`
-	}
-	if out == nil {
-		return nil
-	}
-	return json.Unmarshal([]byte(body), out)
-}
-
-func (mcpFakeAPI) Put(context.Context, string, any, any) error  { return nil }
-func (mcpFakeAPI) Post(context.Context, string, any, any) error { return nil }
-func (mcpFakeAPI) Delete(context.Context, string, any) error    { return nil }
 
 // A timed event with no end no longer errors pre-network (end defaults to
 // calendar duration); a bad start still fails in the detached path tested here.
@@ -182,7 +164,7 @@ func TestResolveUpdateReminders(t *testing.T) {
 		}
 	})
 	t.Run("bad mode", func(t *testing.T) {
-		if _, err := resolveUpdateReminders("sometimes", nil); err == nil || !strings.Contains(err.Error(), "invalid reminders_mode") {
+		if _, err := resolveUpdateReminders("sometimes", nil); err == nil || !strings.Contains(err.Error(), "invalid reminders mode") {
 			t.Errorf("want invalid-mode error, got %v", err)
 		}
 	})

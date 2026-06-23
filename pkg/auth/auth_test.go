@@ -133,9 +133,6 @@ func TestLoginHappyPathAndUnlockKeys(t *testing.T) {
 	if err != nil {
 		t.Fatalf("UnlockKeys: %v", err)
 	}
-	if unlocked.UserKR == nil {
-		t.Error("UnlockKeys returned nil user keyring")
-	}
 	if len(unlocked.AddrKRs) == 0 {
 		t.Fatal("UnlockKeys returned no unlocked address keyrings")
 	}

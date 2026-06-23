@@ -1,16 +1,15 @@
 // Package mcpserver implements the proton-cal MCP (Model Context Protocol)
-// stdio server: it exposes Proton Calendar tools (list calendars, list /
-// create / update / delete events) over stdin/stdout JSON-RPC so AI tools
-// (Claude Code, opencode, ...) can use the calendar natively.
+// stdio server, exposing Proton Calendar tools (list calendars, list / create /
+// update / delete events) over stdin/stdout JSON-RPC so AI tools (Claude Code,
+// opencode, ...) can use the calendar natively.
 //
-// Every tool takes an optional `calendar` argument (ID or name) instead of
-// hardcoding the first calendar; the default comes from the account's
-// default calendar, else the first calendar. Time-taking tools take an
+// Every tool takes an optional `calendar` argument (ID or name), defaulting to
+// the account's default calendar, else the first. Time-taking tools take an
 // optional `tz` override, defaulting to the configured timezone.
 //
-// stdout belongs to the MCP transport; all logging goes to stderr. The
-// server never prompts: a missing session yields tool errors directing the
-// user to run `proton-cal login`.
+// stdout belongs to the MCP transport; all logging goes to stderr. The server
+// never prompts: a missing session yields tool errors directing the user to run
+// `proton-cal login`.
 package mcpserver
 
 import (

@@ -51,9 +51,6 @@ const (
 	// CodeInsufficientScope accompanies 403 responses when the session
 	// lacks the "locked" scope (password re-verification required).
 	CodeInsufficientScope = 9101
-	// CodeHumanVerification accompanies 422 responses requiring a
-	// human-verification (captcha) round-trip.
-	CodeHumanVerification = 9001
 )
 
 // NewManager builds a go-proton-api Manager configured for this app.

@@ -173,9 +173,8 @@ func (k *Keychain) Unlock(ctx context.Context, info Info) (*Access, error) {
 // SigningAddress selects the address whose key signs and receives a new
 // calendar's passphrase: the first ACTIVE address (enabled, sending and
 // receiving) with an unlocked keyring, mirroring the web client's
-// getActiveAddresses[0]. It returns that address's ID and keyring. Unlike a
-// calendar unlock there is no member to resolve yet, so this is the create
-// path's way to reach a usable signing/encryption keyring.
+// getActiveAddresses[0]. It returns that address's ID and keyring. The create
+// path uses this because no member exists yet to resolve a keyring from.
 func (k *Keychain) SigningAddress() (addressID string, addrKR *crypto.KeyRing, err error) {
 	for _, addr := range k.unlocked.Addresses {
 		if addr.Status != proton.AddressStatusEnabled || !bool(addr.Send) || !bool(addr.Receive) {

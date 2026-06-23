@@ -45,6 +45,10 @@ var (
 
 // liveService returns a real, authenticated Service and the configured test
 // calendar selector, skipping the test when the suite is not configured.
+//
+// calsvc owns this bootstrap rather than sharing pkg/internal/e2eharness: that
+// harness must import calsvc to build the Service, so calsvc's own tests can't
+// import it back without a cycle. The cli and mcpserver e2e tests use it.
 func liveService(t *testing.T) (*Service, string) {
 	t.Helper()
 	e2eOnce.Do(func() {

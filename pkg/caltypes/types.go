@@ -24,8 +24,6 @@ type EventPart struct {
 	Type      CardType `json:"Type"`
 	Data      string   `json:"Data"`
 	Signature string   `json:"Signature,omitempty"`
-	Author    string   `json:"Author,omitempty"`
-	MemberID  string   `json:"MemberID,omitempty"`
 }
 
 // IsEncrypted reports whether the part's data is PGP-encrypted.
@@ -37,13 +35,9 @@ func (p EventPart) IsEncrypted() bool {
 // (and .../events/{eventID}). Recurrence metadata is plaintext: RRule verbatim,
 // Exdates/RecurrenceID are unix timestamps (RecurrenceID only on exception rows).
 type RawEvent struct {
-	ID            string `json:"ID"`
-	UID           string `json:"UID"`
-	CalendarID    string `json:"CalendarID"`
-	SharedEventID string `json:"SharedEventID,omitempty"`
-
-	CreateTime   int64 `json:"CreateTime"`
-	LastEditTime int64 `json:"LastEditTime"`
+	ID         string `json:"ID"`
+	UID        string `json:"UID"`
+	CalendarID string `json:"CalendarID"`
 
 	StartTime     int64  `json:"StartTime"`
 	StartTimezone string `json:"StartTimezone"`
@@ -83,7 +77,6 @@ type RawEvent struct {
 	SharedEvents    []EventPart `json:"SharedEvents,omitempty"`
 	CalendarEvents  []EventPart `json:"CalendarEvents,omitempty"`
 	AttendeesEvents []EventPart `json:"AttendeesEvents,omitempty"`
-	PersonalEvents  []EventPart `json:"PersonalEvents,omitempty"`
 }
 
 // UnmarshalJSON decodes a RawEvent, recording whether Notifications was present
@@ -119,10 +112,8 @@ type Notification struct {
 // encrypted ATTENDEE card's X-PM-TOKEN) plus live RSVP Status (ATTENDEE_STATUS_API:
 // 0 needs-action, 1 tentative, 2 declined, 3 accepted).
 type AttendeeToken struct {
-	ID         string `json:"ID"`
-	Token      string `json:"Token"`
-	Status     int    `json:"Status"`
-	UpdateTime *int64 `json:"UpdateTime"`
+	Token  string `json:"Token"`
+	Status int    `json:"Status"`
 }
 
 // AttendeesInfo wraps the attendee list with the MoreAttendees flag

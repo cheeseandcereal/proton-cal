@@ -1,9 +1,9 @@
 // Package eventview holds the shared, surface-independent semantics for
 // presenting a decrypted event: name lookups (attendee status, conference
-// provider), identity formatting, and the resolution of effective reminders
-// and color from the event plus its calendar defaults. The CLI and the MCP
-// server both build their output from these helpers so the two surfaces
-// cannot diverge in meaning (only in cosmetic styling).
+// provider), identity formatting, and resolving effective reminders and color
+// from the event plus its calendar defaults. The CLI and MCP server both build
+// output from these helpers so the two surfaces diverge only cosmetically, not
+// in meaning.
 package eventview
 
 import (

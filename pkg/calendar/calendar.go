@@ -103,10 +103,10 @@ func (i Info) TypeString() string {
 	}
 }
 
-// Matches reports whether selector addresses this calendar: by exact ID or
-// case-insensitive name. An empty selector matches nothing.
-func (i Info) Matches(selector string) bool {
-	return selector != "" && (i.ID == selector || strings.EqualFold(i.Name, selector))
+// RequiresDeletePassword reports whether deleting this calendar needs the
+// account login password: only owned (normal, Type 0) calendars do.
+func (i Info) RequiresDeletePassword() bool {
+	return i.Type == 0
 }
 
 // listResponse is the wire shape of GET /calendar/v1.

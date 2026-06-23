@@ -76,7 +76,7 @@ func (c *Cache) Get(key string) (data json.RawMessage, fetchedAt time.Time, ok b
 	return e.Data, e.FetchedAt, ok
 }
 
-// Put stores a response body under key (fetched now), best-effort: the write
+// Put stores a response body under key (fetched now), best-effort. The write
 // merges with the on-disk doc under the lock so concurrent processes caching
 // different keys do not clobber each other.
 func (c *Cache) Put(key string, data json.RawMessage) {

@@ -9,7 +9,6 @@ import (
 	"github.com/cheeseandcereal/proton-cal/pkg/calsvc"
 	"github.com/cheeseandcereal/proton-cal/pkg/caltypes"
 	"github.com/cheeseandcereal/proton-cal/pkg/event"
-	"github.com/cheeseandcereal/proton-cal/pkg/reminders"
 )
 
 // reminderColorFlags holds the raw reminder/color flag values bound to a
@@ -65,48 +64,38 @@ func (f *reminderColorFlags) validateExclusive(cmd *cobra.Command) error {
 	return nil
 }
 
+// reminderMode maps the boolean flag presence to the shared intent. The CLI
+// has no explicit "keep": absent reminder flags mean inherit on create and keep
+// on update, both of which fall out of the resolvers below.
+func (f *reminderColorFlags) reminderMode() calsvc.ReminderMode {
+	switch {
+	case f.remindersDefault:
+		return calsvc.ReminderInherit
+	case f.noReminders:
+		return calsvc.ReminderNone
+	case len(f.reminder) > 0:
+		return calsvc.ReminderCustom
+	default:
+		return calsvc.ReminderKeep
+	}
+}
+
 // createColor resolves the create-side color to a palette hex ("" for no
 // --color or "default": a null Color already inherits the calendar color).
 func (f *reminderColorFlags) createColor() (string, error) {
-	if f.color == "" || calcolor.IsDefault(f.color) {
-		return "", nil
-	}
-	return calcolor.Resolve(f.color)
+	return calsvc.ResolveColorCreate(f.color)
 }
 
 // createReminders resolves the create-side reminder list + set flag: no flags
 // -> inherit (nil,false); --no-reminders -> none (nil,true); --reminder -> custom.
 func (f *reminderColorFlags) createReminders() (list []caltypes.Notification, set bool, err error) {
-	if f.noReminders {
-		return nil, true, nil
-	}
-	if len(f.reminder) == 0 {
-		return nil, false, nil
-	}
-	parsed, err := reminders.ParseList(f.reminder)
-	if err != nil {
-		return nil, false, err
-	}
-	return parsed, true, nil
+	return calsvc.ResolveCreateReminders(f.reminderMode(), f.reminder)
 }
 
 // updateReminders resolves the update-side reminder intent into a
 // *event.RemindersUpdate (nil = keep current).
 func (f *reminderColorFlags) updateReminders() (*event.RemindersUpdate, error) {
-	switch {
-	case f.remindersDefault:
-		return &event.RemindersUpdate{Inherit: true}, nil
-	case f.noReminders:
-		return &event.RemindersUpdate{List: nil}, nil // explicit none
-	case len(f.reminder) > 0:
-		parsed, err := reminders.ParseList(f.reminder)
-		if err != nil {
-			return nil, err
-		}
-		return &event.RemindersUpdate{List: parsed}, nil
-	default:
-		return nil, nil // keep
-	}
+	return calsvc.ResolveUpdateReminders(f.reminderMode(), f.reminder)
 }
 
 // updateColor resolves the update-side color into a *calsvc.ColorUpdate (nil =
@@ -115,12 +104,5 @@ func (f *reminderColorFlags) updateColor(cmd *cobra.Command) (*calsvc.ColorUpdat
 	if !cmd.Flags().Changed("color") {
 		return nil, nil
 	}
-	if calcolor.IsDefault(f.color) {
-		return &calsvc.ColorUpdate{Inherit: true}, nil
-	}
-	hex, err := calcolor.Resolve(f.color)
-	if err != nil {
-		return nil, err
-	}
-	return &calsvc.ColorUpdate{Hex: hex}, nil
+	return calsvc.ResolveColorUpdate(f.color)
 }

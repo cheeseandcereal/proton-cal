@@ -113,12 +113,10 @@ func putSync(ctx context.Context, client papi.API, calendarID string, payload sy
 type eventsResponse struct {
 	Events []*caltypes.RawEvent `json:"Events"`
 	// More is the page cursor on Type-scoped queries (1 = another page follows).
-	// Total is set only on the legacy unscoped query and is unused here.
-	More  int `json:"More"`
-	Total int `json:"Total"`
+	More int `json:"More"`
 }
 
-// Windowed-query constants. /events honours Start/End only when a Type is
+// Windowed-query constants. /events honours Start/End only with a Type
 // supplied (see docs/api.md); one paginated stream per Type, all four in parallel.
 const (
 	// queryTypePartDayInside selects timed events starting inside the window.

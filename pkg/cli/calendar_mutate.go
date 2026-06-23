@@ -11,7 +11,6 @@ import (
 	"github.com/cheeseandcereal/proton-cal/pkg/auth"
 	"github.com/cheeseandcereal/proton-cal/pkg/caljson"
 	"github.com/cheeseandcereal/proton-cal/pkg/calsvc"
-	"github.com/cheeseandcereal/proton-cal/pkg/caltypes"
 	"github.com/cheeseandcereal/proton-cal/pkg/reminders"
 )
 
@@ -114,14 +113,14 @@ func newUpdateCalendarCmd() *cobra.Command {
 				in.MakesUserBusy = &makesBusy
 			}
 			if cmd.Flags().Changed("reminder") {
-				ns, err := parseReminderSet(partDay)
+				ns, err := reminders.ParseSet(partDay)
 				if err != nil {
 					return err
 				}
 				in.PartDayReminders = &ns
 			}
 			if cmd.Flags().Changed("full-day-reminder") {
-				ns, err := parseReminderSet(fullDay)
+				ns, err := reminders.ParseSet(fullDay)
 				if err != nil {
 					return err
 				}
@@ -167,21 +166,6 @@ func newUpdateCalendarCmd() *cobra.Command {
 	return cmd
 }
 
-// parseReminderSet turns repeatable reminder flag values into a notification
-// set; an all-empty input clears it (empty, non-nil slice).
-func parseReminderSet(values []string) ([]caltypes.Notification, error) {
-	nonEmpty := make([]string, 0, len(values))
-	for _, v := range values {
-		if v != "" {
-			nonEmpty = append(nonEmpty, v)
-		}
-	}
-	if len(nonEmpty) == 0 {
-		return []caltypes.Notification{}, nil
-	}
-	return reminders.ParseList(nonEmpty)
-}
-
 func newDeleteCalendarCmd() *cobra.Command {
 	var (
 		yes      bool
@@ -217,7 +201,7 @@ func newDeleteCalendarCmd() *cobra.Command {
 			}
 
 			// Only owned (normal) calendars require the login password.
-			if info.Type == 0 && password == "" {
+			if info.RequiresDeletePassword() && password == "" {
 				password, err = promptDeletePassword()
 				if err != nil {
 					return err

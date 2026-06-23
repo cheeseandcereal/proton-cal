@@ -46,16 +46,16 @@ type createResponse struct {
 // completed later by re-running create; deletion needs the elevated scope.
 var ErrKeylessCalendar = errors.New("calendar created but key setup failed")
 
-// Create makes a new owned calendar in two steps, mirroring the Proton web
-// client: POST /calendar/v1 (metadata) then POST /calendar/v1/{id}/keys (key
-// material). Both run with the normal session scope. It generates a fresh
-// calendar key locked with a random passphrase, encrypts that passphrase to
-// the member address key (split key packet + data packet) and detached-signs
-// it, exactly as the unlock path expects to read back.
+// Create makes a new owned calendar in two steps, mirroring the web client:
+// POST /calendar/v1 (metadata) then POST /calendar/v1/{id}/keys (key material),
+// both with the normal session scope. It generates a fresh calendar key locked
+// with a random passphrase, encrypts that passphrase to the member address key
+// (split key packet + data packet) and detached-signs it, exactly as the unlock
+// path expects to read back.
 //
 // If the second step fails, the first has already created a keyless calendar;
-// the returned error wraps ErrKeylessCalendar and names the calendar ID. The
-// calendar is recoverable (re-running create-keys completes it).
+// the returned error wraps ErrKeylessCalendar and names the calendar ID. It is
+// recoverable by re-running create-keys.
 func Create(ctx context.Context, client papi.API, in CreateInput) (Info, error) {
 	createBody := map[string]any{
 		"Name":        in.Name,

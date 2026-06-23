@@ -1,94 +1,33 @@
 //go:build integration
 
-// Live e2e tests that drive the cobra commands in-process (via the runCLI
-// seam) against a real authenticated service. They require the same setup as
-// pkg/integration: a stored session and an pkg/integration/
-// config.toml naming a dedicated test calendar.
+// Live e2e tests driving the cobra commands in-process (via the runCLI seam)
+// against a real authenticated service. Same setup as pkg/integration: a stored
+// session and a pkg/integration/config.toml naming a dedicated test calendar.
 package cli
 
 import (
 	"context"
-	crand "crypto/rand"
-	"encoding/hex"
 	"encoding/json"
-	"errors"
-	"fmt"
-	"os"
-	"sync"
 	"testing"
-	"time"
-
-	"github.com/BurntSushi/toml"
 
 	"github.com/cheeseandcereal/proton-cal/pkg/calsvc"
-	"github.com/cheeseandcereal/proton-cal/pkg/config"
+	"github.com/cheeseandcereal/proton-cal/pkg/internal/e2eharness"
 )
 
-const e2eSummaryPrefix = "proton-cal-test"
+// e2eSvc is the shared live service, set by liveFactory so tests can drive
+// setup/verification directly (not just through the cobra factory).
+var e2eSvc *calsvc.Service
 
-type e2eConfig struct {
-	Calendars []string `toml:"calendars"`
-}
-
-var (
-	e2eOnce sync.Once
-	e2eSvc  *calsvc.Service
-	e2eCal  string
-	e2eSkip string
-)
-
-// liveFactory returns a serviceFactory backed by a real service plus the
-// configured test calendar selector, skipping when unconfigured.
+// liveFactory returns a serviceFactory backed by the shared live service plus
+// the configured test calendar selector, skipping when unconfigured.
 func liveFactory(t *testing.T) (func() (*calsvc.Service, error), string) {
-	t.Helper()
-	e2eOnce.Do(func() {
-		data, err := os.ReadFile("../integration/config.toml")
-		if errors.Is(err, os.ErrNotExist) {
-			e2eSkip = "e2e not configured: see pkg/integration/README.md"
-			return
-		} else if err != nil {
-			t.Fatalf("reading config.toml: %v", err)
-		}
-		var tc e2eConfig
-		if err := toml.Unmarshal(data, &tc); err != nil {
-			t.Fatalf("parsing config.toml: %v", err)
-		}
-		if len(tc.Calendars) == 0 {
-			e2eSkip = "pkg/integration/config.toml lists no calendars"
-			return
-		}
-		svc, err := calsvc.New(true)
-		if errors.Is(err, config.ErrNoSession) {
-			e2eSkip = "no saved session; run `proton-cal login`"
-			return
-		} else if err != nil {
-			t.Fatalf("calsvc.New: %v", err)
-		}
-		e2eSvc = svc
-		e2eCal = tc.Calendars[0]
-	})
-	if e2eSkip != "" {
-		t.Skip(e2eSkip)
-	}
-	if e2eSvc == nil {
-		t.Fatal("e2e service not initialised")
-	}
-	// The detached service is shared, but Notify must not panic when nil.
-	return func() (*calsvc.Service, error) { return e2eSvc, nil }, e2eCal
+	svc, cal := e2eharness.LiveService(t)
+	e2eSvc = svc
+	return func() (*calsvc.Service, error) { return svc, nil }, cal
 }
 
-func e2eSummary(label string) string {
-	b := make([]byte, 4)
-	if _, err := crand.Read(b); err != nil {
-		panic(err)
-	}
-	return fmt.Sprintf("%s %s %s", e2eSummaryPrefix, hex.EncodeToString(b), label)
-}
-
-func e2eFutureSlot() (start, end string) {
-	d := time.Now().UTC().AddDate(0, 0, 30).Format("2006-01-02")
-	return d + " 09:00", d + " 09:30"
-}
+func e2eSummary(label string) string     { return e2eharness.Summary(label) }
+func e2eFutureSlot() (start, end string) { return e2eharness.FutureSlot() }
 
 // createForTest creates a tagged event through the service and returns its ID
 // plus a cleanup-registering deleter.

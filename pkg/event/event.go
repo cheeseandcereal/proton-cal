@@ -46,23 +46,17 @@ type Event struct {
 	Summary     string
 	Description string
 	Location    string
-	Status      string    // CONFIRMED unless the calendar-signed card says otherwise
-	Transp      string    // OPAQUE unless the calendar-signed card says otherwise
-	Comment     string    // calendar-encrypted card COMMENT
-	Created     time.Time // original creation time; zero when the card lacks CREATED
 
 	Start, End    time.Time
 	StartTimezone string
-	EndTimezone   string
 	AllDay        bool
 
 	RRule        string
 	RecurrenceID time.Time // zero = not a single-edit exception row
 	Exdates      []time.Time
 
-	// RawSharedSigned is the verbatim shared-signed fragment (SEQUENCE parsed into Sequence).
-	RawSharedSigned string
-	Sequence        int
+	// Sequence is the shared-signed SEQUENCE, bumped on update writes.
+	Sequence int
 
 	// Enrichment fields (read-only display): Color/Notifications from the row,
 	// Organizer/Attendees/Conference from the cards; IsOrganizer/MoreAttendees mirror row flags.

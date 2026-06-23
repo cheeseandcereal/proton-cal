@@ -3,8 +3,8 @@
 //
 // Proton's server does NO occurrence expansion: the API returns "raw event"
 // rows carrying plaintext recurrence metadata (RRule, RecurrenceID, Exdates),
-// and clients are expected to expand recurring masters into concrete
-// occurrences themselves. This package provides:
+// and clients must expand recurring masters into concrete occurrences
+// themselves. This package provides:
 //
 //   - BuildRRule / SanitizeRRule to construct and validate RRULE values
 //     within Proton's server-side limits (FREQ restricted to
@@ -24,6 +24,7 @@ package recurrence
 import (
 	"errors"
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -47,12 +48,7 @@ var maxUntil = time.Date(2037, time.December, 31, 0, 0, 0, 0, time.UTC)
 var frequencies = []string{"DAILY", "WEEKLY", "MONTHLY", "YEARLY"}
 
 func isSupportedFreq(freq string) bool {
-	for _, f := range frequencies {
-		if f == freq {
-			return true
-		}
-	}
-	return false
+	return slices.Contains(frequencies, freq)
 }
 
 // BuildRRule builds an RRULE string. repeat is a case-insensitive frequency;

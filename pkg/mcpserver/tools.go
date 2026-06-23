@@ -7,10 +7,8 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	"github.com/cheeseandcereal/proton-cal/pkg/calcolor"
 	"github.com/cheeseandcereal/proton-cal/pkg/caljson"
 	"github.com/cheeseandcereal/proton-cal/pkg/calsvc"
-	"github.com/cheeseandcereal/proton-cal/pkg/caltypes"
 	"github.com/cheeseandcereal/proton-cal/pkg/event"
 	"github.com/cheeseandcereal/proton-cal/pkg/eventview"
 	"github.com/cheeseandcereal/proton-cal/pkg/reminders"
@@ -46,39 +44,17 @@ func applyClearFields(in *calsvc.UpdateEventInput, fields []string) error {
 	return nil
 }
 
-// reminderModeNone/Inherit/Custom select the update reminder tri-state.
-const (
-	reminderModeKeep    = ""
-	reminderModeInherit = "inherit"
-	reminderModeNone    = "none"
-	reminderModeCustom  = "custom"
-)
-
-// resolveUpdateReminders turns reminders_mode plus the list into an
-// *event.RemindersUpdate (nil = keep). Empty mode with a non-empty list = custom.
+// resolveUpdateReminders maps the reminders_mode string + list to the shared
+// update intent. An empty mode with a non-empty list means custom.
 func resolveUpdateReminders(mode string, specs []string) (*event.RemindersUpdate, error) {
-	if mode == reminderModeKeep && len(specs) > 0 {
-		mode = reminderModeCustom
+	parsed, err := calsvc.ParseReminderMode(mode)
+	if err != nil {
+		return nil, err
 	}
-	switch mode {
-	case reminderModeKeep:
-		return nil, nil
-	case reminderModeInherit:
-		return &event.RemindersUpdate{Inherit: true}, nil
-	case reminderModeNone:
-		return &event.RemindersUpdate{List: nil}, nil
-	case reminderModeCustom:
-		list, err := reminders.ParseList(specs)
-		if err != nil {
-			return nil, err
-		}
-		if len(list) == 0 {
-			return nil, errors.New("reminders_mode \"custom\" requires at least one entry in reminders")
-		}
-		return &event.RemindersUpdate{List: list}, nil
-	default:
-		return nil, fmt.Errorf("invalid reminders_mode %q (keep, inherit, none or custom)", mode)
+	if parsed == calsvc.ReminderKeep && len(specs) > 0 {
+		parsed = calsvc.ReminderCustom
 	}
+	return calsvc.ResolveUpdateReminders(parsed, specs)
 }
 
 // register adds all proton-calendar tools to the MCP server.
@@ -302,22 +278,22 @@ func (s *server) createEvent(ctx context.Context, _ *mcp.CallToolRequest, args c
 	if len(args.Reminders) > 0 && args.NoReminders {
 		return nil, nil, errors.New("reminders and no_reminders are mutually exclusive")
 	}
-	var remList []caltypes.Notification
-	remSet := args.NoReminders
-	if len(args.Reminders) > 0 {
-		remList, err = reminders.ParseList(args.Reminders)
-		if err != nil {
-			return nil, nil, err
-		}
-		remSet = true
+	mode := calsvc.ReminderKeep
+	switch {
+	case args.NoReminders:
+		mode = calsvc.ReminderNone
+	case len(args.Reminders) > 0:
+		mode = calsvc.ReminderCustom
+	}
+	remList, remSet, err := calsvc.ResolveCreateReminders(mode, args.Reminders)
+	if err != nil {
+		return nil, nil, err
 	}
 	// On create, "default" (or empty) means inherit the calendar color, which
 	// a create with no color does naturally.
-	color := ""
-	if args.Color != "" && !calcolor.IsDefault(args.Color) {
-		if color, err = calcolor.Resolve(args.Color); err != nil {
-			return nil, nil, err
-		}
+	color, err := calsvc.ResolveColorCreate(args.Color)
+	if err != nil {
+		return nil, nil, err
 	}
 	created, err := svc.CreateEvent(ctx, calsvc.CreateEventInput{
 		Summary:     args.Summary,
@@ -397,15 +373,11 @@ func (s *server) updateEvent(ctx context.Context, _ *mcp.CallToolRequest, args u
 		in.Location = &args.Location
 	}
 	if args.Color != "" {
-		if calcolor.IsDefault(args.Color) {
-			in.Color = &calsvc.ColorUpdate{Inherit: true}
-		} else {
-			hex, cerr := calcolor.Resolve(args.Color)
-			if cerr != nil {
-				return nil, nil, cerr
-			}
-			in.Color = &calsvc.ColorUpdate{Hex: hex}
+		col, cerr := calsvc.ResolveColorUpdate(args.Color)
+		if cerr != nil {
+			return nil, nil, cerr
 		}
+		in.Color = col
 	}
 	rem, err := resolveUpdateReminders(args.RemindersMode, args.Reminders)
 	if err != nil {
@@ -528,14 +500,14 @@ func (s *server) updateCalendar(ctx context.Context, _ *mcp.CallToolRequest, arg
 		in.MakesUserBusy = args.MakesBusy
 	}
 	if args.SetReminders {
-		ns, err := parseCalendarReminders(args.Reminders)
+		ns, err := reminders.ParseSet(args.Reminders)
 		if err != nil {
 			return nil, nil, err
 		}
 		in.PartDayReminders = &ns
 	}
 	if args.SetFullDayReminders {
-		ns, err := parseCalendarReminders(args.FullDayReminders)
+		ns, err := reminders.ParseSet(args.FullDayReminders)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -548,21 +520,6 @@ func (s *server) updateCalendar(ctx context.Context, _ *mcp.CallToolRequest, arg
 	}
 	return textResult(renderCalendarDetail(got.Info, got.Settings, got.IsDefault)),
 		caljson.CalendarDetailOf(got.Info, got.Settings, got.IsDefault), nil
-}
-
-// parseCalendarReminders turns reminder specs into a notification set; an
-// empty input clears the set (non-nil empty slice).
-func parseCalendarReminders(specs []string) ([]caltypes.Notification, error) {
-	nonEmpty := make([]string, 0, len(specs))
-	for _, s := range specs {
-		if s != "" {
-			nonEmpty = append(nonEmpty, s)
-		}
-	}
-	if len(nonEmpty) == 0 {
-		return []caltypes.Notification{}, nil
-	}
-	return reminders.ParseList(nonEmpty)
 }
 
 // ---------------------------------------------------------------- delete_calendar
@@ -593,7 +550,7 @@ func (s *server) deleteCalendar(ctx context.Context, _ *mcp.CallToolRequest, arg
 
 	// Owned calendars need the password; surface a clear error if it is
 	// required but absent (rather than failing deep in the scope handshake).
-	if info.Type == 0 && args.Password == "" {
+	if info.RequiresDeletePassword() && args.Password == "" {
 		return nil, nil, fmt.Errorf("deleting owned calendar %q requires the account login password (pass it as password)", info.Name)
 	}
 

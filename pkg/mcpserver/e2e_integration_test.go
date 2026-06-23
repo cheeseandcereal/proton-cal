@@ -1,82 +1,30 @@
 //go:build integration
 
-// Live e2e tests for the MCP tool handlers. They drive the unexported
-// handler methods directly (the same code the stdio server dispatches to)
-// against a real authenticated service, so they live in this package. They
-// require the same setup as pkg/integration: a stored session and an
-// pkg/integration/config.toml naming a dedicated test calendar.
+// Live e2e tests for the MCP tool handlers, driving the unexported handler
+// methods directly (the same code the stdio server dispatches to) against a
+// real authenticated service, so they live in this package. Same setup as
+// pkg/integration: a stored session and a pkg/integration/config.toml naming a
+// dedicated test calendar.
 package mcpserver
 
 import (
 	"context"
-	crand "crypto/rand"
-	"encoding/hex"
-	"errors"
-	"fmt"
-	"os"
 	"strings"
-	"sync"
 	"testing"
 	"time"
 
-	"github.com/BurntSushi/toml"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
 	"github.com/cheeseandcereal/proton-cal/pkg/caljson"
 	"github.com/cheeseandcereal/proton-cal/pkg/calsvc"
-	"github.com/cheeseandcereal/proton-cal/pkg/config"
+	"github.com/cheeseandcereal/proton-cal/pkg/internal/e2eharness"
 )
 
-const e2eSummaryPrefix = "proton-cal-test"
-
-type e2eConfig struct {
-	Calendars []string `toml:"calendars"`
-}
-
-var (
-	e2eOnce sync.Once
-	e2eSrv  *server
-	e2eCal  string
-	e2eSkip string
-)
-
-// liveServer returns an MCP server bootstrapped with a real service plus the
-// configured test calendar selector, skipping when unconfigured.
+// liveServer returns an MCP server bootstrapped with the shared live service
+// plus the configured test calendar selector, skipping when unconfigured.
 func liveServer(t *testing.T) (*server, string) {
-	t.Helper()
-	e2eOnce.Do(func() {
-		data, err := os.ReadFile("../integration/config.toml")
-		if errors.Is(err, os.ErrNotExist) {
-			e2eSkip = "e2e not configured: see pkg/integration/README.md"
-			return
-		} else if err != nil {
-			t.Fatalf("reading config.toml: %v", err)
-		}
-		var tc e2eConfig
-		if err := toml.Unmarshal(data, &tc); err != nil {
-			t.Fatalf("parsing config.toml: %v", err)
-		}
-		if len(tc.Calendars) == 0 {
-			e2eSkip = "pkg/integration/config.toml lists no calendars"
-			return
-		}
-		svc, err := calsvc.New(true)
-		if errors.Is(err, config.ErrNoSession) {
-			e2eSkip = "no saved session; run `proton-cal login`"
-			return
-		} else if err != nil {
-			t.Fatalf("calsvc.New: %v", err)
-		}
-		e2eSrv = &server{bootstrap: func() (*calsvc.Service, error) { return svc, nil }}
-		e2eCal = tc.Calendars[0]
-	})
-	if e2eSkip != "" {
-		t.Skip(e2eSkip)
-	}
-	if e2eSrv == nil {
-		t.Fatal("e2e server not initialised")
-	}
-	return e2eSrv, e2eCal
+	svc, cal := e2eharness.LiveService(t)
+	return &server{bootstrap: func() (*calsvc.Service, error) { return svc, nil }}, cal
 }
 
 // textOf extracts the first text block from a tool result.
@@ -93,18 +41,8 @@ func textOf(res *mcp.CallToolResult) string {
 	return b.String()
 }
 
-func e2eSummary(label string) string {
-	b := make([]byte, 4)
-	if _, err := crand.Read(b); err != nil {
-		panic(err)
-	}
-	return fmt.Sprintf("%s %s %s", e2eSummaryPrefix, hex.EncodeToString(b), label)
-}
-
-func e2eFutureSlot() (start, end string) {
-	d := time.Now().UTC().AddDate(0, 0, 30).Format("2006-01-02")
-	return d + " 09:00", d + " 09:30"
-}
+func e2eSummary(label string) string     { return e2eharness.Summary(label) }
+func e2eFutureSlot() (start, end string) { return e2eharness.FutureSlot() }
 
 // TestE2EMCPLifecycle drives create -> get_event (text + structured) ->
 // update -> list_events (structured) -> delete through the MCP handlers.

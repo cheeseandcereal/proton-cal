@@ -76,6 +76,22 @@ func ParseList(specs []string) ([]caltypes.Notification, error) {
 	return out, nil
 }
 
+// ParseSet is ParseList for the "replace the set" case: blank specs are
+// dropped, and an all-empty input yields a non-nil empty slice (an explicit
+// "clear", distinct from ParseList's nil "inherit"). Frontends share it.
+func ParseSet(specs []string) ([]caltypes.Notification, error) {
+	nonEmpty := make([]string, 0, len(specs))
+	for _, s := range specs {
+		if s != "" {
+			nonEmpty = append(nonEmpty, s)
+		}
+	}
+	if len(nonEmpty) == 0 {
+		return []caltypes.Notification{}, nil
+	}
+	return ParseList(nonEmpty)
+}
+
 // parseTrigger converts an offset spec to an iCal duration trigger string
 // (always a negative offset, i.e. before the event start).
 func parseTrigger(s string) (string, error) {

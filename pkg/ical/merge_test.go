@@ -5,6 +5,11 @@ import (
 	"testing"
 )
 
+// mergeFragments is the single-event production path: wrap the merged body.
+func mergeFragments(prodID string, cards ...MergeCard) string {
+	return MergeVCalendar(prodID, MergeVEventBody(cards...))
+}
+
 func TestMergeFragmentsUnionAndDedup(t *testing.T) {
 	sharedSigned := joinCRLF(
 		"BEGIN:VCALENDAR", "BEGIN:VEVENT",
@@ -31,7 +36,7 @@ func TestMergeFragmentsUnionAndDedup(t *testing.T) {
 		"STATUS:CONFIRMED", "TRANSP:OPAQUE",
 		"END:VEVENT", "END:VCALENDAR")
 
-	got := MergeFragments("-//test//EN",
+	got := mergeFragments("-//test//EN",
 		MergeCard{SharedSigned: true, Data: sharedSigned},
 		MergeCard{Data: sharedEnc},
 		MergeCard{Data: calSigned},
@@ -68,7 +73,7 @@ func TestMergeFragmentsStructuralOverride(t *testing.T) {
 	other := joinCRLF("BEGIN:VEVENT", "UID:u1", "DTSTART:20000101T000000Z", "END:VEVENT")
 	shared := joinCRLF("BEGIN:VEVENT", "UID:u1", "DTSTART:20260624T150000Z", "END:VEVENT")
 
-	got := MergeFragments("-//t//EN",
+	got := mergeFragments("-//t//EN",
 		MergeCard{Data: other},
 		MergeCard{SharedSigned: true, Data: shared},
 	)
@@ -89,7 +94,7 @@ func TestMergeFragmentsExdateUnion(t *testing.T) {
 	b := joinCRLF("BEGIN:VEVENT", "UID:u1",
 		"EXDATE;VALUE=DATE:20260201", "EXDATE;VALUE=DATE:20260301", "END:VEVENT")
 
-	got := MergeFragments("-//t//EN", MergeCard{SharedSigned: true, Data: a}, MergeCard{Data: b})
+	got := mergeFragments("-//t//EN", MergeCard{SharedSigned: true, Data: a}, MergeCard{Data: b})
 	for _, d := range []string{"20260101", "20260201", "20260301"} {
 		if !strings.Contains(got, "EXDATE;VALUE=DATE:"+d) {
 			t.Errorf("missing EXDATE %s", d)
@@ -136,24 +141,9 @@ func TestMergeFragmentsPreservesValarm(t *testing.T) {
 	withAlarm := joinCRLF("BEGIN:VEVENT", "UID:u1",
 		"BEGIN:VALARM", "ACTION:DISPLAY", "TRIGGER:-PT10M", "DESCRIPTION:x", "END:VALARM",
 		"END:VEVENT")
-	got := MergeFragments("-//t//EN", MergeCard{SharedSigned: true, Data: withAlarm})
+	got := mergeFragments("-//t//EN", MergeCard{SharedSigned: true, Data: withAlarm})
 	if !strings.Contains(got, "BEGIN:VALARM") || !strings.Contains(got, "TRIGGER:-PT10M") {
 		t.Errorf("VALARM not preserved:\n%s", got)
-	}
-}
-
-// TestMergeFragmentsEqualsVCalendarOfBody guards the refactor: MergeFragments
-// must equal MergeVCalendar wrapping a single MergeVEventBody, byte-for-byte.
-func TestMergeFragmentsEqualsVCalendarOfBody(t *testing.T) {
-	card := joinCRLF("BEGIN:VEVENT", "UID:u1",
-		"DTSTAMP:20260601T000000Z", "SUMMARY:X",
-		"BEGIN:VALARM", "ACTION:DISPLAY", "TRIGGER:-PT10M", "DESCRIPTION:x", "END:VALARM",
-		"END:VEVENT")
-	cards := []MergeCard{{SharedSigned: true, Data: card}}
-	frag := MergeFragments("-//t//EN", cards...)
-	viaBody := MergeVCalendar("-//t//EN", MergeVEventBody(cards...))
-	if frag != viaBody {
-		t.Errorf("MergeFragments != MergeVCalendar(MergeVEventBody)\n--- frag ---\n%q\n--- viaBody ---\n%q", frag, viaBody)
 	}
 }
 

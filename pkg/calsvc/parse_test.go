@@ -119,8 +119,7 @@ func TestApplyDefaultDuration(t *testing.T) {
 		}
 	})
 
-	// Guard the unused-import expectation: a populated set without a duration
-	// still falls back to the error.
+	// A populated set without a duration still errors.
 	t.Run("reminders without duration still errors", func(t *testing.T) {
 		set := calendar.Settings{DefaultPartDayNotifications: []caltypes.Notification{{Type: 1, Trigger: "-PT10M"}}}
 		if _, err := applyDefaultDuration(start, set); err == nil {

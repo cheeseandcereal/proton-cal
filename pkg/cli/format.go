@@ -51,9 +51,9 @@ func eventDetailRows(ev *event.Event, sel fieldSet, set calendar.Settings, cal c
 }
 
 // occurrenceHeaderRows builds the header and labeled sub-rows for one listed
-// occurrence (times in loc, all-day dates in UTC) for the list renderer. The
-// item carries its own calendar context (color, default reminders, name) so a
-// window spanning multiple calendars renders each event correctly.
+// occurrence (times in loc, all-day dates in UTC). The item carries its own
+// calendar context (color, default reminders, name) so a multi-calendar window
+// renders each event correctly.
 func occurrenceHeaderRows(item calsvc.ListedItem, loc *time.Location, sel fieldSet) (header string, rows []labeled) {
 	l := item.Listed
 	raw := l.Occurrence.Event

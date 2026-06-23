@@ -1,9 +1,8 @@
 // Package calcolor is the fixed Proton Calendar accent-color palette with
-// friendly names. The Proton API rejects any color outside this palette
-// ("Not a valid Proton color", code 2011), so a per-event color must be one
-// of these (or a calendar's own color, which is itself drawn from the same
-// palette). Sourced from the Proton web client's calendar accent colors and
-// verified live against the API.
+// friendly names. The API rejects any color outside this palette ("Not a valid
+// Proton color", code 2011), so a per-event color must be one of these (or a
+// calendar's own color, itself drawn from the same palette). Sourced from the
+// web client and verified live against the API.
 package calcolor
 
 import (
@@ -18,12 +17,6 @@ import (
 // Callers detect it with errors.Is to render a richer valid-color hint.
 var ErrInvalidColor = errors.New("invalid color")
 
-// color pairs a friendly name with its canonical uppercase hex.
-type color struct {
-	Name string
-	Hex  string
-}
-
 // Color is a palette entry: a friendly Name and its canonical uppercase Hex.
 type Color struct {
 	Name string
@@ -32,7 +25,7 @@ type Color struct {
 
 // palette is the Proton accent palette (web client ACCENT_COLORS_MAP) in display
 // order; the only colors the API accepts ("Not a valid Proton color" otherwise).
-var palette = []color{
+var palette = []Color{
 	{"purple", "#8080FF"},
 	{"pink", "#DB60D6"},
 	{"strawberry", "#EC3E7C"},
@@ -148,9 +141,7 @@ func RandomHex() string {
 // order), so callers can render the valid-color list themselves.
 func Palette() []Color {
 	out := make([]Color, len(palette))
-	for i, c := range palette {
-		out[i] = Color(c)
-	}
+	copy(out, palette)
 	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
 	return out
 }

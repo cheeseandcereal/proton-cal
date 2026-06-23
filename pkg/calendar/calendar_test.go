@@ -335,24 +335,19 @@ func TestInfoTypeString(t *testing.T) {
 	}
 }
 
-func TestInfoMatches(t *testing.T) {
-	cal := Info{ID: "cal-id-1", Name: "Personal"}
+func TestInfoRequiresDeletePassword(t *testing.T) {
 	tests := []struct {
-		name     string
-		selector string
-		want     bool
+		in   int
+		want bool
 	}{
-		{name: "empty selector", selector: "", want: false},
-		{name: "by ID", selector: "cal-id-1", want: true},
-		{name: "by name case-insensitive", selector: "personal", want: true},
-		{name: "no match", selector: "Work", want: false},
+		{0, true}, // owned (normal)
+		{1, false},
+		{2, false},
 	}
 	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := cal.Matches(tt.selector); got != tt.want {
-				t.Errorf("Matches(%q) = %v, want %v", tt.selector, got, tt.want)
-			}
-		})
+		if got := (Info{Type: tt.in}).RequiresDeletePassword(); got != tt.want {
+			t.Errorf("RequiresDeletePassword(type %d) = %v, want %v", tt.in, got, tt.want)
+		}
 	}
 }
 

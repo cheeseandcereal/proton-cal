@@ -18,16 +18,6 @@ type Occurrence struct {
 	End   int64              // occurrence end unix ts
 }
 
-// masterLocation returns the timezone a timed master's occurrences are
-// generated in (StartTimezone, falling back to UTC when empty).
-func masterLocation(ev *caltypes.RawEvent) (*time.Location, error) {
-	loc, err := icaltime.LoadLocation(ev.StartTimezone)
-	if err != nil {
-		return nil, fmt.Errorf("invalid start timezone: %w", err)
-	}
-	return loc, nil
-}
-
 // masterRule parses a master's RRULE anchored at its DTSTART, returning the
 // rule, duration (seconds), and iteration location. Timed masters iterate in
 // the start timezone (preserving wall-clock across DST); all-day masters
@@ -39,9 +29,10 @@ func masterRule(ev *caltypes.RawEvent) (*rrule.RRule, int64, *time.Location, err
 		loc = time.UTC
 	} else {
 		var err error
-		loc, err = masterLocation(ev)
+		// Timed master occurrences generate in StartTimezone (UTC when empty).
+		loc, err = icaltime.LoadLocation(ev.StartTimezone)
 		if err != nil {
-			return nil, 0, nil, err
+			return nil, 0, nil, fmt.Errorf("invalid start timezone: %w", err)
 		}
 	}
 	dtstart := time.Unix(ev.StartTime, 0).In(loc)

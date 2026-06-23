@@ -104,11 +104,18 @@ func (s *Service) UpdateCalendar(ctx context.Context, in UpdateCalendarInput) (*
 
 	// Return refreshed detail without a key unlock: the touched caches are now
 	// invalidated, so resolveCalendar and FetchSettings read fresh.
-	refreshed, err := s.resolveCalendar(ctx, info.ID)
+	return s.refreshedCalendar(ctx, info.ID)
+}
+
+// refreshedCalendar re-reads a calendar's info and default settings (fresh,
+// since callers invalidate the relevant caches first) and reports whether it
+// is the account default. Shared by Create/UpdateCalendar's return tail.
+func (s *Service) refreshedCalendar(ctx context.Context, id string) (*GotCalendar, error) {
+	refreshed, err := s.resolveCalendar(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	set, err := calendar.FetchSettings(ctx, s.api, info.ID)
+	set, err := calendar.FetchSettings(ctx, s.api, id)
 	if err != nil {
 		return nil, err
 	}
@@ -204,20 +211,7 @@ func (s *Service) CreateCalendar(ctx context.Context, in CreateCalendarInput) (*
 
 	// Return refreshed detail without a key unlock: the bootstrap already
 	// carries the server-applied default settings for the new calendar.
-	refreshed, err := s.resolveCalendar(ctx, info.ID)
-	if err != nil {
-		return nil, err
-	}
-	set, err := calendar.FetchSettings(ctx, s.api, info.ID)
-	if err != nil {
-		return nil, err
-	}
-	defaultID, _ := s.DefaultCalendarID(ctx)
-	return &GotCalendar{
-		Info:      refreshed,
-		Settings:  set,
-		IsDefault: defaultID != "" && refreshed.ID == defaultID,
-	}, nil
+	return s.refreshedCalendar(ctx, info.ID)
 }
 
 // DeleteCalendarInput describes a calendar deletion. Password (the login password)

@@ -2,10 +2,7 @@ package cli
 
 import (
 	"bytes"
-	"context"
-	"encoding/json"
 	"errors"
-	"net/url"
 	"strings"
 	"testing"
 
@@ -13,6 +10,7 @@ import (
 	"github.com/cheeseandcereal/proton-cal/pkg/calendar"
 	"github.com/cheeseandcereal/proton-cal/pkg/calsvc"
 	"github.com/cheeseandcereal/proton-cal/pkg/config"
+	"github.com/cheeseandcereal/proton-cal/pkg/internal/papitest"
 )
 
 // detachedFactory returns a factory backed by a detached Service: validation
@@ -22,30 +20,11 @@ func detachedFactory() (*calsvc.Service, error) {
 	return calsvc.NewDetached(config.Config{Timezone: "UTC"}), nil
 }
 
-// cliFakeAPI serves canned GET bodies (read-only) so resolution-dependent CLI
-// paths can be exercised; writes are no-ops.
-type cliFakeAPI struct{ bodies map[string]string }
-
-func (f cliFakeAPI) Get(_ context.Context, path string, _ url.Values, out any) error {
-	body := f.bodies[path]
-	if body == "" {
-		body = `{}`
-	}
-	if out == nil {
-		return nil
-	}
-	return json.Unmarshal([]byte(body), out)
-}
-
-func (cliFakeAPI) Put(context.Context, string, any, any) error  { return nil }
-func (cliFakeAPI) Post(context.Context, string, any, any) error { return nil }
-func (cliFakeAPI) Delete(context.Context, string, any) error    { return nil }
-
 // fakeAPIFactory returns a serviceFactory whose read path is served by the
 // given canned bodies (calendar list etc.), so resolution succeeds offline.
 func fakeAPIFactory(bodies map[string]string) func() (*calsvc.Service, error) {
 	return func() (*calsvc.Service, error) {
-		return calsvc.NewWithAPI(config.Config{Timezone: "UTC"}, cliFakeAPI{bodies: bodies}), nil
+		return calsvc.NewWithAPI(config.Config{Timezone: "UTC"}, papitest.Fake{Bodies: bodies}), nil
 	}
 }
 
@@ -337,7 +316,7 @@ func TestCLIDeleteCalendarRequiresYes(t *testing.T) {
 	// Without --yes, the command resolves the target (dry run) and refuses,
 	// naming the calendar (name, type, ID) it WOULD have deleted.
 	factory := fakeAPIFactory(map[string]string{
-		"/calendar/v1": `{"Calendars":[{"ID":"id-work","Type":0,"Members":[{"ID":"m1","Name":"Work","Color":"#112233"}]}]}`,
+		"/calendar/v1": papitest.CalListBody(papitest.CalSpec{ID: "id-work", Name: "Work"}),
 	})
 	_, _, err := runCLI(t, factory, "delete", "calendar", "Work")
 	if err == nil {
