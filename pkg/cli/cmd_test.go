@@ -150,6 +150,18 @@ func TestCLIUnknownFieldSelector(t *testing.T) {
 	}
 }
 
+// TestCLIVersionFlag verifies --version prints "proton-cal <version>" to
+// stdout and exits cleanly. The package default is "dev" (no ldflags in tests).
+func TestCLIVersionFlag(t *testing.T) {
+	out, _, err := runCLI(t, nil, "--version")
+	if err != nil {
+		t.Fatalf("--version err = %v, want nil", err)
+	}
+	if out != "proton-cal dev\n" {
+		t.Errorf("--version stdout = %q, want %q", out, "proton-cal dev\n")
+	}
+}
+
 func TestRenderCalendars(t *testing.T) {
 	var buf bytes.Buffer
 	cals := []calendar.Info{

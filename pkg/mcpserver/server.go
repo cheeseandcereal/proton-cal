@@ -23,8 +23,10 @@ import (
 	"github.com/cheeseandcereal/proton-cal/pkg/calsvc"
 )
 
-// serverVersion is the MCP implementation version advertised to clients.
-const serverVersion = "1.0.0"
+// Version is the MCP implementation version advertised to clients. It is set
+// by the CLI to match the build version (stamped via ldflags); "dev" for a
+// plain `go build`.
+var Version = "dev"
 
 // server holds the lazily initialised service, guarded by a mutex so
 // concurrent tool calls bootstrap exactly once. bootstrap is a field for tests.
@@ -57,7 +59,7 @@ func (s *server) service() (*calsvc.Service, error) {
 // is cancelled. Client closing stdin (normal MCP shutdown) is a clean exit.
 func Run(ctx context.Context) error {
 	s := newServer()
-	srv := mcp.NewServer(&mcp.Implementation{Name: "proton-calendar", Version: serverVersion}, nil)
+	srv := mcp.NewServer(&mcp.Implementation{Name: "proton-calendar", Version: Version}, nil)
 	s.register(srv)
 	err := srv.Run(ctx, &mcp.StdioTransport{})
 	if errors.Is(err, io.EOF) || errors.Is(err, mcp.ErrConnectionClosed) {

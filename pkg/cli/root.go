@@ -6,7 +6,14 @@ import (
 	"fmt"
 
 	"github.com/spf13/cobra"
+
+	"github.com/cheeseandcereal/proton-cal/pkg/mcpserver"
 )
+
+// version is the build version, stamped via
+// -ldflags "-X github.com/cheeseandcereal/proton-cal/pkg/cli.version=..." by
+// the Makefile and goreleaser; "dev" for a plain `go build`.
+var version = "dev"
 
 // ErrReported signals an error already written to stderr by the CLI; the
 // caller must not re-print it, only exit non-zero.
@@ -59,6 +66,7 @@ func newRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:           "proton-cal",
 		Short:         "Proton Calendar CLI - read and write events via the Proton API",
+		Version:       version,
 		Args:          requireArgs(cobra.NoArgs),
 		SilenceUsage:  true,
 		SilenceErrors: true,
@@ -74,6 +82,7 @@ func newRootCmd() *cobra.Command {
 			return errMissingSubcommand
 		},
 	}
+	root.SetVersionTemplate("proton-cal {{.Version}}\n")
 	root.PersistentFlags().StringVarP(&outputFormat, "output", "o", "text",
 		"output format: text or json (json on stdout, human messages on stderr)")
 	root.PersistentFlags().BoolVar(&noColor, "no-color", false,
@@ -96,6 +105,9 @@ func newRootCmd() *cobra.Command {
 
 // Execute runs the root command.
 func Execute() error {
+	// Keep the MCP server's advertised version in lockstep with the CLI build
+	// version (single source of truth stamped via ldflags).
+	mcpserver.Version = version
 	return executeRoot(newRootCmd())
 }
 

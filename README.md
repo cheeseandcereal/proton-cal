@@ -59,6 +59,9 @@ make build        # produces ./proton-cal
 ## Usage
 
 ```bash
+# Print the version and exit
+proton-cal --version
+
 # Authenticate (prompts for username, password and 2FA; stores session +
 # derived key passphrase in ~/.config/proton-cal/, mode 0600)
 proton-cal login
