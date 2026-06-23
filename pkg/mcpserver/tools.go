@@ -19,6 +19,35 @@ func textResult(text string) *mcp.CallToolResult {
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}
 }
 
+// falsePtr is the addressable false used for *bool annotation hints whose spec
+// default is true (DestructiveHint, OpenWorldHint).
+var falsePtr = func() *bool { b := false; return &b }()
+
+// Structured-output wrappers. The MCP spec requires a tool's structuredContent
+// to be a JSON object, so list results are wrapped under a named field rather
+// than returned as a bare array. Each handler returning one of these (or a
+// caljson/event struct) gives the SDK a concrete Out type, from which it
+// derives and advertises the tool's outputSchema and validates every result.
+//
+// NOTE: the SDK marks every non-omitempty field of these (and the caljson/
+// event) types as REQUIRED in the derived schema and forbids additional
+// properties, then validates each result against it; a failure is a hard
+// JSON-RPC error. Any field that can legitimately be absent MUST be tagged
+// omitempty, or it becomes required and can break MCP calls.
+type listEventsOutput struct {
+	Events []caljson.Event `json:"events"`
+}
+
+type listCalendarsOutput struct {
+	Calendars []caljson.Calendar `json:"calendars"`
+}
+
+type deleteCalendarOutput struct {
+	Deleted bool   `json:"deleted"`
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+}
+
 // emptyString is the addressable empty value clear_fields points the update
 // input at (a non-nil "" pointer clears the field; see calsvc.UpdateEventInput).
 var emptyString string
@@ -62,6 +91,7 @@ func (s *server) register(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "list_calendars",
 		Description: "List all Proton calendars on this account (name, type, ID, default marker).",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: falsePtr},
 	}, s.listCalendars)
 
 	mcp.AddTool(srv, &mcp.Tool{
@@ -70,6 +100,7 @@ func (s *server) register(srv *mcp.Server) {
 			"Times are shown in the configured default timezone unless tz overrides it. " +
 			"Recurring events are expanded into their individual occurrences, marked \"(recurring)\"; " +
 			"pass the shown ID plus the shown \"occurrence start\" value to update_event/delete_event to address one occurrence.",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: falsePtr},
 	}, s.listEvents)
 
 	mcp.AddTool(srv, &mcp.Tool{
@@ -77,6 +108,7 @@ func (s *server) register(srv *mcp.Server) {
 		Description: "Get a single calendar in detail by ID or name (default: the account's " +
 			"default calendar, else the first): name, type, color, the calendar's default " +
 			"reminders (timed and all-day) and default event duration.",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: falsePtr},
 	}, s.getCalendar)
 
 	mcp.AddTool(srv, &mcp.Tool{
@@ -88,6 +120,7 @@ func (s *server) register(srv *mcp.Server) {
 			"For a recurring event, \"ics\" returns the WHOLE series (master VEVENT plus a " +
 			"VEVENT per edited occurrence) unless no_series is true, which returns only the " +
 			"single addressed VEVENT.",
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: falsePtr},
 	}, s.getEvent)
 
 	mcp.AddTool(srv, &mcp.Tool{
@@ -96,6 +129,7 @@ func (s *server) register(srv *mcp.Server) {
 			"Timed events take start (\"YYYY-MM-DD HH:MM\" in the configured default timezone, or tz); end is optional and defaults to the calendar's default duration; " +
 			"all-day events use dates (\"YYYY-MM-DD\") and end is the inclusive last day (default: start). " +
 			"Use repeat/every/count/until (or a raw rrule) to make it recurring.",
+		Annotations: &mcp.ToolAnnotations{DestructiveHint: falsePtr, OpenWorldHint: falsePtr},
 	}, s.createEvent)
 
 	mcp.AddTool(srv, &mcp.Tool{
@@ -105,6 +139,7 @@ func (s *server) register(srv *mcp.Server) {
 			"Recurring events keep their recurrence unless repeat/rrule/no_repeat change it. " +
 			"Changing a series' times or recurrence removes its edited occurrences. " +
 			"Use occurrence to edit ONE occurrence instead of the whole series.",
+		Annotations: &mcp.ToolAnnotations{DestructiveHint: falsePtr, OpenWorldHint: falsePtr},
 	}, s.updateEvent)
 
 	mcp.AddTool(srv, &mcp.Tool{
@@ -112,6 +147,7 @@ func (s *server) register(srv *mcp.Server) {
 		Description: "Delete a calendar event by its ID. " +
 			"Recurring events: deletes the whole series (master + edited occurrences) " +
 			"unless occurrence limits it to a single occurrence.",
+		Annotations: &mcp.ToolAnnotations{OpenWorldHint: falsePtr},
 	}, s.deleteEvent)
 
 	mcp.AddTool(srv, &mcp.Tool{
@@ -121,6 +157,7 @@ func (s *server) register(srv *mcp.Server) {
 			"if omitted, a random palette color is chosen), and/or make it the account " +
 			"default. Default reminders and event duration use the account defaults and " +
 			"can be changed afterwards with update_calendar.",
+		Annotations: &mcp.ToolAnnotations{DestructiveHint: falsePtr, OpenWorldHint: falsePtr},
 	}, s.createCalendar)
 
 	mcp.AddTool(srv, &mcp.Tool{
@@ -130,6 +167,7 @@ func (s *server) register(srv *mcp.Server) {
 			"event duration, busy setting, default reminder sets, and/or make it the " +
 			"account default. Only provided fields change. Subscribed and holidays " +
 			"calendars cannot be modified.",
+		Annotations: &mcp.ToolAnnotations{DestructiveHint: falsePtr, OpenWorldHint: falsePtr},
 	}, s.updateCalendar)
 
 	mcp.AddTool(srv, &mcp.Tool{
@@ -139,6 +177,7 @@ func (s *server) register(srv *mcp.Server) {
 			"(pass it as password); holidays calendars need no password; subscribed " +
 			"calendars cannot be deleted here. The password is used only for the " +
 			"deletion handshake and is never stored or echoed.",
+		Annotations: &mcp.ToolAnnotations{OpenWorldHint: falsePtr},
 	}, s.deleteCalendar)
 }
 
@@ -146,19 +185,19 @@ func (s *server) register(srv *mcp.Server) {
 
 type listCalendarsArgs struct{}
 
-func (s *server) listCalendars(ctx context.Context, _ *mcp.CallToolRequest, _ listCalendarsArgs) (*mcp.CallToolResult, any, error) {
+func (s *server) listCalendars(ctx context.Context, _ *mcp.CallToolRequest, _ listCalendarsArgs) (*mcp.CallToolResult, listCalendarsOutput, error) {
 	svc, err := s.service()
 	if err != nil {
-		return nil, nil, err
+		return nil, listCalendarsOutput{}, err
 	}
 	cals, err := svc.Calendars(ctx)
 	if err != nil {
-		return nil, nil, err
+		return nil, listCalendarsOutput{}, err
 	}
 	// Best-effort: a failure to read the server default just leaves no
 	// calendar marked default.
 	defaultID, _ := svc.DefaultCalendarID(ctx)
-	return textResult(renderCalendars(cals, defaultID)), caljson.Calendars(cals, defaultID), nil
+	return textResult(renderCalendars(cals, defaultID)), listCalendarsOutput{Calendars: caljson.Calendars(cals, defaultID)}, nil
 }
 
 // ---------------------------------------------------------------- get_calendar
@@ -167,14 +206,14 @@ type getCalendarArgs struct {
 	Calendar string `json:"calendar,omitempty" jsonschema:"Calendar ID or name (optional; default: the account's default calendar, else the first calendar)"`
 }
 
-func (s *server) getCalendar(ctx context.Context, _ *mcp.CallToolRequest, args getCalendarArgs) (*mcp.CallToolResult, any, error) {
+func (s *server) getCalendar(ctx context.Context, _ *mcp.CallToolRequest, args getCalendarArgs) (*mcp.CallToolResult, caljson.Calendar, error) {
 	svc, err := s.service()
 	if err != nil {
-		return nil, nil, err
+		return nil, caljson.Calendar{}, err
 	}
 	got, err := svc.GetCalendar(ctx, args.Calendar)
 	if err != nil {
-		return nil, nil, err
+		return nil, caljson.Calendar{}, err
 	}
 	text := renderCalendarDetail(got.Info, got.Settings, got.IsDefault)
 	return textResult(text), caljson.CalendarDetailOf(got.Info, got.Settings, got.IsDefault), nil
@@ -190,10 +229,10 @@ type listEventsArgs struct {
 	TZ           string   `json:"tz,omitempty" jsonschema:"IANA timezone for queries and display (optional; default: the configured timezone)"`
 }
 
-func (s *server) listEvents(ctx context.Context, _ *mcp.CallToolRequest, args listEventsArgs) (*mcp.CallToolResult, any, error) {
+func (s *server) listEvents(ctx context.Context, _ *mcp.CallToolRequest, args listEventsArgs) (*mcp.CallToolResult, listEventsOutput, error) {
 	svc, err := s.service()
 	if err != nil {
-		return nil, nil, err
+		return nil, listEventsOutput{}, err
 	}
 	list, err := svc.ListEvents(ctx, calsvc.ListEventsInput{
 		Days:         args.Days,
@@ -203,14 +242,14 @@ func (s *server) listEvents(ctx context.Context, _ *mcp.CallToolRequest, args li
 		TZ:           args.TZ,
 	})
 	if err != nil {
-		return nil, nil, err
+		return nil, listEventsOutput{}, err
 	}
 	rows := make([]caljson.Event, 0, len(list.Items))
 	for _, item := range list.Items {
 		rows = append(rows, caljson.Occurrence(item.Listed, list.Location, item.Settings, item.Calendar))
 	}
 	text := renderEvents(list.Items, list.Days, list.Location, !list.SingleCalendar())
-	return textResult(text), rows, nil
+	return textResult(text), listEventsOutput{Events: rows}, nil
 }
 
 // ---------------------------------------------------------------- get_event
@@ -270,13 +309,13 @@ type createEventArgs struct {
 	TZ          string   `json:"tz,omitempty" jsonschema:"IANA timezone for the event times (optional; default: the configured timezone)"`
 }
 
-func (s *server) createEvent(ctx context.Context, _ *mcp.CallToolRequest, args createEventArgs) (*mcp.CallToolResult, any, error) {
+func (s *server) createEvent(ctx context.Context, _ *mcp.CallToolRequest, args createEventArgs) (*mcp.CallToolResult, caljson.Created, error) {
 	svc, err := s.service()
 	if err != nil {
-		return nil, nil, err
+		return nil, caljson.Created{}, err
 	}
 	if len(args.Reminders) > 0 && args.NoReminders {
-		return nil, nil, errors.New("reminders and no_reminders are mutually exclusive")
+		return nil, caljson.Created{}, errors.New("reminders and no_reminders are mutually exclusive")
 	}
 	mode := calsvc.ReminderKeep
 	switch {
@@ -287,13 +326,13 @@ func (s *server) createEvent(ctx context.Context, _ *mcp.CallToolRequest, args c
 	}
 	remList, remSet, err := calsvc.ResolveCreateReminders(mode, args.Reminders)
 	if err != nil {
-		return nil, nil, err
+		return nil, caljson.Created{}, err
 	}
 	// On create, "default" (or empty) means inherit the calendar color, which
 	// a create with no color does naturally.
 	color, err := calsvc.ResolveColorCreate(args.Color)
 	if err != nil {
-		return nil, nil, err
+		return nil, caljson.Created{}, err
 	}
 	created, err := svc.CreateEvent(ctx, calsvc.CreateEventInput{
 		Summary:     args.Summary,
@@ -313,7 +352,7 @@ func (s *server) createEvent(ctx context.Context, _ *mcp.CallToolRequest, args c
 		TZ:           args.TZ,
 	})
 	if err != nil {
-		return nil, nil, err
+		return nil, caljson.Created{}, err
 	}
 	return textResult(renderCreated(created)), caljson.CreatedOf(created), nil
 }
@@ -342,10 +381,10 @@ type updateEventArgs struct {
 	TZ            string   `json:"tz,omitempty" jsonschema:"IANA timezone for the event times (optional; default: the configured timezone)"`
 }
 
-func (s *server) updateEvent(ctx context.Context, _ *mcp.CallToolRequest, args updateEventArgs) (*mcp.CallToolResult, any, error) {
+func (s *server) updateEvent(ctx context.Context, _ *mcp.CallToolRequest, args updateEventArgs) (*mcp.CallToolResult, caljson.Updated, error) {
 	svc, err := s.service()
 	if err != nil {
-		return nil, nil, err
+		return nil, caljson.Updated{}, err
 	}
 
 	// JSON can't distinguish "absent" from "empty": pointers are built only for
@@ -375,24 +414,24 @@ func (s *server) updateEvent(ctx context.Context, _ *mcp.CallToolRequest, args u
 	if args.Color != "" {
 		col, cerr := calsvc.ResolveColorUpdate(args.Color)
 		if cerr != nil {
-			return nil, nil, cerr
+			return nil, caljson.Updated{}, cerr
 		}
 		in.Color = col
 	}
 	rem, err := resolveUpdateReminders(args.RemindersMode, args.Reminders)
 	if err != nil {
-		return nil, nil, err
+		return nil, caljson.Updated{}, err
 	}
 	in.Reminders = rem
 	// clear_fields (incl. "color") is applied after the color arg so an
 	// explicit clear wins over an accidental empty color.
 	if err := applyClearFields(&in, args.ClearFields); err != nil {
-		return nil, nil, err
+		return nil, caljson.Updated{}, err
 	}
 
 	outcome, err := svc.UpdateEvent(ctx, in)
 	if err != nil {
-		return nil, nil, err
+		return nil, caljson.Updated{}, err
 	}
 
 	headline, note := eventview.UpdateOutcomeMessage(outcome)
@@ -412,7 +451,7 @@ type deleteEventArgs struct {
 	TZ         string `json:"tz,omitempty" jsonschema:"IANA timezone for occurrence (optional; default: the configured timezone)"`
 }
 
-func (s *server) deleteEvent(ctx context.Context, _ *mcp.CallToolRequest, args deleteEventArgs) (*mcp.CallToolResult, any, error) {
+func (s *server) deleteEvent(ctx context.Context, _ *mcp.CallToolRequest, args deleteEventArgs) (*mcp.CallToolResult, *event.DeleteResult, error) {
 	svc, err := s.service()
 	if err != nil {
 		return nil, nil, err
@@ -438,10 +477,10 @@ type createCalendarArgs struct {
 	MakeDefault bool   `json:"make_default,omitempty" jsonschema:"Make this the account's default calendar"`
 }
 
-func (s *server) createCalendar(ctx context.Context, _ *mcp.CallToolRequest, args createCalendarArgs) (*mcp.CallToolResult, any, error) {
+func (s *server) createCalendar(ctx context.Context, _ *mcp.CallToolRequest, args createCalendarArgs) (*mcp.CallToolResult, caljson.Calendar, error) {
 	svc, err := s.service()
 	if err != nil {
-		return nil, nil, err
+		return nil, caljson.Calendar{}, err
 	}
 	got, err := svc.CreateCalendar(ctx, calsvc.CreateCalendarInput{
 		Name:        args.Name,
@@ -450,7 +489,7 @@ func (s *server) createCalendar(ctx context.Context, _ *mcp.CallToolRequest, arg
 		MakeDefault: args.MakeDefault,
 	})
 	if err != nil {
-		return nil, nil, err
+		return nil, caljson.Calendar{}, err
 	}
 	return textResult(renderCalendarDetail(got.Info, got.Settings, got.IsDefault)),
 		caljson.CalendarDetailOf(got.Info, got.Settings, got.IsDefault), nil
@@ -473,10 +512,10 @@ type updateCalendarArgs struct {
 	MakeDefault         bool     `json:"make_default,omitempty" jsonschema:"Make this the account's default calendar"`
 }
 
-func (s *server) updateCalendar(ctx context.Context, _ *mcp.CallToolRequest, args updateCalendarArgs) (*mcp.CallToolResult, any, error) {
+func (s *server) updateCalendar(ctx context.Context, _ *mcp.CallToolRequest, args updateCalendarArgs) (*mcp.CallToolResult, caljson.Calendar, error) {
 	svc, err := s.service()
 	if err != nil {
-		return nil, nil, err
+		return nil, caljson.Calendar{}, err
 	}
 
 	in := calsvc.UpdateCalendarInput{Selector: args.Calendar, MakeDefault: args.MakeDefault}
@@ -502,21 +541,21 @@ func (s *server) updateCalendar(ctx context.Context, _ *mcp.CallToolRequest, arg
 	if args.SetReminders {
 		ns, err := reminders.ParseSet(args.Reminders)
 		if err != nil {
-			return nil, nil, err
+			return nil, caljson.Calendar{}, err
 		}
 		in.PartDayReminders = &ns
 	}
 	if args.SetFullDayReminders {
 		ns, err := reminders.ParseSet(args.FullDayReminders)
 		if err != nil {
-			return nil, nil, err
+			return nil, caljson.Calendar{}, err
 		}
 		in.FullDayReminders = &ns
 	}
 
 	got, err := svc.UpdateCalendar(ctx, in)
 	if err != nil {
-		return nil, nil, err
+		return nil, caljson.Calendar{}, err
 	}
 	return textResult(renderCalendarDetail(got.Info, got.Settings, got.IsDefault)),
 		caljson.CalendarDetailOf(got.Info, got.Settings, got.IsDefault), nil
@@ -530,20 +569,20 @@ type deleteCalendarArgs struct {
 	Password string `json:"password,omitempty" jsonschema:"Account login password, required to delete an OWNED calendar (not needed for holidays calendars). Used only for the deletion handshake; never stored."`
 }
 
-func (s *server) deleteCalendar(ctx context.Context, _ *mcp.CallToolRequest, args deleteCalendarArgs) (*mcp.CallToolResult, any, error) {
+func (s *server) deleteCalendar(ctx context.Context, _ *mcp.CallToolRequest, args deleteCalendarArgs) (*mcp.CallToolResult, deleteCalendarOutput, error) {
 	svc, err := s.service()
 	if err != nil {
-		return nil, nil, err
+		return nil, deleteCalendarOutput{}, err
 	}
 
 	// Dry run: resolve the target first so confirm=false refuses while naming
 	// the exact calendar that WOULD be deleted (guards against the wrong one).
 	info, err := svc.ResolveCalendarInfo(ctx, args.Calendar)
 	if err != nil {
-		return nil, nil, err
+		return nil, deleteCalendarOutput{}, err
 	}
 	if !args.Confirm {
-		return nil, nil, fmt.Errorf(
+		return nil, deleteCalendarOutput{}, fmt.Errorf(
 			"refusing to delete calendar %q (%s, ID %s) without confirm=true; set confirm=true to delete it",
 			info.Name, info.TypeString(), info.ID)
 	}
@@ -551,15 +590,15 @@ func (s *server) deleteCalendar(ctx context.Context, _ *mcp.CallToolRequest, arg
 	// Owned calendars need the password; surface a clear error if it is
 	// required but absent (rather than failing deep in the scope handshake).
 	if info.RequiresDeletePassword() && args.Password == "" {
-		return nil, nil, fmt.Errorf("deleting owned calendar %q requires the account login password (pass it as password)", info.Name)
+		return nil, deleteCalendarOutput{}, fmt.Errorf("deleting owned calendar %q requires the account login password (pass it as password)", info.Name)
 	}
 
 	if err := svc.DeleteCalendar(ctx, calsvc.DeleteCalendarInput{
 		Selector: info.ID,
 		Password: args.Password,
 	}); err != nil {
-		return nil, nil, err
+		return nil, deleteCalendarOutput{}, err
 	}
 	return textResult(fmt.Sprintf("Calendar %q deleted.", info.Name)),
-		map[string]any{"deleted": true, "id": info.ID, "name": info.Name}, nil
+		deleteCalendarOutput{Deleted: true, ID: info.ID, Name: info.Name}, nil
 }

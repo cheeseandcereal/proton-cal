@@ -16,14 +16,13 @@ func TestE2EMCPRemindersAndColor(t *testing.T) {
 	ctx := context.Background()
 
 	start, end := e2eFutureSlot()
-	_, structured, err := s.createEvent(ctx, nil, createEventArgs{
+	_, created, err := s.createEvent(ctx, nil, createEventArgs{
 		Summary: e2eSummary("mcp-reminders"), Start: start, End: end, Calendar: cal, TZ: "UTC",
 		Reminders: []string{"15m", "email:1h"}, Color: "#EC3E7C",
 	})
 	if err != nil {
 		t.Fatalf("createEvent: %v", err)
 	}
-	created := structured.(caljson.Created)
 	evID := created.ID
 	defer func() { _, _, _ = s.deleteEvent(ctx, nil, deleteEventArgs{EventID: evID, Calendar: cal}) }()
 
@@ -35,7 +34,7 @@ func TestE2EMCPRemindersAndColor(t *testing.T) {
 	}
 
 	// get_event structured content reflects the stored custom reminders+color.
-	_, structured, err = s.getEvent(ctx, nil, getEventArgs{EventID: evID, Calendar: cal, TZ: "UTC"})
+	_, structured, err := s.getEvent(ctx, nil, getEventArgs{EventID: evID, Calendar: cal, TZ: "UTC"})
 	if err != nil {
 		t.Fatalf("getEvent: %v", err)
 	}
@@ -49,7 +48,7 @@ func TestE2EMCPRemindersAndColor(t *testing.T) {
 	if err != nil {
 		t.Fatalf("getCalendar: %v", err)
 	}
-	calColor := calStruct.(caljson.Calendar).Color
+	calColor := calStruct.Color
 
 	// reminders_mode=none removes them; color="default" reverts to the
 	// calendar color (Proton has no color "clear", so it becomes calColor).

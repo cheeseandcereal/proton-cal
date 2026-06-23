@@ -115,6 +115,138 @@ func callText(t *testing.T, cs *mcp.ClientSession, name string, args map[string]
 	return sb.String(), res.IsError
 }
 
+// TestListToolsAdvertiseObjectOutputSchema verifies the MCP spec fix: tools
+// that return structured content advertise an object outputSchema, and the
+// list tools wrap their results under a named field (events/calendars) rather
+// than the bare array that violated the spec (issue #1).
+func TestListToolsAdvertiseObjectOutputSchema(t *testing.T) {
+	cs := connectTestClient(t, failingServer(errors.New("unused")))
+	res, err := cs.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// outputSchema, when present, must be a JSON object schema. get_event is the
+	// one structured tool intentionally without a schema (polymorphic detail vs.
+	// raw ICS), so it is allowed to omit it.
+	noSchema := map[string]bool{"get_event": true}
+	want := map[string]string{ // tool -> the property its array result is wrapped under
+		"list_events":    "events",
+		"list_calendars": "calendars",
+	}
+	for _, tool := range res.Tools {
+		if tool.OutputSchema == nil {
+			if noSchema[tool.Name] {
+				continue
+			}
+			t.Errorf("%s: missing outputSchema", tool.Name)
+			continue
+		}
+		raw, err := json.Marshal(tool.OutputSchema)
+		if err != nil {
+			t.Fatalf("%s: marshal outputSchema: %v", tool.Name, err)
+		}
+		var doc struct {
+			Type       string                     `json:"type"`
+			Properties map[string]json.RawMessage `json:"properties"`
+		}
+		if err := json.Unmarshal(raw, &doc); err != nil {
+			t.Fatalf("%s: %v", tool.Name, err)
+		}
+		if doc.Type != "object" {
+			t.Errorf("%s: outputSchema type = %q, want object; schema=%s", tool.Name, doc.Type, raw)
+		}
+		if key, ok := want[tool.Name]; ok {
+			if _, found := doc.Properties[key]; !found {
+				t.Errorf("%s: outputSchema must wrap its array under %q; schema=%s", tool.Name, key, raw)
+			}
+		}
+	}
+}
+
+// TestToolAnnotations checks the read-only and destructive hints advertised in
+// tools/list match each tool's behavior.
+func TestToolAnnotations(t *testing.T) {
+	cs := connectTestClient(t, failingServer(errors.New("unused")))
+	res, err := cs.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := make(map[string]*mcp.ToolAnnotations)
+	for _, tool := range res.Tools {
+		got[tool.Name] = tool.Annotations
+	}
+
+	readOnly := []string{"list_calendars", "list_events", "get_calendar", "get_event"}
+	for _, name := range readOnly {
+		a := got[name]
+		if a == nil || !a.ReadOnlyHint {
+			t.Errorf("%s: want readOnlyHint=true, got %+v", name, a)
+		}
+	}
+	// Deletes are destructive (DestructiveHint defaults to true when unset).
+	for _, name := range []string{"delete_event", "delete_calendar"} {
+		a := got[name]
+		if a == nil || a.ReadOnlyHint {
+			t.Errorf("%s: want a non-read-only destructive tool, got %+v", name, a)
+		}
+		if a != nil && a.DestructiveHint != nil && !*a.DestructiveHint {
+			t.Errorf("%s: destructiveHint must not be false", name)
+		}
+	}
+	// Creates/updates mutate but are non-destructive.
+	for _, name := range []string{"create_event", "update_event", "create_calendar", "update_calendar"} {
+		a := got[name]
+		if a == nil || a.ReadOnlyHint {
+			t.Errorf("%s: want non-read-only, got %+v", name, a)
+		}
+		if a == nil || a.DestructiveHint == nil || *a.DestructiveHint {
+			t.Errorf("%s: want destructiveHint=false, got %+v", name, a)
+		}
+	}
+}
+
+// TestListCalendarsStructuredContentIsObject drives list_calendars over the
+// client transport and asserts structuredContent is a JSON object wrapping the
+// calendars array, not a bare array (the spec violation from issue #1).
+func TestListCalendarsStructuredContentIsObject(t *testing.T) {
+	cs := connectTestClient(t, apiStubServer(config.Config{Timezone: "UTC"}, map[string]string{
+		"/calendar/v1": papitest.CalListBody(papitest.CalSpec{ID: "id-work", Name: "Work"}),
+	}))
+	res, err := cs.CallTool(context.Background(), &mcp.CallToolParams{Name: "list_calendars"})
+	if err != nil {
+		t.Fatalf("CallTool(list_calendars): %v", err)
+	}
+	if res.IsError {
+		t.Fatalf("list_calendars errored: %s", textResult2(res))
+	}
+	raw, err := json.Marshal(res.StructuredContent)
+	if err != nil {
+		t.Fatalf("marshal structuredContent: %v", err)
+	}
+	// Must decode as an object (not an array). A bare array fails this.
+	var obj struct {
+		Calendars []json.RawMessage `json:"calendars"`
+	}
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		t.Fatalf("structuredContent is not an object: %v; raw=%s", err, raw)
+	}
+	if len(obj.Calendars) != 1 {
+		t.Errorf("calendars = %d, want 1; raw=%s", len(obj.Calendars), raw)
+	}
+}
+
+// textResult2 concatenates the text content blocks of a tool result.
+func textResult2(res *mcp.CallToolResult) string {
+	var sb strings.Builder
+	for _, c := range res.Content {
+		if tc, ok := c.(*mcp.TextContent); ok {
+			sb.WriteString(tc.Text)
+		}
+	}
+	return sb.String()
+}
+
 func TestToolErrorsAreToolResults(t *testing.T) {
 	// A handler error must surface as an IsError tool RESULT (visible to
 	// the model), never crash the server or become a protocol error.

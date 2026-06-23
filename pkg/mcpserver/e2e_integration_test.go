@@ -52,15 +52,14 @@ func TestE2EMCPLifecycle(t *testing.T) {
 
 	start, end := e2eFutureSlot()
 	summary := e2eSummary("mcp-lifecycle")
-	res, structured, err := s.createEvent(ctx, nil, createEventArgs{
+	res, created, err := s.createEvent(ctx, nil, createEventArgs{
 		Summary: summary, Start: start, End: end, Location: "MCP Lab", Calendar: cal, TZ: "UTC",
 	})
 	if err != nil {
 		t.Fatalf("createEvent: %v", err)
 	}
-	created, ok := structured.(caljson.Created)
-	if !ok || created.ID == "" {
-		t.Fatalf("create structured content = %#v", structured)
+	if created.ID == "" {
+		t.Fatalf("create structured content = %#v", created)
 	}
 	if !strings.Contains(textOf(res), "Event created") {
 		t.Errorf("create text = %q", textOf(res))
@@ -70,8 +69,9 @@ func TestE2EMCPLifecycle(t *testing.T) {
 		_, _, _ = s.deleteEvent(ctx, nil, deleteEventArgs{EventID: evID, Calendar: cal})
 	}()
 
-	// get_event: text + structured.
-	res, structured, err = s.getEvent(ctx, nil, getEventArgs{EventID: evID, Calendar: cal, TZ: "UTC"})
+	// get_event: text + structured. get_event keeps Out=any (its structured
+	// output is the detail object, or absent for the ICS format).
+	res, structured, err := s.getEvent(ctx, nil, getEventArgs{EventID: evID, Calendar: cal, TZ: "UTC"})
 	if err != nil {
 		t.Fatalf("getEvent: %v", err)
 	}
@@ -91,15 +91,12 @@ func TestE2EMCPLifecycle(t *testing.T) {
 		t.Fatalf("updateEvent: %v", err)
 	}
 
-	// list_events: structured rows include our event.
-	_, structured, err = s.listEvents(ctx, nil, listEventsArgs{Calendars: []string{cal}, TZ: "UTC", From: time.Now().UTC().AddDate(0, 0, 30).Format("2006-01-02") + " 00:00", Days: 2})
+	// list_events: structured rows (wrapped in an object) include our event.
+	_, listed, err := s.listEvents(ctx, nil, listEventsArgs{Calendars: []string{cal}, TZ: "UTC", From: time.Now().UTC().AddDate(0, 0, 30).Format("2006-01-02") + " 00:00", Days: 2})
 	if err != nil {
 		t.Fatalf("listEvents: %v", err)
 	}
-	rows, ok := structured.([]caljson.Event)
-	if !ok {
-		t.Fatalf("list_events structured type = %T", structured)
-	}
+	rows := listed.Events
 	var found bool
 	for _, r := range rows {
 		if r.ID == evID {
@@ -126,14 +123,14 @@ func TestE2EMCPClearFields(t *testing.T) {
 	ctx := context.Background()
 
 	start, end := e2eFutureSlot()
-	_, structured, err := s.createEvent(ctx, nil, createEventArgs{
+	_, created, err := s.createEvent(ctx, nil, createEventArgs{
 		Summary: e2eSummary("mcp-clear"), Start: start, End: end,
 		Location: "To Be Cleared", Description: "also cleared", Calendar: cal, TZ: "UTC",
 	})
 	if err != nil {
 		t.Fatalf("createEvent: %v", err)
 	}
-	evID := structured.(caljson.Created).ID
+	evID := created.ID
 	defer func() { _, _, _ = s.deleteEvent(ctx, nil, deleteEventArgs{EventID: evID, Calendar: cal}) }()
 
 	if _, _, err := s.updateEvent(ctx, nil, updateEventArgs{
@@ -142,7 +139,7 @@ func TestE2EMCPClearFields(t *testing.T) {
 		t.Fatalf("updateEvent clear_fields: %v", err)
 	}
 
-	_, structured, err = s.getEvent(ctx, nil, getEventArgs{EventID: evID, Calendar: cal, TZ: "UTC"})
+	_, structured, err := s.getEvent(ctx, nil, getEventArgs{EventID: evID, Calendar: cal, TZ: "UTC"})
 	if err != nil {
 		t.Fatalf("getEvent: %v", err)
 	}
@@ -158,13 +155,12 @@ func TestE2EMCPClearFields(t *testing.T) {
 // TestE2EMCPGetCalendar exercises get_calendar live (text + structured).
 func TestE2EMCPGetCalendar(t *testing.T) {
 	s, cal := liveServer(t)
-	res, structured, err := s.getCalendar(context.Background(), nil, getCalendarArgs{Calendar: cal})
+	res, c, err := s.getCalendar(context.Background(), nil, getCalendarArgs{Calendar: cal})
 	if err != nil {
 		t.Fatalf("getCalendar: %v", err)
 	}
-	c, ok := structured.(caljson.Calendar)
-	if !ok || c.ID == "" {
-		t.Fatalf("get_calendar structured = %#v", structured)
+	if c.ID == "" {
+		t.Fatalf("get_calendar structured = %#v", c)
 	}
 	if !strings.Contains(textOf(res), c.Name) {
 		t.Errorf("get_calendar text missing name %q:\n%s", c.Name, textOf(res))

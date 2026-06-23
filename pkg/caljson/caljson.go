@@ -2,6 +2,13 @@
 // events, shared by the CLI's -o json output and the MCP server's structured
 // tool results so both surfaces emit one schema. Effective color and
 // reminders (resolved from the calendar defaults) are baked in via eventview.
+//
+// MCP constraint: these types are reflected into the MCP tools' outputSchema
+// (the SDK derives a JSON Schema from the Go type and validates every tool
+// result against it). Fields WITHOUT `omitempty` become REQUIRED in that
+// schema, and the schema forbids unknown properties; a result that violates it
+// is a hard JSON-RPC error. So any field that can legitimately be absent from a
+// result MUST be tagged `omitempty`, or it will break MCP calls that omit it.
 package caljson
 
 import (
