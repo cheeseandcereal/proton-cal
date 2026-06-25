@@ -134,7 +134,7 @@ func TestE2EMCPClearFields(t *testing.T) {
 	defer func() { _, _, _ = s.deleteEvent(ctx, nil, deleteEventArgs{EventID: evID, Calendar: cal}) }()
 
 	if _, _, err := s.updateEvent(ctx, nil, updateEventArgs{
-		EventID: evID, Calendar: cal, ClearFields: []string{"location", "description"},
+		EventID: evID, Calendar: cal, ClearFields: []clearField{"location", "description"},
 	}); err != nil {
 		t.Fatalf("updateEvent clear_fields: %v", err)
 	}

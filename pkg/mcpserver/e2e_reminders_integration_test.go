@@ -76,7 +76,7 @@ func TestE2EMCPRemindersAndColor(t *testing.T) {
 	if _, _, err := s.updateEvent(ctx, nil, updateEventArgs{EventID: evID, Calendar: cal, Color: "pacific"}); err != nil {
 		t.Fatalf("updateEvent set pacific: %v", err)
 	}
-	if _, _, err := s.updateEvent(ctx, nil, updateEventArgs{EventID: evID, Calendar: cal, ClearFields: []string{"color"}}); err != nil {
+	if _, _, err := s.updateEvent(ctx, nil, updateEventArgs{EventID: evID, Calendar: cal, ClearFields: []clearField{"color"}}); err != nil {
 		t.Fatalf("updateEvent clear_fields color: %v", err)
 	}
 	_, structured, err = s.getEvent(ctx, nil, getEventArgs{EventID: evID, Calendar: cal, TZ: "UTC"})
