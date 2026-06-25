@@ -10,6 +10,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/cheeseandcereal/proton-cal/pkg/calcolor"
 	"github.com/cheeseandcereal/proton-cal/pkg/config"
 	"github.com/cheeseandcereal/proton-cal/pkg/internal/papitest"
 )
@@ -329,5 +330,60 @@ func TestToolErrorsAreToolResults(t *testing.T) {
 	text, isErr = callText(t, cs3, "delete_calendar", map[string]any{"calendar": "Work"})
 	if !isErr || !strings.Contains(text, "requires the account login password") || !strings.Contains(text, "Work") {
 		t.Errorf("delete_calendar without password: isErr=%v text=%q", isErr, text)
+	}
+}
+
+// TestColorsResource verifies the server advertises a read-only colors resource
+// (so the palette need not be inlined as a repeated enum in tool schemas) and
+// that reading it returns the full palette as JSON. No session is required.
+func TestColorsResource(t *testing.T) {
+	cs := connectTestClient(t, failingServer(errors.New("unused")))
+	ctx := context.Background()
+
+	list, err := cs.ListResources(ctx, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found *mcp.Resource
+	for _, r := range list.Resources {
+		if r.URI == colorsResourceURI {
+			found = r
+		}
+	}
+	if found == nil {
+		t.Fatalf("colors resource %q not advertised; got %+v", colorsResourceURI, list.Resources)
+	}
+	if found.MIMEType != "application/json" {
+		t.Errorf("colors resource MIMEType = %q, want application/json", found.MIMEType)
+	}
+
+	read, err := cs.ReadResource(ctx, &mcp.ReadResourceParams{URI: colorsResourceURI})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(read.Contents) != 1 {
+		t.Fatalf("colors resource contents = %d, want 1", len(read.Contents))
+	}
+	var entries []struct {
+		Name string `json:"name"`
+		Hex  string `json:"hex"`
+	}
+	if err := json.Unmarshal([]byte(read.Contents[0].Text), &entries); err != nil {
+		t.Fatalf("unmarshaling colors resource: %v\ntext=%s", err, read.Contents[0].Text)
+	}
+	if len(entries) != len(calcolor.Palette()) {
+		t.Errorf("colors resource has %d entries, want %d", len(entries), len(calcolor.Palette()))
+	}
+	var haveStrawberry bool
+	for _, e := range entries {
+		if e.Name == "strawberry" {
+			haveStrawberry = true
+			if e.Hex != "#EC3E7C" {
+				t.Errorf("strawberry hex = %q, want #EC3E7C", e.Hex)
+			}
+		}
+	}
+	if !haveStrawberry {
+		t.Errorf("colors resource missing known entry strawberry; got %+v", entries)
 	}
 }

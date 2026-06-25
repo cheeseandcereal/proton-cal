@@ -10,6 +10,7 @@ import (
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/cheeseandcereal/proton-cal/pkg/calcolor"
 	"github.com/cheeseandcereal/proton-cal/pkg/caljson"
 	"github.com/cheeseandcereal/proton-cal/pkg/calsvc"
 	"github.com/cheeseandcereal/proton-cal/pkg/event"
@@ -283,6 +284,46 @@ func (s *server) register(srv *mcp.Server) {
 			"deletion handshake and is never stored or echoed.",
 		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: false, DestructiveHint: truePtr, IdempotentHint: true, OpenWorldHint: truePtr},
 	}, s.deleteCalendar)
+
+	srv.AddResource(&mcp.Resource{
+		URI:   colorsResourceURI,
+		Name:  "proton_colors",
+		Title: "Proton Calendar colors",
+		Description: "The fixed Proton Calendar accent-color palette: the only colors the API accepts. " +
+			"Each entry has a friendly name and its #RRGGBB hex; either form is accepted by the " +
+			"color argument on the create/update event and calendar tools.",
+		MIMEType: "application/json",
+	}, s.readColors)
+}
+
+// colorsResourceURI is the URI of the read-only palette resource. It exposes the
+// valid color values out-of-band so the (large) palette need not be inlined as a
+// repeated enum in every tool's color argument schema.
+const colorsResourceURI = "proton-cal://colors"
+
+// readColors serves the Proton accent palette as JSON ({name, hex} entries). It
+// is static and needs no session, so colors are discoverable even before login.
+func (s *server) readColors(_ context.Context, req *mcp.ReadResourceRequest) (*mcp.ReadResourceResult, error) {
+	type colorEntry struct {
+		Name string `json:"name"`
+		Hex  string `json:"hex"`
+	}
+	palette := calcolor.Palette()
+	entries := make([]colorEntry, len(palette))
+	for i, c := range palette {
+		entries[i] = colorEntry{Name: c.Name, Hex: c.Hex}
+	}
+	data, err := json.Marshal(entries)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling color palette: %w", err)
+	}
+	return &mcp.ReadResourceResult{
+		Contents: []*mcp.ResourceContents{{
+			URI:      req.Params.URI,
+			MIMEType: "application/json",
+			Text:     string(data),
+		}},
+	}, nil
 }
 
 // ---------------------------------------------------------------- list_calendars
@@ -362,7 +403,7 @@ type getEventArgs struct {
 	EventID  string      `json:"event_id" jsonschema:"The event ID (get from list_events)"`
 	Calendar string      `json:"calendar,omitempty" jsonschema:"Calendar ID or name the event lives in (optional; default: the account's default calendar, else the first calendar)"`
 	TZ       string      `json:"tz,omitempty" jsonschema:"IANA timezone for display (optional; default: the configured timezone)"`
-	Format   eventFormat `json:"format,omitempty" jsonschema:"Output format: \"detail\" (default, human-readable) or \"ics\" (raw iCalendar document)"`
+	Format   eventFormat `json:"format,omitempty" jsonschema:"Output format: \"detail\" (default, human-readable, includes structuredContent) or \"ics\" (raw iCalendar document, text only, no structuredContent)"`
 	NoSeries bool        `json:"no_series,omitempty" jsonschema:"With format \"ics\" on a recurring event, export only the single addressed VEVENT instead of the whole series (master + edited occurrences). Ignored for non-recurring events."`
 }
 
@@ -408,7 +449,7 @@ type createEventArgs struct {
 	RRule       string           `json:"rrule,omitempty" jsonschema:"Raw RRULE value (advanced; replaces the repeat/every/count/until args)"`
 	Reminders   []string         `json:"reminders,omitempty" jsonschema:"Reminders before the event, e.g. [\"15m\",\"1h30m\",\"2d\"]; prefix \"email:\" for an email reminder (default a notification). Raw iCal triggers like \"-PT15M\" also accepted. Omit to inherit the calendar default; pass no_reminders to set none."`
 	NoReminders bool             `json:"no_reminders,omitempty" jsonschema:"Create the event with no reminders (overrides the calendar default)"`
-	Color       string           `json:"color,omitempty" jsonschema:"Event color: a Proton color name (e.g. \"strawberry\", \"pacific\") or its hex (optional; default: the calendar color). Only Proton's fixed palette is accepted; \"default\" also means the calendar color."`
+	Color       string           `json:"color,omitempty" jsonschema:"Event color: a Proton palette color name or #hex (see the proton-cal://colors resource for valid values); \"default\" (or omitted) uses the calendar color."`
 	Calendar    string           `json:"calendar,omitempty" jsonschema:"Calendar ID or name (optional; default: the account's default calendar, else the first calendar)"`
 	TZ          string           `json:"tz,omitempty" jsonschema:"IANA timezone for the event times (optional; default: the configured timezone)"`
 }
@@ -479,7 +520,7 @@ type updateEventArgs struct {
 	NoRepeat      bool             `json:"no_repeat,omitempty" jsonschema:"Remove the recurrence from this event"`
 	Reminders     []string         `json:"reminders,omitempty" jsonschema:"New reminders, e.g. [\"15m\",\"email:1h\"] (prefix \"email:\"; default a notification). Setting this implies reminders_mode=custom. Raw iCal triggers like \"-PT15M\" also accepted."`
 	RemindersMode reminderModeArg  `json:"reminders_mode,omitempty" jsonschema:"How to change reminders: \"keep\" (default), \"inherit\" (calendar default), \"none\" (remove all), or \"custom\" (use the reminders list)."`
-	Color         string           `json:"color,omitempty" jsonschema:"Set the event color: a Proton color name (e.g. \"strawberry\") or its hex (only Proton's fixed palette). Pass \"default\" to revert to the calendar color."`
+	Color         string           `json:"color,omitempty" jsonschema:"Set the event color: a Proton palette color name or #hex (see the proton-cal://colors resource for valid values); pass \"default\" to revert to the calendar color."`
 	ClearFields   []clearField     `json:"clear_fields,omitempty" jsonschema:"Fields to clear: any of \"summary\", \"description\", \"location\" (set empty) or \"color\" (revert to the calendar color; equivalent to color=\"default\"). Use this instead of passing an empty string, which is treated as \"keep current\"."`
 	Calendar      string           `json:"calendar,omitempty" jsonschema:"Calendar ID or name (optional; default: the account's default calendar, else the first calendar)"`
 	TZ            string           `json:"tz,omitempty" jsonschema:"IANA timezone for the event times (optional; default: the configured timezone)"`
@@ -577,7 +618,7 @@ func (s *server) deleteEvent(ctx context.Context, _ *mcp.CallToolRequest, args d
 type createCalendarArgs struct {
 	Name        string `json:"name" jsonschema:"The new calendar's name"`
 	Description string `json:"description,omitempty" jsonschema:"Optional calendar description"`
-	Color       string `json:"color,omitempty" jsonschema:"Color: a Proton color name (e.g. \"strawberry\") or its hex (only Proton's fixed palette). Optional; defaults to a random palette color. A calendar has no inheritable default color, so \"default\" is not accepted."`
+	Color       string `json:"color,omitempty" jsonschema:"Color: a Proton palette color name or #hex (see the proton-cal://colors resource for valid values). Optional; defaults to a random palette color. A calendar has no inheritable default color, so \"default\" is not accepted."`
 	MakeDefault bool   `json:"make_default,omitempty" jsonschema:"Make this the account's default calendar"`
 }
 
@@ -606,7 +647,7 @@ type updateCalendarArgs struct {
 	Name                string   `json:"name,omitempty" jsonschema:"New calendar name (optional)"`
 	Description         string   `json:"description,omitempty" jsonschema:"New description (optional; use clear_description to set it empty)"`
 	ClearDescription    bool     `json:"clear_description,omitempty" jsonschema:"Set the description to empty (use instead of an empty description, which is treated as 'keep')"`
-	Color               string   `json:"color,omitempty" jsonschema:"New color: a Proton color name (e.g. \"strawberry\") or its hex (only Proton's fixed palette). A calendar has no inheritable default color, so \"default\" is not accepted."`
+	Color               string   `json:"color,omitempty" jsonschema:"New color: a Proton palette color name or #hex (see the proton-cal://colors resource for valid values). A calendar has no inheritable default color, so \"default\" is not accepted."`
 	DefaultDuration     int      `json:"default_duration,omitempty" jsonschema:"Default event duration in minutes (optional; >0)"`
 	MakesBusy           *bool    `json:"makes_busy,omitempty" jsonschema:"Whether events on this calendar mark you busy (optional)"`
 	Reminders           []string `json:"reminders,omitempty" jsonschema:"Replace the timed-event default reminders, e.g. [\"15m\",\"email:1h\"] (prefix \"email:\"; default a notification). An empty list clears them. Omit to keep."`
