@@ -19,9 +19,13 @@ func textResult(text string) *mcp.CallToolResult {
 	return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: text}}}
 }
 
-// falsePtr is the addressable false used for *bool annotation hints whose spec
-// default is true (DestructiveHint, OpenWorldHint).
-var falsePtr = func() *bool { b := false; return &b }()
+// falsePtr and truePtr are addressable bools for the *bool annotation hints
+// (DestructiveHint, OpenWorldHint), so every tool can set them explicitly
+// rather than relying on the SDK's spec defaults.
+var (
+	falsePtr = func() *bool { b := false; return &b }()
+	truePtr  = func() *bool { b := true; return &b }()
+)
 
 // Structured-output wrappers. The MCP spec requires a tool's structuredContent
 // to be a JSON object, so list results are wrapped under a named field rather
@@ -91,7 +95,7 @@ func (s *server) register(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{
 		Name:        "list_calendars",
 		Description: "List all Proton calendars on this account (name, type, ID, default marker).",
-		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: falsePtr},
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: truePtr},
 	}, s.listCalendars)
 
 	mcp.AddTool(srv, &mcp.Tool{
@@ -100,7 +104,7 @@ func (s *server) register(srv *mcp.Server) {
 			"Times are shown in the configured default timezone unless tz overrides it. " +
 			"Recurring events are expanded into their individual occurrences, marked \"(recurring)\"; " +
 			"pass the shown ID plus the shown \"occurrence start\" value to update_event/delete_event to address one occurrence.",
-		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: falsePtr},
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: truePtr},
 	}, s.listEvents)
 
 	mcp.AddTool(srv, &mcp.Tool{
@@ -108,7 +112,7 @@ func (s *server) register(srv *mcp.Server) {
 		Description: "Get a single calendar in detail by ID or name (default: the account's " +
 			"default calendar, else the first): name, type, color, the calendar's default " +
 			"reminders (timed and all-day) and default event duration.",
-		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: falsePtr},
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: truePtr},
 	}, s.getCalendar)
 
 	mcp.AddTool(srv, &mcp.Tool{
@@ -120,7 +124,7 @@ func (s *server) register(srv *mcp.Server) {
 			"For a recurring event, \"ics\" returns the WHOLE series (master VEVENT plus a " +
 			"VEVENT per edited occurrence) unless no_series is true, which returns only the " +
 			"single addressed VEVENT.",
-		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: falsePtr},
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: truePtr},
 	}, s.getEvent)
 
 	mcp.AddTool(srv, &mcp.Tool{
@@ -129,7 +133,7 @@ func (s *server) register(srv *mcp.Server) {
 			"Timed events take start (\"YYYY-MM-DD HH:MM\" in the configured default timezone, or tz); end is optional and defaults to the calendar's default duration; " +
 			"all-day events use dates (\"YYYY-MM-DD\") and end is the inclusive last day (default: start). " +
 			"Use repeat/every/count/until (or a raw rrule) to make it recurring.",
-		Annotations: &mcp.ToolAnnotations{DestructiveHint: falsePtr, OpenWorldHint: falsePtr},
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: false, DestructiveHint: falsePtr, IdempotentHint: false, OpenWorldHint: truePtr},
 	}, s.createEvent)
 
 	mcp.AddTool(srv, &mcp.Tool{
@@ -139,7 +143,7 @@ func (s *server) register(srv *mcp.Server) {
 			"Recurring events keep their recurrence unless repeat/rrule/no_repeat change it. " +
 			"Changing a series' times or recurrence removes its edited occurrences. " +
 			"Use occurrence to edit ONE occurrence instead of the whole series.",
-		Annotations: &mcp.ToolAnnotations{DestructiveHint: falsePtr, OpenWorldHint: falsePtr},
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: false, DestructiveHint: truePtr, IdempotentHint: true, OpenWorldHint: truePtr},
 	}, s.updateEvent)
 
 	mcp.AddTool(srv, &mcp.Tool{
@@ -147,7 +151,7 @@ func (s *server) register(srv *mcp.Server) {
 		Description: "Delete a calendar event by its ID. " +
 			"Recurring events: deletes the whole series (master + edited occurrences) " +
 			"unless occurrence limits it to a single occurrence.",
-		Annotations: &mcp.ToolAnnotations{OpenWorldHint: falsePtr},
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: false, DestructiveHint: truePtr, IdempotentHint: true, OpenWorldHint: truePtr},
 	}, s.deleteEvent)
 
 	mcp.AddTool(srv, &mcp.Tool{
@@ -157,7 +161,7 @@ func (s *server) register(srv *mcp.Server) {
 			"if omitted, a random palette color is chosen), and/or make it the account " +
 			"default. Default reminders and event duration use the account defaults and " +
 			"can be changed afterwards with update_calendar.",
-		Annotations: &mcp.ToolAnnotations{DestructiveHint: falsePtr, OpenWorldHint: falsePtr},
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: false, DestructiveHint: falsePtr, IdempotentHint: false, OpenWorldHint: truePtr},
 	}, s.createCalendar)
 
 	mcp.AddTool(srv, &mcp.Tool{
@@ -167,7 +171,7 @@ func (s *server) register(srv *mcp.Server) {
 			"event duration, busy setting, default reminder sets, and/or make it the " +
 			"account default. Only provided fields change. Subscribed and holidays " +
 			"calendars cannot be modified.",
-		Annotations: &mcp.ToolAnnotations{DestructiveHint: falsePtr, OpenWorldHint: falsePtr},
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: false, DestructiveHint: truePtr, IdempotentHint: true, OpenWorldHint: truePtr},
 	}, s.updateCalendar)
 
 	mcp.AddTool(srv, &mcp.Tool{
@@ -177,7 +181,7 @@ func (s *server) register(srv *mcp.Server) {
 			"(pass it as password); holidays calendars need no password; subscribed " +
 			"calendars cannot be deleted here. The password is used only for the " +
 			"deletion handshake and is never stored or echoed.",
-		Annotations: &mcp.ToolAnnotations{OpenWorldHint: falsePtr},
+		Annotations: &mcp.ToolAnnotations{ReadOnlyHint: false, DestructiveHint: truePtr, IdempotentHint: true, OpenWorldHint: truePtr},
 	}, s.deleteCalendar)
 }
 

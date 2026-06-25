@@ -164,8 +164,9 @@ func TestListToolsAdvertiseObjectOutputSchema(t *testing.T) {
 	}
 }
 
-// TestToolAnnotations checks the read-only and destructive hints advertised in
-// tools/list match each tool's behavior.
+// TestToolAnnotations checks that every tool advertises all four MCP hints
+// explicitly (none relying on the SDK's spec defaults) and that the values
+// match each tool's behavior.
 func TestToolAnnotations(t *testing.T) {
 	cs := connectTestClient(t, failingServer(errors.New("unused")))
 	res, err := cs.ListTools(context.Background(), nil)
@@ -177,31 +178,62 @@ func TestToolAnnotations(t *testing.T) {
 		got[tool.Name] = tool.Annotations
 	}
 
-	readOnly := []string{"list_calendars", "list_events", "get_calendar", "get_event"}
-	for _, name := range readOnly {
-		a := got[name]
-		if a == nil || !a.ReadOnlyHint {
-			t.Errorf("%s: want readOnlyHint=true, got %+v", name, a)
-		}
+	// want describes the expected annotation for one tool. Destructive and
+	// Idempotent are only meaningful for non-read-only tools, so they are
+	// pointers here: nil means "must be unset" (read tools), non-nil means
+	// "must be explicitly set to this value".
+	type want struct {
+		readOnly    bool
+		destructive *bool
+		idempotent  *bool
+		openWorld   bool
 	}
-	// Deletes are destructive (DestructiveHint defaults to true when unset).
-	for _, name := range []string{"delete_event", "delete_calendar"} {
-		a := got[name]
-		if a == nil || a.ReadOnlyHint {
-			t.Errorf("%s: want a non-read-only destructive tool, got %+v", name, a)
-		}
-		if a != nil && a.DestructiveHint != nil && !*a.DestructiveHint {
-			t.Errorf("%s: destructiveHint must not be false", name)
-		}
+	bp := func(b bool) *bool { return &b }
+
+	cases := map[string]want{
+		// Read-only tools: destructive/idempotent omitted (not meaningful).
+		"list_calendars": {readOnly: true, openWorld: true},
+		"list_events":    {readOnly: true, openWorld: true},
+		"get_calendar":   {readOnly: true, openWorld: true},
+		"get_event":      {readOnly: true, openWorld: true},
+		// Creates: mutate, non-destructive, not idempotent (repeats duplicate).
+		"create_event":    {readOnly: false, destructive: bp(false), idempotent: bp(false), openWorld: true},
+		"create_calendar": {readOnly: false, destructive: bp(false), idempotent: bp(false), openWorld: true},
+		// Updates: can clobber existing properties -> destructive; re-applying
+		// the same update lands the same state -> idempotent.
+		"update_event":    {readOnly: false, destructive: bp(true), idempotent: bp(true), openWorld: true},
+		"update_calendar": {readOnly: false, destructive: bp(true), idempotent: bp(true), openWorld: true},
+		// Deletes: destructive; deleting again is a no-op -> idempotent.
+		"delete_event":    {readOnly: false, destructive: bp(true), idempotent: bp(true), openWorld: true},
+		"delete_calendar": {readOnly: false, destructive: bp(true), idempotent: bp(true), openWorld: true},
 	}
-	// Creates/updates mutate but are non-destructive.
-	for _, name := range []string{"create_event", "update_event", "create_calendar", "update_calendar"} {
+
+	for name, w := range cases {
 		a := got[name]
-		if a == nil || a.ReadOnlyHint {
-			t.Errorf("%s: want non-read-only, got %+v", name, a)
+		if a == nil {
+			t.Errorf("%s: missing annotations", name)
+			continue
 		}
-		if a == nil || a.DestructiveHint == nil || *a.DestructiveHint {
-			t.Errorf("%s: want destructiveHint=false, got %+v", name, a)
+		if a.ReadOnlyHint != w.readOnly {
+			t.Errorf("%s: readOnlyHint=%v, want %v", name, a.ReadOnlyHint, w.readOnly)
+		}
+		switch {
+		case w.destructive == nil && a.DestructiveHint != nil:
+			t.Errorf("%s: destructiveHint must be unset, got %v", name, *a.DestructiveHint)
+		case w.destructive != nil && (a.DestructiveHint == nil || *a.DestructiveHint != *w.destructive):
+			t.Errorf("%s: destructiveHint=%v, want %v", name, a.DestructiveHint, *w.destructive)
+		}
+		switch {
+		case w.idempotent == nil && a.IdempotentHint:
+			t.Errorf("%s: idempotentHint must be unset (false), got true", name)
+		case w.idempotent != nil && a.IdempotentHint != *w.idempotent:
+			t.Errorf("%s: idempotentHint=%v, want %v", name, a.IdempotentHint, *w.idempotent)
+		}
+		// OpenWorldHint must be explicitly set (non-nil) on every tool.
+		if a.OpenWorldHint == nil {
+			t.Errorf("%s: openWorldHint must be set explicitly, got nil", name)
+		} else if *a.OpenWorldHint != w.openWorld {
+			t.Errorf("%s: openWorldHint=%v, want %v", name, *a.OpenWorldHint, w.openWorld)
 		}
 	}
 }
