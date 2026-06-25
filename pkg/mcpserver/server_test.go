@@ -320,13 +320,14 @@ func TestToolErrorsAreToolResults(t *testing.T) {
 		t.Errorf("create_calendar default color: isErr=%v text=%q", isErr, text)
 	}
 
-	// delete_calendar confirm=false dry-runs and refuses, naming the target.
+	// Deleting an OWNED calendar requires the account password: the tool
+	// resolves the target and refuses, naming it, when the password is missing.
 	// Needs an API-backed server so resolution succeeds offline.
 	cs3 := connectTestClient(t, apiStubServer(config.Config{Timezone: "UTC"}, map[string]string{
 		"/calendar/v1": papitest.CalListBody(papitest.CalSpec{ID: "id-work", Name: "Work"}),
 	}))
-	text, isErr = callText(t, cs3, "delete_calendar", map[string]any{"calendar": "Work", "confirm": false})
-	if !isErr || !strings.Contains(text, "confirm=true") || !strings.Contains(text, "id-work") {
-		t.Errorf("delete_calendar without confirm: isErr=%v text=%q", isErr, text)
+	text, isErr = callText(t, cs3, "delete_calendar", map[string]any{"calendar": "Work"})
+	if !isErr || !strings.Contains(text, "requires the account login password") || !strings.Contains(text, "Work") {
+		t.Errorf("delete_calendar without password: isErr=%v text=%q", isErr, text)
 	}
 }

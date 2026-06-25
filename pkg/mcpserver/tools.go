@@ -276,7 +276,7 @@ func (s *server) register(srv *mcp.Server) {
 
 	mcp.AddTool(srv, &mcp.Tool{
 		Name: "delete_calendar",
-		Description: "Delete a calendar by ID or name. Requires confirm=true. Deleting an " +
+		Description: "Delete a calendar by ID or name. Deleting an " +
 			"OWNED calendar is irreversible and requires the account login password " +
 			"(pass it as password); holidays calendars need no password; subscribed " +
 			"calendars cannot be deleted here. The password is used only for the " +
@@ -669,7 +669,6 @@ func (s *server) updateCalendar(ctx context.Context, _ *mcp.CallToolRequest, arg
 
 type deleteCalendarArgs struct {
 	Calendar string `json:"calendar" jsonschema:"Calendar ID or name to delete"`
-	Confirm  bool   `json:"confirm" jsonschema:"Must be true to actually delete (a safety guard)"`
 	Password string `json:"password,omitempty" jsonschema:"Account login password, required to delete an OWNED calendar (not needed for holidays calendars). Used only for the deletion handshake; never stored."`
 }
 
@@ -679,16 +678,11 @@ func (s *server) deleteCalendar(ctx context.Context, _ *mcp.CallToolRequest, arg
 		return nil, deleteCalendarOutput{}, err
 	}
 
-	// Dry run: resolve the target first so confirm=false refuses while naming
-	// the exact calendar that WOULD be deleted (guards against the wrong one).
+	// Resolve the target first so a name selector maps to a concrete calendar
+	// (and the password-required check below can name the exact one).
 	info, err := svc.ResolveCalendarInfo(ctx, args.Calendar)
 	if err != nil {
 		return nil, deleteCalendarOutput{}, err
-	}
-	if !args.Confirm {
-		return nil, deleteCalendarOutput{}, fmt.Errorf(
-			"refusing to delete calendar %q (%s, ID %s) without confirm=true; set confirm=true to delete it",
-			info.Name, info.TypeString(), info.ID)
 	}
 
 	// Owned calendars need the password; surface a clear error if it is
