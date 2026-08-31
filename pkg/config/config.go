@@ -10,11 +10,13 @@ package config
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/gofrs/flock"
@@ -30,7 +32,10 @@ const (
 	configFile  = "config.toml"
 	sessionFile = "session.json"
 	lockFile    = "session.lock"
+	refreshLock = "session-refresh.lock"
 )
+
+const lockRetryDelay = 50 * time.Millisecond
 
 // DefaultBaseURL is the Proton API endpoint used unless overridden in
 // config.toml (verified to work with app version "Other"; see docs/crypto.md).
@@ -145,6 +150,9 @@ func NewSessionStore() (*SessionStore, error) {
 
 func (s *SessionStore) sessionPath() string { return filepath.Join(s.dir, sessionFile) }
 func (s *SessionStore) lockPath() string    { return filepath.Join(s.dir, lockFile) }
+func (s *SessionStore) refreshLockPath() string {
+	return filepath.Join(s.dir, refreshLock)
+}
 
 // Load reads the current session.
 func (s *SessionStore) Load() (Session, error) {
@@ -204,6 +212,53 @@ func (s *SessionStore) UpdateTokens(uid, accessToken, refreshToken string) error
 	sess.AccessToken = accessToken
 	sess.RefreshToken = refreshToken
 	return s.saveLocked(sess)
+}
+
+// WithRefreshLock serializes a complete token refresh across processes. The
+// ordinary session lock only protects individual file operations; refresh
+// tokens are single-use, so the read-refresh-write transaction needs its own
+// longer-lived lock. Waiting respects ctx so an abandoned MCP call cannot
+// remain stuck behind another process indefinitely.
+func (s *SessionStore) WithRefreshLock(ctx context.Context, fn func() error) error {
+	fl := flock.New(s.refreshLockPath())
+	locked, err := fl.TryLockContext(ctx, lockRetryDelay)
+	if err != nil {
+		return fmt.Errorf("locking session refresh: %w", err)
+	}
+	if !locked {
+		return errors.New("locking session refresh: lock was not acquired")
+	}
+	defer func() { _ = fl.Unlock() }()
+	return fn()
+}
+
+// ClearIfTokensMatch removes the session only when it still contains the
+// tokens rejected by Proton. A stale process must not delete tokens that a
+// concurrent process has already refreshed.
+func (s *SessionStore) ClearIfTokensMatch(expected Session) (bool, error) {
+	if !expected.Valid() {
+		return false, nil
+	}
+	unlock, err := lock(s.lockPath())
+	if err != nil {
+		return false, err
+	}
+	defer unlock()
+	sess, err := s.loadLocked()
+	if errors.Is(err, ErrNoSession) {
+		return false, nil
+	} else if err != nil {
+		return false, err
+	}
+	if sess.UID != expected.UID ||
+		sess.AccessToken != expected.AccessToken ||
+		sess.RefreshToken != expected.RefreshToken {
+		return false, nil
+	}
+	if err := os.Remove(s.sessionPath()); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return false, err
+	}
+	return true, nil
 }
 
 // Clear removes the session file.

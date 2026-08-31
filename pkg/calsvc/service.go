@@ -399,14 +399,21 @@ func (s *Service) loginUsername(ctx context.Context) (string, error) {
 	if s.cfg.Username != "" {
 		return s.cfg.Username, nil
 	}
-	user, err := s.client.Proton().GetUser(ctx)
+	var response struct {
+		User struct {
+			Name string
+		}
+	}
+	// Stay on papi's raw path so an expired access token uses the same
+	// cross-process refresh lock as every calendar request.
+	err := s.client.Get(ctx, "/core/v4/users", nil, &response)
 	if err != nil {
 		return "", fmt.Errorf("resolving account username: %w", err)
 	}
-	if user.Name == "" {
+	if response.User.Name == "" {
 		return "", errors.New("could not determine login username; re-run `proton-cal login`")
 	}
-	return user.Name, nil
+	return response.User.Name, nil
 }
 
 // withAccess runs fn with resolved access, retrying once on stale cached data:

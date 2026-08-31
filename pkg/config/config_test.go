@@ -1,8 +1,11 @@
 package config
 
 import (
+	"context"
 	"errors"
+	"sync"
 	"testing"
+	"time"
 )
 
 func TestEffectiveBaseURL(t *testing.T) {
@@ -126,4 +129,81 @@ func TestUpdateTokensFromEmpty(t *testing.T) {
 	if err != nil || !got.Valid() {
 		t.Fatalf("session after UpdateTokens = %+v, err %v", got, err)
 	}
+}
+
+func TestClearIfTokensMatch(t *testing.T) {
+	t.Setenv(EnvConfigDir, t.TempDir())
+	store, err := NewSessionStore()
+	if err != nil {
+		t.Fatalf("NewSessionStore: %v", err)
+	}
+
+	old := Session{UID: "u", AccessToken: "old-a", RefreshToken: "old-r"}
+	fresh := Session{UID: "u", AccessToken: "new-a", RefreshToken: "new-r"}
+	if err := store.Save(fresh); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	cleared, err := store.ClearIfTokensMatch(old)
+	if err != nil {
+		t.Fatalf("ClearIfTokensMatch(stale): %v", err)
+	}
+	if cleared {
+		t.Fatal("stale tokens cleared a newer session")
+	}
+	if got, err := store.Load(); err != nil || got.AccessToken != fresh.AccessToken {
+		t.Fatalf("newer session was not preserved: %+v, err %v", got, err)
+	}
+
+	cleared, err = store.ClearIfTokensMatch(fresh)
+	if err != nil {
+		t.Fatalf("ClearIfTokensMatch(current): %v", err)
+	}
+	if !cleared {
+		t.Fatal("current rejected tokens were not cleared")
+	}
+	if _, err := store.Load(); !errors.Is(err, ErrNoSession) {
+		t.Fatalf("Load after conditional clear = %v, want ErrNoSession", err)
+	}
+}
+
+func TestWithRefreshLockSerializesAndRespectsContext(t *testing.T) {
+	t.Setenv(EnvConfigDir, t.TempDir())
+	first, err := NewSessionStore()
+	if err != nil {
+		t.Fatalf("NewSessionStore(first): %v", err)
+	}
+	second, err := NewSessionStore()
+	if err != nil {
+		t.Fatalf("NewSessionStore(second): %v", err)
+	}
+
+	entered := make(chan struct{})
+	release := make(chan struct{})
+	var wg sync.WaitGroup
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		if err := first.WithRefreshLock(context.Background(), func() error {
+			close(entered)
+			<-release
+			return nil
+		}); err != nil {
+			t.Errorf("first WithRefreshLock: %v", err)
+		}
+	}()
+	<-entered
+
+	ctx, cancel := context.WithTimeout(context.Background(), 100*time.Millisecond)
+	defer cancel()
+	err = second.WithRefreshLock(ctx, func() error {
+		t.Fatal("second refresh entered while the first held the lock")
+		return nil
+	})
+	if !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("second WithRefreshLock = %v, want context deadline", err)
+	}
+
+	close(release)
+	wg.Wait()
 }

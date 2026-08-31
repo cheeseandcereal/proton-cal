@@ -178,6 +178,13 @@ derived salted key passphrase. It can unlock your calendar keys but cannot be
 used to log in to your account; delete it (or run `proton-cal logout`) to
 revoke. Your account password is never stored.
 
+Expired access tokens are refreshed transparently on the first API request
+that receives a 401: both rotated tokens are saved and the original request is
+retried once. Refreshes are serialized across CLI and MCP processes because
+Proton refresh tokens are single-use. If Proton rejects the refresh token, the
+command reports that `proton-cal login` is required instead of exposing the
+intermediate 401.
+
 ### Bootstrap cache
 
 `cache.json` (same directory, mode 0600) caches the bootstrap responses that

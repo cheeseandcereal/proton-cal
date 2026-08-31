@@ -43,8 +43,10 @@ the passphrase unlocks the key chain but cannot be used to authenticate.
   be persisted and restored.
 - On 401, `POST /auth/v4/refresh` rotates **both** tokens. Refresh tokens
   are single-use: concurrent refreshes race and the loser's tokens are dead.
-  Anything doing raw HTTP alongside a managed HTTP client must serialize
-  refreshes and re-read the rotated tokens afterwards.
+  `proton-cal` serializes the complete refresh transaction across processes,
+  re-reads tokens after taking the lock, persists the rotated pair, and retries
+  the original request once. A stale process only clears the session if the
+  rejected tokens are still current, so it cannot delete a newer session.
 - `DELETE /auth/v4` revokes the session (logout).
 
 ### The "locked" scope (live-verified June 2026)

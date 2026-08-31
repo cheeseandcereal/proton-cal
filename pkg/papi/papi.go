@@ -90,6 +90,9 @@ type Client struct {
 
 	mu   sync.Mutex
 	sess config.Session // cached tokens; zero until first use
+
+	authEventMu  sync.Mutex
+	authEventErr error
 }
 
 // New wires a Client over an existing proton.Client, registering auth/deauth
@@ -101,15 +104,35 @@ func New(pc *proton.Client, store *config.SessionStore, baseURL string) *Client 
 		baseURL: baseURL,
 		httpc:   &http.Client{Timeout: 60 * time.Second},
 	}
+	c.addAuthHandlers(pc)
+	return c
+}
+
+func (c *Client) addAuthHandlers(pc *proton.Client) {
 	pc.AddAuthHandler(func(auth proton.Auth) {
-		_ = store.UpdateTokens(auth.UID, auth.AccessToken, auth.RefreshToken)
+		if err := c.store.UpdateTokens(auth.UID, auth.AccessToken, auth.RefreshToken); err != nil {
+			c.setAuthEventError(fmt.Errorf("persisting refreshed session: %w", err))
+			return
+		}
 		c.setSession(config.Session{UID: auth.UID, AccessToken: auth.AccessToken, RefreshToken: auth.RefreshToken})
 	})
 	pc.AddDeauthHandler(func() {
-		_ = store.Clear()
-		c.setSession(config.Session{})
+		expected := c.cachedSession()
+		cleared, err := c.store.ClearIfTokensMatch(expected)
+		if err != nil {
+			c.setAuthEventError(fmt.Errorf("clearing expired session: %w", err))
+			return
+		}
+		if cleared {
+			c.setSession(config.Session{})
+			return
+		}
+		// A different process may have refreshed while this client was using
+		// stale tokens. Adopt its session instead of deleting it.
+		if sess, err := c.store.Load(); err == nil && sess.Valid() {
+			c.setSession(sess)
+		}
 	})
-	return c
 }
 
 // FromSession restores a Client from the persisted session. The returned
@@ -181,6 +204,30 @@ func (c *Client) setSession(sess config.Session) {
 	c.mu.Unlock()
 }
 
+func (c *Client) cachedSession() config.Session {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.sess
+}
+
+func (c *Client) setAuthEventError(err error) {
+	c.authEventMu.Lock()
+	c.authEventErr = err
+	c.authEventMu.Unlock()
+}
+
+func (c *Client) resetAuthEventError() {
+	c.setAuthEventError(nil)
+}
+
+func (c *Client) takeAuthEventError() error {
+	c.authEventMu.Lock()
+	defer c.authEventMu.Unlock()
+	err := c.authEventErr
+	c.authEventErr = nil
+	return err
+}
+
 // Error is a Proton API error from the raw request path.
 type Error struct {
 	Status  int
@@ -244,16 +291,8 @@ func (c *Client) Do(ctx context.Context, method, path string, query url.Values, 
 		switch {
 		case status == http.StatusUnauthorized && !refreshed:
 			refreshed = true
-			// Another process may have rotated tokens; prefer the persisted
-			// session when it differs from what we just used.
-			if disk, derr := c.store.Load(); derr == nil && disk.Valid() && disk.AccessToken != sess.AccessToken {
-				c.setSession(disk)
-				continue
-			}
-			// Let the typed client refresh; its auth handler updates both
-			// the store and the in-memory cache.
-			if _, err := c.pc.GetUser(ctx); err != nil {
-				return fmt.Errorf("session refresh failed: %w", err)
+			if err := c.refreshAfterUnauthorized(ctx, sess); err != nil {
+				return err
 			}
 			continue
 		case status == http.StatusTooManyRequests && attempt < maxRateLimitRetries:
@@ -276,6 +315,68 @@ func (c *Client) Do(ctx context.Context, method, path string, query url.Values, 
 		}
 		return nil
 	}
+}
+
+// refreshAfterUnauthorized performs the entire check-refresh-persist sequence
+// under a cross-process lock. The first waiter rotates the single-use refresh
+// token; later waiters adopt the saved result and retry their original request.
+func (c *Client) refreshAfterUnauthorized(ctx context.Context, used config.Session) error {
+	return c.store.WithRefreshLock(ctx, func() error {
+		disk, err := c.store.Load()
+		if errors.Is(err, config.ErrNoSession) {
+			return errors.New("proton session expired; run `proton-cal login` to authenticate again")
+		} else if err != nil {
+			return fmt.Errorf("loading session before refresh: %w", err)
+		}
+		// Another process completed the refresh while this call waited.
+		if disk.Valid() && disk.AccessToken != used.AccessToken {
+			c.setSession(disk)
+			return nil
+		}
+
+		c.resetAuthEventError()
+		// Build the managed refresh client from the locked disk session. This
+		// matters for long-running MCP processes that previously adopted tokens
+		// refreshed by another process: their original managed client still has
+		// the older, now single-use refresh token.
+		manager := NewManager(c.baseURL)
+		refreshClient := manager.NewClient(disk.UID, disk.AccessToken, disk.RefreshToken)
+		c.addAuthHandlers(refreshClient)
+		_, refreshErr := refreshClient.GetUser(ctx)
+		refreshClient.Close()
+		manager.Close()
+		if handlerErr := c.takeAuthEventError(); handlerErr != nil {
+			return handlerErr
+		}
+		if refreshErr != nil {
+			// Be defensive around clients that do not yet participate in the
+			// refresh lock: if one won the race, its saved tokens are usable.
+			latest, loadErr := c.store.Load()
+			switch {
+			case loadErr == nil && latest.Valid() && latest.AccessToken != used.AccessToken:
+				c.setSession(latest)
+				return nil
+			case errors.Is(loadErr, config.ErrNoSession):
+				return fmt.Errorf("proton session expired; run `proton-cal login` to authenticate again: %w", refreshErr)
+			case loadErr != nil:
+				return fmt.Errorf("checking saved session after failed refresh: %w", loadErr)
+			default:
+				return fmt.Errorf("session refresh failed: %w", refreshErr)
+			}
+		}
+
+		// The auth callback persists both rotated tokens before GetUser
+		// returns. Reload them so the original raw request retries from disk.
+		latest, err := c.store.Load()
+		if err != nil {
+			return fmt.Errorf("loading refreshed session: %w", err)
+		}
+		if !latest.Valid() || latest.AccessToken == used.AccessToken {
+			return errors.New("session refresh returned without saving new tokens")
+		}
+		c.setSession(latest)
+		return nil
+	})
 }
 
 type rawResponse struct {
