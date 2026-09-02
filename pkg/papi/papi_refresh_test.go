@@ -173,3 +173,65 @@ func TestRejectedRefreshReturnsLoginGuidance(t *testing.T) {
 		t.Fatalf("Load after rejected refresh = %v, want ErrNoSession", err)
 	}
 }
+
+func TestStaleManagedClientDoesNotClearRefreshedSession(t *testing.T) {
+	t.Setenv(config.EnvConfigDir, t.TempDir())
+	store := newStoredTestSession(t)
+
+	var refreshRequests atomic.Int32
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/calendar/v1":
+			if r.Header.Get("Authorization") == "Bearer "+testNewAccess {
+				writeAPIJSON(t, w, http.StatusOK, map[string]any{"Code": 1000})
+				return
+			}
+			writeAPIJSON(t, w, http.StatusUnauthorized, map[string]any{"Code": 10013, "Error": "expired"})
+		case "/core/v4/users":
+			if r.Header.Get("Authorization") == "Bearer "+testNewAccess {
+				writeAPIJSON(t, w, http.StatusOK, map[string]any{"Code": 1000, "User": map[string]any{"ID": "user-1"}})
+				return
+			}
+			writeAPIJSON(t, w, http.StatusUnauthorized, map[string]any{"Code": 10013, "Error": "expired"})
+		case "/auth/v4/refresh":
+			if refreshRequests.Add(1) == 1 {
+				writeAPIJSON(t, w, http.StatusOK, map[string]any{
+					"Code":         1000,
+					"UID":          testUID,
+					"AccessToken":  testNewAccess,
+					"RefreshToken": testNewRefresh,
+				})
+				return
+			}
+			writeAPIJSON(t, w, http.StatusUnprocessableEntity, map[string]any{
+				"Code":  10013,
+				"Error": "refresh token already consumed",
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	})
+	srv := httptest.NewServer(handler)
+	defer srv.Close()
+
+	client, err := FromSession(store, srv.URL)
+	if err != nil {
+		t.Fatalf("FromSession: %v", err)
+	}
+	defer client.Close()
+
+	if err := client.Get(context.Background(), "/calendar/v1", nil, nil); err != nil {
+		t.Fatalf("raw Get after refresh: %v", err)
+	}
+	if _, err := client.pc.GetUser(context.Background()); err == nil {
+		t.Fatal("stale managed client unexpectedly refreshed a second time")
+	}
+
+	sess, err := store.Load()
+	if err != nil {
+		t.Fatalf("Load after stale managed client deauth: %v", err)
+	}
+	if sess.AccessToken != testNewAccess || sess.RefreshToken != testNewRefresh {
+		t.Fatalf("stale managed client changed refreshed tokens: %+v", sess)
+	}
+}

@@ -214,6 +214,57 @@ func (s *SessionStore) UpdateTokens(uid, accessToken, refreshToken string) error
 	return s.saveLocked(sess)
 }
 
+// UpdateTokensIfMatch persists rotated tokens only if the current session is
+// the generation that was refreshed. It prevents a stale managed client from
+// overwriting a newer login or recreating a logged-out session.
+func (s *SessionStore) UpdateTokensIfMatch(expected Session, uid, accessToken, refreshToken string) (bool, error) {
+	if !expected.Valid() {
+		return false, nil
+	}
+	unlock, err := lock(s.lockPath())
+	if err != nil {
+		return false, err
+	}
+	defer unlock()
+	sess, err := s.loadLocked()
+	if errors.Is(err, ErrNoSession) {
+		return false, nil
+	} else if err != nil {
+		return false, err
+	}
+	if sess.UID != expected.UID ||
+		sess.AccessToken != expected.AccessToken ||
+		sess.RefreshToken != expected.RefreshToken {
+		return false, nil
+	}
+	sess.UID = uid
+	sess.AccessToken = accessToken
+	sess.RefreshToken = refreshToken
+	if err := s.saveLocked(sess); err != nil {
+		return false, err
+	}
+	return true, nil
+}
+
+// UpdateKeyPass adds a salted key passphrase to the current session without
+// overwriting tokens that may have rotated since login began.
+func (s *SessionStore) UpdateKeyPass(uid string, saltedKeyPass []byte) error {
+	unlock, err := lock(s.lockPath())
+	if err != nil {
+		return err
+	}
+	defer unlock()
+	sess, err := s.loadLocked()
+	if err != nil {
+		return err
+	}
+	if sess.UID != uid {
+		return errors.New("saved session changed while login was completing")
+	}
+	sess.SaltedKeyPass = saltedKeyPass
+	return s.saveLocked(sess)
+}
+
 // WithRefreshLock serializes a complete token refresh across processes. The
 // ordinary session lock only protects individual file operations; refresh
 // tokens are single-use, so the read-refresh-write transaction needs its own

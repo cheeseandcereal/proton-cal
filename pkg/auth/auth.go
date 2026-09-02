@@ -62,10 +62,12 @@ func Login(ctx context.Context, prompter Prompter, cfg config.Config) (string, e
 	if err != nil {
 		return "", fmt.Errorf("opening session store: %w", err)
 	}
-	if err := store.Save(config.Session{
-		UID:          a.UID,
-		AccessToken:  a.AccessToken,
-		RefreshToken: a.RefreshToken,
+	if err := store.WithRefreshLock(ctx, func() error {
+		return store.Save(config.Session{
+			UID:          a.UID,
+			AccessToken:  a.AccessToken,
+			RefreshToken: a.RefreshToken,
+		})
 	}); err != nil {
 		return "", fmt.Errorf("saving session: %w", err)
 	}
@@ -76,18 +78,14 @@ func Login(ctx context.Context, prompter Prompter, cfg config.Config) (string, e
 		return "", err
 	}
 
-	salts, err := fetchSalts(ctx, pc, m, raw, username, password)
+	salts, err := fetchSalts(ctx, m, raw, username, password)
 	if err != nil {
 		return "", err
 	}
 
-	user, err := pc.GetUser(ctx)
+	user, addrs, err := FetchKeyData(ctx, raw)
 	if err != nil {
-		return "", fmt.Errorf("fetching user: %w", err)
-	}
-	addrs, err := pc.GetAddresses(ctx)
-	if err != nil {
-		return "", fmt.Errorf("fetching addresses: %w", err)
+		return "", err
 	}
 
 	saltedKeyPass, err := deriveAndVerifyKeyPass(user, addrs, salts, keyPassword)
@@ -95,8 +93,8 @@ func Login(ctx context.Context, prompter Prompter, cfg config.Config) (string, e
 		return "", err
 	}
 
-	if err := persistKeyPass(store, saltedKeyPass); err != nil {
-		return "", err
+	if err := store.UpdateKeyPass(a.UID, saltedKeyPass); err != nil {
+		return "", fmt.Errorf("saving key passphrase: %w", err)
 	}
 
 	prompter.Notify("Login successful. Session saved.")
@@ -179,8 +177,17 @@ func promptKeyPassword(prompter Prompter, mode proton.PasswordMode, loginPasswor
 // fetchSalts fetches the key salts. On insufficient scope it gains the
 // "locked" scope (SRP proof to /core/v4/users/unlock), retries once, then
 // drops the scope again (best effort).
-func fetchSalts(ctx context.Context, pc *proton.Client, m *proton.Manager, raw *papi.Client, username, password string) (proton.Salts, error) {
-	salts, err := pc.GetSalts(ctx)
+func fetchSalts(ctx context.Context, m *proton.Manager, raw *papi.Client, username, password string) (proton.Salts, error) {
+	getSalts := func() (proton.Salts, error) {
+		var response struct {
+			KeySalts proton.Salts
+		}
+		if err := raw.Get(ctx, "/core/v4/keys/salts", nil, &response); err != nil {
+			return nil, err
+		}
+		return response.KeySalts, nil
+	}
+	salts, err := getSalts()
 	if err == nil {
 		return salts, nil
 	}
@@ -188,7 +195,7 @@ func fetchSalts(ctx context.Context, pc *proton.Client, m *proton.Manager, raw *
 		return nil, fmt.Errorf("fetching key salts: %w", err)
 	}
 	werr := WithLockedScope(ctx, m, raw, username, password, func() error {
-		salts, err = pc.GetSalts(ctx)
+		salts, err = getSalts()
 		if err != nil {
 			return fmt.Errorf("fetching key salts: %w", err)
 		}
@@ -243,20 +250,6 @@ func deriveAndVerifyKeyPass(user proton.User, addrs []proton.Address, salts prot
 	return saltedKeyPass, nil
 }
 
-// persistKeyPass adds the salted key passphrase to the stored session via a
-// read-modify-write, since tokens may have rotated since the initial save.
-func persistKeyPass(store *config.SessionStore, saltedKeyPass []byte) error {
-	sess, err := store.Load()
-	if err != nil {
-		return fmt.Errorf("reloading session: %w", err)
-	}
-	sess.SaltedKeyPass = saltedKeyPass
-	if err := store.Save(sess); err != nil {
-		return fmt.Errorf("saving session: %w", err)
-	}
-	return nil
-}
-
 // Logout best-effort revokes the current session with the API (AuthDelete)
 // and clears the session store. A missing session is not an error.
 func Logout(ctx context.Context) error {
@@ -265,11 +258,27 @@ func Logout(ctx context.Context) error {
 		return fmt.Errorf("opening session store: %w", err)
 	}
 
-	sess, err := store.Load()
+	var sess config.Session
+	err = store.WithRefreshLock(ctx, func() error {
+		var loadErr error
+		sess, loadErr = store.Load()
+		if loadErr != nil {
+			return loadErr
+		}
+		return store.Clear()
+	})
 	if errors.Is(err, config.ErrNoSession) {
+		if err := config.ClearCache(); err != nil {
+			return fmt.Errorf("clearing cache: %w", err)
+		}
 		return nil
 	} else if err != nil {
-		return fmt.Errorf("loading session: %w", err)
+		return fmt.Errorf("clearing session: %w", err)
+	}
+	// Clear cached key material before the best-effort network revocation so an
+	// interrupted logout cannot leave it permanently orphaned.
+	if err := config.ClearCache(); err != nil {
+		return fmt.Errorf("clearing cache: %w", err)
 	}
 
 	if sess.Valid() {
@@ -285,14 +294,6 @@ func Logout(ctx context.Context) error {
 		m.Close()
 	}
 
-	if err := store.Clear(); err != nil {
-		return fmt.Errorf("clearing session: %w", err)
-	}
-	// The bootstrap cache holds (encrypted) key material scoped to the
-	// session that just ended; never leave it behind.
-	if err := config.ClearCache(); err != nil {
-		return fmt.Errorf("clearing cache: %w", err)
-	}
 	return nil
 }
 

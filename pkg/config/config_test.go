@@ -131,6 +131,70 @@ func TestUpdateTokensFromEmpty(t *testing.T) {
 	}
 }
 
+func TestUpdateTokensIfMatch(t *testing.T) {
+	t.Setenv(EnvConfigDir, t.TempDir())
+	store, err := NewSessionStore()
+	if err != nil {
+		t.Fatalf("NewSessionStore: %v", err)
+	}
+	old := Session{UID: "u", AccessToken: "old-a", RefreshToken: "old-r", SaltedKeyPass: []byte("key-pass")}
+	newer := Session{UID: "u", AccessToken: "other-a", RefreshToken: "other-r", SaltedKeyPass: []byte("key-pass")}
+	if err := store.Save(newer); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	updated, err := store.UpdateTokensIfMatch(old, "u", "new-a", "new-r")
+	if err != nil {
+		t.Fatalf("UpdateTokensIfMatch(stale): %v", err)
+	}
+	if updated {
+		t.Fatal("stale tokens overwrote a newer session")
+	}
+	if err := store.Save(old); err != nil {
+		t.Fatalf("Save old: %v", err)
+	}
+	updated, err = store.UpdateTokensIfMatch(old, "u", "new-a", "new-r")
+	if err != nil {
+		t.Fatalf("UpdateTokensIfMatch(current): %v", err)
+	}
+	if !updated {
+		t.Fatal("current tokens were not updated")
+	}
+	got, err := store.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got.AccessToken != "new-a" || got.RefreshToken != "new-r" || string(got.SaltedKeyPass) != "key-pass" {
+		t.Fatalf("updated session = %+v", got)
+	}
+}
+
+func TestUpdateKeyPassPreservesRotatedTokens(t *testing.T) {
+	t.Setenv(EnvConfigDir, t.TempDir())
+	store, err := NewSessionStore()
+	if err != nil {
+		t.Fatalf("NewSessionStore: %v", err)
+	}
+	if err := store.Save(Session{UID: "u", AccessToken: "new-a", RefreshToken: "new-r"}); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	if err := store.UpdateKeyPass("u", []byte("key-pass")); err != nil {
+		t.Fatalf("UpdateKeyPass: %v", err)
+	}
+	got, err := store.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got.AccessToken != "new-a" || got.RefreshToken != "new-r" {
+		t.Fatalf("UpdateKeyPass changed tokens: %+v", got)
+	}
+	if string(got.SaltedKeyPass) != "key-pass" {
+		t.Fatalf("SaltedKeyPass = %q", got.SaltedKeyPass)
+	}
+	if err := store.UpdateKeyPass("other", []byte("wrong")); err == nil {
+		t.Fatal("UpdateKeyPass accepted a different session UID")
+	}
+}
+
 func TestClearIfTokensMatch(t *testing.T) {
 	t.Setenv(EnvConfigDir, t.TempDir())
 	store, err := NewSessionStore()

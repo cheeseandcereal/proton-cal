@@ -3,12 +3,9 @@
 // importantly PUT /calendar/v1/{id}/events/sync, and GET /calendar/v1 whose
 // response shape go-proton-api's types no longer match).
 //
-// Token refresh strategy: only go-proton-api's Client ever refreshes tokens
-// (it auto-refreshes on 401 and notifies the registered auth handler, which
-// persists the rotated tokens to the session store). The raw path NEVER
-// refreshes on its own - on a 401 it makes a cheap typed call to trigger the
-// client's refresh, re-reads the persisted tokens, and retries once. This
-// avoids refresh-token rotation races.
+// Token refresh strategy: the raw path uses a short-lived go-proton-api client
+// to refresh under a cross-process lock, persists both rotated tokens, then
+// retries the original request once.
 package papi
 
 import (
@@ -38,6 +35,7 @@ const (
 
 	maxRateLimitRetries = 3
 	maxRetryAfter       = 60 * time.Second
+	requestTimeout      = 60 * time.Second
 )
 
 // Proton API response codes observed on the calendar endpoints (see
@@ -90,37 +88,57 @@ type Client struct {
 
 	mu   sync.Mutex
 	sess config.Session // cached tokens; zero until first use
+}
 
-	authEventMu  sync.Mutex
-	authEventErr error
+type authEvents struct {
+	mu      sync.Mutex
+	session config.Session
+	err     error
 }
 
 // New wires a Client over an existing proton.Client, registering auth/deauth
 // handlers that persist token rotations. Callers must not register their own.
 func New(pc *proton.Client, store *config.SessionStore, baseURL string) *Client {
+	initial, _ := store.Load()
+	return newClient(pc, store, baseURL, initial)
+}
+
+func newClient(pc *proton.Client, store *config.SessionStore, baseURL string, initial config.Session) *Client {
 	c := &Client{
 		pc:      pc,
 		store:   store,
 		baseURL: baseURL,
-		httpc:   &http.Client{Timeout: 60 * time.Second},
+		httpc:   &http.Client{Timeout: requestTimeout},
 	}
-	c.addAuthHandlers(pc)
+	c.addAuthHandlers(pc, initial)
+	c.setSession(initial)
 	return c
 }
 
-func (c *Client) addAuthHandlers(pc *proton.Client) {
+func (c *Client) addAuthHandlers(pc *proton.Client, initial config.Session) *authEvents {
+	events := &authEvents{session: initial}
 	pc.AddAuthHandler(func(auth proton.Auth) {
-		if err := c.store.UpdateTokens(auth.UID, auth.AccessToken, auth.RefreshToken); err != nil {
-			c.setAuthEventError(fmt.Errorf("persisting refreshed session: %w", err))
+		expected := events.currentSession()
+		refreshed := config.Session{UID: auth.UID, AccessToken: auth.AccessToken, RefreshToken: auth.RefreshToken}
+		events.setSession(refreshed)
+		updated, err := c.store.UpdateTokensIfMatch(expected, auth.UID, auth.AccessToken, auth.RefreshToken)
+		if err != nil {
+			events.setError(fmt.Errorf("persisting refreshed session: %w", err))
 			return
 		}
-		c.setSession(config.Session{UID: auth.UID, AccessToken: auth.AccessToken, RefreshToken: auth.RefreshToken})
+		if updated {
+			c.setSession(refreshed)
+			return
+		}
+		if sess, err := c.store.Load(); err == nil && sess.Valid() {
+			c.setSession(sess)
+		}
 	})
 	pc.AddDeauthHandler(func() {
-		expected := c.cachedSession()
+		expected := events.currentSession()
 		cleared, err := c.store.ClearIfTokensMatch(expected)
 		if err != nil {
-			c.setAuthEventError(fmt.Errorf("clearing expired session: %w", err))
+			events.setError(fmt.Errorf("clearing expired session: %w", err))
 			return
 		}
 		if cleared {
@@ -133,6 +151,7 @@ func (c *Client) addAuthHandlers(pc *proton.Client) {
 			c.setSession(sess)
 		}
 	})
+	return events
 }
 
 // FromSession restores a Client from the persisted session. The returned
@@ -147,9 +166,8 @@ func FromSession(store *config.SessionStore, baseURL string) (*Client, error) {
 	}
 	m := NewManager(baseURL)
 	pc := m.NewClient(sess.UID, sess.AccessToken, sess.RefreshToken)
-	c := New(pc, store, baseURL)
+	c := newClient(pc, store, baseURL, sess)
 	c.m = m
-	c.setSession(sess) // seed the token cache; saves a locked disk read
 	return c, nil
 }
 
@@ -204,27 +222,29 @@ func (c *Client) setSession(sess config.Session) {
 	c.mu.Unlock()
 }
 
-func (c *Client) cachedSession() config.Session {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	return c.sess
+func (e *authEvents) setSession(sess config.Session) {
+	e.mu.Lock()
+	e.session = sess
+	e.mu.Unlock()
 }
 
-func (c *Client) setAuthEventError(err error) {
-	c.authEventMu.Lock()
-	c.authEventErr = err
-	c.authEventMu.Unlock()
+func (e *authEvents) currentSession() config.Session {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return e.session
 }
 
-func (c *Client) resetAuthEventError() {
-	c.setAuthEventError(nil)
+func (e *authEvents) setError(err error) {
+	e.mu.Lock()
+	e.err = err
+	e.mu.Unlock()
 }
 
-func (c *Client) takeAuthEventError() error {
-	c.authEventMu.Lock()
-	defer c.authEventMu.Unlock()
-	err := c.authEventErr
-	c.authEventErr = nil
+func (e *authEvents) takeError() error {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	err := e.err
+	e.err = nil
 	return err
 }
 
@@ -273,9 +293,8 @@ func (c *Client) Delete(ctx context.Context, path string, out any) error {
 	return c.Do(ctx, http.MethodDelete, path, nil, nil, out)
 }
 
-// Do performs a raw authenticated request. On 401 it re-reads the persisted
-// session, else triggers the typed client's refresh (once) and retries; on 429
-// it honours Retry-After.
+// Do performs a raw authenticated request. On 401 it refreshes or adopts the
+// persisted session once and retries; on 429 it honours Retry-After.
 func (c *Client) Do(ctx context.Context, method, path string, query url.Values, body, out any) error {
 	refreshed := false
 	for attempt := 0; ; attempt++ {
@@ -334,18 +353,19 @@ func (c *Client) refreshAfterUnauthorized(ctx context.Context, used config.Sessi
 			return nil
 		}
 
-		c.resetAuthEventError()
 		// Build the managed refresh client from the locked disk session. This
 		// matters for long-running MCP processes that previously adopted tokens
 		// refreshed by another process: their original managed client still has
 		// the older, now single-use refresh token.
 		manager := NewManager(c.baseURL)
 		refreshClient := manager.NewClient(disk.UID, disk.AccessToken, disk.RefreshToken)
-		c.addAuthHandlers(refreshClient)
-		_, refreshErr := refreshClient.GetUser(ctx)
+		events := c.addAuthHandlers(refreshClient, disk)
+		refreshCtx, cancel := context.WithTimeout(ctx, requestTimeout)
+		_, refreshErr := refreshClient.GetUser(refreshCtx)
+		cancel()
 		refreshClient.Close()
 		manager.Close()
-		if handlerErr := c.takeAuthEventError(); handlerErr != nil {
+		if handlerErr := events.takeError(); handlerErr != nil {
 			return handlerErr
 		}
 		if refreshErr != nil {
