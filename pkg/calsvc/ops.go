@@ -82,7 +82,10 @@ func (s *Service) ListEvents(ctx context.Context, in ListEventsInput) (*EventLis
 	}
 	end := start.AddDate(0, 0, days)
 
-	cals, err := s.resolveCalendars(ctx, in.Calendars, in.AllCalendars)
+	cals, listings, err := withCalendars(ctx, s, in.Calendars, in.AllCalendars,
+		func(cals []calendar.Info) ([]calendarListing, error) {
+			return s.listAcrossCalendars(ctx, cals, start.Unix(), end.Unix(), tz)
+		})
 	if err != nil {
 		return nil, err
 	}
@@ -90,11 +93,6 @@ func (s *Service) ListEvents(ctx context.Context, in ListEventsInput) (*EventLis
 	// calendar tells the user which one was chosen.
 	if len(in.Calendars) == 0 && !in.AllCalendars && len(cals) == 1 {
 		s.notify("Using calendar: " + cals[0].Name)
-	}
-
-	listings, err := s.listAcrossCalendars(ctx, cals, start.Unix(), end.Unix(), tz)
-	if err != nil {
-		return nil, err
 	}
 
 	items := make([]ListedItem, 0)

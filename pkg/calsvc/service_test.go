@@ -136,45 +136,46 @@ func TestResolveCalendars(t *testing.T) {
 	s := detachedWithAPI(config.Config{}, fake)
 	ctx := context.Background()
 
-	ids := func(infos []calendar.Info) []string {
-		out := make([]string, len(infos))
-		for i, c := range infos {
-			out[i] = c.ID
-		}
-		return out
-	}
-
 	// Empty selectors + no "all": single default calendar.
-	got, err := s.resolveCalendars(ctx, nil, false)
+	got, _, err := s.resolveCalendars(ctx, nil, false)
 	if err != nil {
 		t.Fatalf("default: %v", err)
 	}
 	if len(got) != 1 || got[0].ID != "id2" {
-		t.Errorf("empty selectors = %v, want [id2]", ids(got))
+		t.Errorf("empty selectors = %v, want [id2]", calendarIDs(got))
 	}
 
 	// Explicit multi (by name + id), order preserved.
-	got, err = s.resolveCalendars(ctx, []string{"Personal", "id3"}, false)
+	got, _, err = s.resolveCalendars(ctx, []string{"Personal", "id3"}, false)
 	if err != nil {
 		t.Fatalf("multi: %v", err)
 	}
-	if g := ids(got); len(g) != 2 || g[0] != "id1" || g[1] != "id3" {
+	if g := calendarIDs(got); len(g) != 2 || g[0] != "id1" || g[1] != "id3" {
 		t.Errorf("multi = %v, want [id1 id3]", g)
 	}
 
 	// All calendars.
-	got, err = s.resolveCalendars(ctx, nil, true)
+	got, _, err = s.resolveCalendars(ctx, nil, true)
 	if err != nil {
 		t.Fatalf("all: %v", err)
 	}
 	if len(got) != 3 {
-		t.Errorf("all = %v, want 3 calendars", ids(got))
+		t.Errorf("all = %v, want 3 calendars", calendarIDs(got))
 	}
 
 	// Unknown selector fails the whole call.
-	if _, err := s.resolveCalendars(ctx, []string{"Personal", "nope"}, false); err == nil {
+	if _, _, err := s.resolveCalendars(ctx, []string{"Personal", "nope"}, false); err == nil {
 		t.Error("unknown selector: want error")
 	}
+}
+
+// calendarIDs returns the IDs of infos, in order.
+func calendarIDs(infos []calendar.Info) []string {
+	out := make([]string, len(infos))
+	for i, c := range infos {
+		out[i] = c.ID
+	}
+	return out
 }
 
 // When the in-memory list is stale and not marked fresh, resolveCalendar does

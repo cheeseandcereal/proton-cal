@@ -23,7 +23,7 @@ const (
 	// outside password resets/key rotations, which surface as unlock/decrypt failures.
 	keyMaterialTTL = 30 * 24 * time.Hour
 	// calendarListTTL covers GET /calendar/v1; staleness is cosmetic/recoverable
-	// (unknown selectors refresh the list).
+	// (unknown selectors, and listings that hit a deleted calendar, refresh the list).
 	calendarListTTL = 7 * 24 * time.Hour
 )
 

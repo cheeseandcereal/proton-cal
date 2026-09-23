@@ -155,7 +155,9 @@ func (s *Service) fetchCalendars(ctx context.Context, api papi.API) ([]calendar.
 // fresh fetch), applies resolve, and—if resolution fails on a possibly-stale
 // cached list—refetches fresh once before the error is final. needDefault
 // reports whether to consult the server default first (non-fatal on failure).
-func resolveWith[T any](ctx context.Context, s *Service, needDefault bool, resolve func(cals []calendar.Info, defaultID string) (T, error)) (T, error) {
+// The bool reports whether the list resolved against came off the network
+// during this call.
+func resolveWith[T any](ctx context.Context, s *Service, needDefault bool, resolve func(cals []calendar.Info, defaultID string) (T, error)) (T, bool, error) {
 	var zero T
 	s.calMu.Lock()
 	cals := s.cals
@@ -166,7 +168,7 @@ func resolveWith[T any](ctx context.Context, s *Service, needDefault bool, resol
 		var err error
 		cals, err = s.listCalendars(ctx)
 		if err != nil {
-			return zero, err
+			return zero, false, err
 		}
 		fresh = s.cacheAPI == nil || !s.cacheAPI.servedAny(calendar.APIPath)
 	}
@@ -182,25 +184,29 @@ func resolveWith[T any](ctx context.Context, s *Service, needDefault bool, resol
 		// fetch, then the resolution error is final.
 		refetched, ferr := s.Calendars(ctx)
 		if ferr != nil {
-			return zero, ferr
+			return zero, false, ferr
 		}
 		out, err = resolve(refetched, defaultID)
+		fresh = true
 	}
-	return out, err
+	return out, fresh, err
 }
 
 // resolveCalendar resolves a selector ("" = server-side default, else first)
 // against the cached list, refetching fresh once if a stale list fails.
 func (s *Service) resolveCalendar(ctx context.Context, selector string) (calendar.Info, error) {
-	return resolveWith(ctx, s, selector == "",
+	info, _, err := resolveWith(ctx, s, selector == "",
 		func(cals []calendar.Info, defaultID string) (calendar.Info, error) {
 			return calendar.Resolve(cals, selector, defaultID)
 		})
+	return info, err
 }
 
 // resolveCalendars resolves a set of selectors (or all calendars) to calendar
-// infos, with the same stale-cache refetch fallback as resolveCalendar.
-func (s *Service) resolveCalendars(ctx context.Context, selectors []string, all bool) ([]calendar.Info, error) {
+// infos, with the same stale-cache refetch fallback as resolveCalendar. The
+// bool reports whether they were resolved against a list fetched off the
+// network during this call.
+func (s *Service) resolveCalendars(ctx context.Context, selectors []string, all bool) ([]calendar.Info, bool, error) {
 	return resolveWith(ctx, s, !all && len(selectors) == 0,
 		func(cals []calendar.Info, defaultID string) ([]calendar.Info, error) {
 			if all {
@@ -208,6 +214,31 @@ func (s *Service) resolveCalendars(ctx context.Context, selectors []string, all 
 			}
 			return calendar.ResolveMany(cals, selectors, defaultID)
 		})
+}
+
+// withCalendars resolves selectors (or all calendars) and runs fn on them,
+// returning the calendars alongside fn's result. A calendar deleted since the
+// list was cached still resolves and fails fn with a not-found error; unless
+// the list came fresh off the network, it is then refetched (memory and disk)
+// and fn rerun once on the fresh resolution.
+func withCalendars[T any](ctx context.Context, s *Service, selectors []string, all bool, fn func(cals []calendar.Info) (T, error)) ([]calendar.Info, T, error) {
+	var zero T
+	cals, fresh, err := s.resolveCalendars(ctx, selectors, all)
+	if err != nil {
+		return nil, zero, err
+	}
+	out, err := fn(cals)
+	if err != nil && !fresh && papi.IsCode(err, papi.CodeNotFound) {
+		s.invalidateCalendarList()
+		if cals, _, err = s.resolveCalendars(ctx, selectors, all); err != nil {
+			return nil, zero, err
+		}
+		out, err = fn(cals)
+	}
+	if err != nil {
+		return nil, zero, err
+	}
+	return cals, out, nil
 }
 
 // listAcrossCalendars lists the same window for each calendar concurrently

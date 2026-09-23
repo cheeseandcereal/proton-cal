@@ -48,6 +48,9 @@ const (
 	// CodeSuccessMulti is the top-level multi-status code on batched
 	// sync calls (individual entries may still have failed).
 	CodeSuccessMulti = 1001
+	// CodeNotFound reports a resource that does not exist, e.g. an event or
+	// calendar deleted since its ID was read.
+	CodeNotFound = 2501
 	// CodeInsufficientScope accompanies 403 responses when the session
 	// lacks the "locked" scope (password re-verification required).
 	CodeInsufficientScope = 9101
