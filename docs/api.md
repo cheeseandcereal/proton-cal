@@ -72,8 +72,10 @@ and an unspecified `--calendar` selector resolves to it (falling back to the
 first calendar when it is unset or names a calendar no longer present).
 `update calendar --make-default` writes it via a partial
 `PUT /settings/calendar {"DefaultCalendarID": "<id>"}` (normal scope, no
-password). The fetch is cached, and invalidated on a make-default write and
-when a calendar picked without a selector turns out to be deleted.
+password). The fetch is cached: it is invalidated on a make-default write and
+when a calendar picked without a selector turns out to be deleted, refetched
+when the cached value names no listed calendar, and fetched fresh by
+`list_calendars` / `proton-cal calendars`.
 
 ### Updating calendar metadata and settings (live-verified)
 

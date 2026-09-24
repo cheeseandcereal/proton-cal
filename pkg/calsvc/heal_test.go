@@ -14,6 +14,7 @@ import (
 	"github.com/cheeseandcereal/proton-cal/pkg/calendar"
 	"github.com/cheeseandcereal/proton-cal/pkg/config"
 	"github.com/cheeseandcereal/proton-cal/pkg/event"
+	"github.com/cheeseandcereal/proton-cal/pkg/internal/papitest"
 	"github.com/cheeseandcereal/proton-cal/pkg/papi"
 )
 
@@ -326,6 +327,122 @@ func TestWithAccessRefetchesStaleDefault(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// The account's default calendar is deleted and the default moves to another
+// calendar. The list is then refetched on its own (Calendars, as for a
+// selector the cached list cannot resolve), leaving the cached default naming
+// the deleted calendar. No request fails, so the not-found retry never runs:
+// resolution refetches a cached default that names no listed calendar, and an
+// event operation without a calendar runs on the new default instead of the
+// first calendar. Later resolutions reuse the refetched default. A
+// long-running process holds the list in memory; a new one reads it from disk.
+func TestWithAccessRefetchesUnlistedDefault(t *testing.T) {
+	for _, source := range []string{"memory", "disk"} {
+		t.Run(source, func(t *testing.T) {
+			inner := &fakeRawAPI{bodies: map[string]string{
+				calendar.APIPath: calListBody(t,
+					[2]string{"id1", "Personal"}, [2]string{"id2", "Work"}, [2]string{"id3", "Family"}),
+				calendar.UserSettingsPath: userSettingsBody("id1"),
+			}}
+			s := healService(t, inner)
+			var notices []string
+			s.Notify = func(msg string) { notices = append(notices, msg) }
+			ctx := context.Background()
+
+			if _, err := s.DefaultCalendarID(ctx); err != nil { // cached, naming id1
+				t.Fatalf("DefaultCalendarID: %v", err)
+			}
+			// "Personal" deleted; the new default is not the first calendar.
+			inner.bodies[calendar.APIPath] = calListBody(t, [2]string{"id2", "Work"}, [2]string{"id3", "Family"})
+			inner.bodies[calendar.UserSettingsPath] = userSettingsBody("id3")
+			if _, err := s.Calendars(ctx); err != nil {
+				t.Fatalf("Calendars: %v", err)
+			}
+			if source == "disk" {
+				s.cals = nil
+			}
+
+			var attempts []string
+			for range 2 {
+				err := s.withAccess(ctx, fakeAccess(s), "", func(info calendar.Info, _ *calendar.Access) error {
+					attempts = append(attempts, info.ID)
+					return nil
+				})
+				if err != nil {
+					t.Fatalf("withAccess: %v", err)
+				}
+			}
+			if !slices.Equal(attempts, []string{"id3", "id3"}) {
+				t.Errorf("fn ran on %v, want [id3 id3] (the new default, not the first calendar)", attempts)
+			}
+			if l, d := inner.gets[calendar.APIPath], inner.gets[calendar.UserSettingsPath]; l != 1 || d != 2 {
+				t.Errorf("list GETs = %d, default GETs = %d; want 1, 2 (the refetched list; the cached read + one refetch)", l, d)
+			}
+			if want := []string{"Using calendar: Family", "Using calendar: Family"}; !slices.Equal(notices, want) {
+				t.Errorf("notices = %q, want %q", notices, want)
+			}
+		})
+	}
+}
+
+// Resolution refetches the default only when it was served from cache and
+// names no listed calendar, and at most once; a default that still names no
+// listed calendar, or cannot be read, resolves to the first calendar without
+// failing.
+func TestResolveUnlistedDefaultRefetchIsBounded(t *testing.T) {
+	tests := []struct {
+		name      string
+		noCache   bool    // caching disabled (--no-cache)
+		cached    *string // default ID read into the cache beforehand; nil = none
+		server    string  // default ID the server returns when resolving
+		serverErr error   // error the server returns instead
+		want      string
+		wantGETs  int // default GETs, including the read that cached the default
+	}{
+		{name: "a listed cached default is not refetched", cached: papitest.Ptr("id3"), server: "id2",
+			want: "id3", wantGETs: 1},
+		{name: "an empty cached default is not refetched", cached: papitest.Ptr(""), server: "id3",
+			want: "id2", wantGETs: 1},
+		{name: "a default read off the network is not refetched", server: "id1",
+			want: "id2", wantGETs: 1},
+		{name: "without a cache the default is not refetched", noCache: true, server: "id1",
+			want: "id2", wantGETs: 1},
+		{name: "the refetch happens once", cached: papitest.Ptr("id1"), server: "id1",
+			want: "id2", wantGETs: 2},
+		{name: "a failed refetch is non-fatal", cached: papitest.Ptr("id1"), serverErr: &papi.Error{Status: 500, Message: "server"},
+			want: "id2", wantGETs: 2},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			inner := &fakeRawAPI{bodies: map[string]string{}, errs: map[string]error{}}
+			s := healService(t, inner)
+			if tt.noCache {
+				s = detachedWithAPI(config.Config{}, inner)
+			}
+			ctx := context.Background()
+			if tt.cached != nil {
+				inner.bodies[calendar.UserSettingsPath] = userSettingsBody(*tt.cached)
+				if _, err := s.DefaultCalendarID(ctx); err != nil {
+					t.Fatalf("DefaultCalendarID: %v", err)
+				}
+			}
+			inner.bodies[calendar.UserSettingsPath] = userSettingsBody(tt.server)
+			inner.errs[calendar.UserSettingsPath] = tt.serverErr
+			s.cals = []calendar.Info{{ID: "id2", Name: "Work"}, {ID: "id3", Name: "Family"}}
+
+			info, _, err := s.resolveCalendar(ctx, "")
+			if err != nil {
+				t.Fatalf("resolveCalendar: %v", err)
+			}
+			if info.ID != tt.want {
+				t.Errorf("resolved %s, want %s", info.ID, tt.want)
+			}
+			if n := inner.gets[calendar.UserSettingsPath]; n != tt.wantGETs {
+				t.Errorf("default GETs = %d, want %d", n, tt.wantGETs)
+			}
+		})
 	}
 }
 

@@ -24,12 +24,10 @@ func newCalendarsCmd() *cobra.Command {
 			}
 			defer svc.Close()
 
-			cals, err := svc.Calendars(cmd.Context())
+			cals, defaultID, err := svc.CalendarsWithDefault(cmd.Context())
 			if err != nil {
 				return err
 			}
-			// Best-effort: a read failure just leaves none marked default.
-			defaultID, _ := svc.DefaultCalendarID(cmd.Context())
 
 			if outputJSON() {
 				return printJSON(caljson.Calendars(cals, defaultID))

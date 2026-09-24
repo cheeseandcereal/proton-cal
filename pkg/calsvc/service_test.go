@@ -2,11 +2,13 @@ package calsvc
 
 import (
 	"context"
+	"slices"
 	"testing"
 
 	"github.com/cheeseandcereal/proton-cal/pkg/calendar"
 	"github.com/cheeseandcereal/proton-cal/pkg/config"
 	"github.com/cheeseandcereal/proton-cal/pkg/internal/papitest"
+	"github.com/cheeseandcereal/proton-cal/pkg/papi"
 )
 
 // calListBody is a GET /calendar/v1 response with the given calendars, each
@@ -61,6 +63,45 @@ func TestServiceDefaultCalendarID(t *testing.T) {
 	}
 	if got != "id2" {
 		t.Errorf("DefaultCalendarID = %q, want id2", got)
+	}
+}
+
+// CalendarsWithDefault fetches the default fresh with the list, so it reports a
+// default moved elsewhere (even to a calendar that existed before) and
+// refreshes the cached copy that later resolutions read; a failure to read the
+// default leaves it empty without failing the listing.
+func TestServiceCalendarsWithDefault(t *testing.T) {
+	inner := &fakeRawAPI{bodies: map[string]string{
+		calendar.APIPath:          calListBody(t, [2]string{"id1", "Personal"}, [2]string{"id2", "Work"}),
+		calendar.UserSettingsPath: userSettingsBody("id1"),
+	}}
+	s := healService(t, inner)
+	ctx := context.Background()
+
+	if _, err := s.DefaultCalendarID(ctx); err != nil { // cached, naming id1
+		t.Fatalf("DefaultCalendarID: %v", err)
+	}
+	inner.bodies[calendar.UserSettingsPath] = userSettingsBody("id2") // default moved elsewhere
+
+	cals, defaultID, err := s.CalendarsWithDefault(ctx)
+	if err != nil {
+		t.Fatalf("CalendarsWithDefault: %v", err)
+	}
+	if got := calendarIDs(cals); !slices.Equal(got, []string{"id1", "id2"}) || defaultID != "id2" {
+		t.Errorf("calendars = %v, default = %q; want [id1 id2], id2", got, defaultID)
+	}
+	if info, _, err := s.resolveCalendar(ctx, ""); err != nil || info.ID != "id2" {
+		t.Errorf(`resolveCalendar("") = %s, %v; want the refreshed default id2`, info.ID, err)
+	}
+	if n := inner.gets[calendar.UserSettingsPath]; n != 2 {
+		t.Errorf("default GETs = %d, want 2 (the cached read, the listing's fresh fetch)", n)
+	}
+
+	inner.errs = map[string]error{calendar.UserSettingsPath: &papi.Error{Status: 500, Message: "server"}}
+	cals, defaultID, err = s.CalendarsWithDefault(ctx)
+	if err != nil || len(cals) != 2 || defaultID != "" {
+		t.Errorf("default unreadable: calendars = %v, default = %q, err = %v; want both calendars, no default, no error",
+			calendarIDs(cals), defaultID, err)
 	}
 }
 

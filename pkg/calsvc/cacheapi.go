@@ -40,8 +40,9 @@ func cacheTTL(path string) (time.Duration, bool) {
 		return calendarListTTL, true
 	case path == calendar.UserSettingsPath:
 		// The server default calendar (and other user prefs) change rarely;
-		// the entry is invalidated on a default change and when the calendar
-		// it picked turns out to be deleted.
+		// the entry is invalidated on a default change, refetched when it
+		// names no listed calendar or the calendar it picked turns out to be
+		// deleted, and refreshed by CalendarsWithDefault.
 		return calendarListTTL, true
 	case calKeyMaterialRe.MatchString(path):
 		return keyMaterialTTL, true

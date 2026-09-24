@@ -335,13 +335,10 @@ func (s *server) listCalendars(ctx context.Context, _ *mcp.CallToolRequest, _ li
 	if err != nil {
 		return nil, listCalendarsOutput{}, err
 	}
-	cals, err := svc.Calendars(ctx)
+	cals, defaultID, err := svc.CalendarsWithDefault(ctx)
 	if err != nil {
 		return nil, listCalendarsOutput{}, err
 	}
-	// Best-effort: a failure to read the server default just leaves no
-	// calendar marked default.
-	defaultID, _ := svc.DefaultCalendarID(ctx)
 	return textResult(renderCalendars(cals, defaultID)), listCalendarsOutput{Calendars: caljson.Calendars(cals, defaultID)}, nil
 }
 

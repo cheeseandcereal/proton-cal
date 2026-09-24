@@ -183,17 +183,19 @@ revoke. Your account password is never stored.
 `cache.json` (same directory, mode 0600) caches the bootstrap responses that
 otherwise cost 5 sequential API round-trips on every invocation: your user and
 address keys (encrypted, 30-day TTL), per-calendar passphrases and keys
-(encrypted, 30-day TTL) and the calendar list (7-day TTL). **Event content is
-never cached** - every command fetches events fresh.
+(encrypted, 30-day TTL), and the calendar list and default-calendar setting
+(7-day TTL). **Event content is never cached** - every command fetches events
+fresh.
 
 The liberal TTLs are safe because staleness self-heals: wrong key material
 fails cryptographically, which invalidates the cached entries and retries once
 with fresh data; unknown calendar selectors, and event commands that hit a
 calendar deleted since the list was cached, refresh the list (and, when no
-calendar was named, the default-calendar setting) automatically, and
-`proton-cal calendars` always fetches fresh. The cache is scoped to the
-session (re-login discards it) and `proton-cal logout` deletes it. Pass
-`--no-cache` to bypass it entirely.
+calendar was named, the default-calendar setting) automatically; a cached
+default-calendar setting that names no listed calendar is refetched before it
+is used; and `proton-cal calendars` always fetches the list and the default
+fresh. The cache is scoped to the session (re-login discards it) and
+`proton-cal logout` deletes it. Pass `--no-cache` to bypass it entirely.
 
 ## MCP server
 

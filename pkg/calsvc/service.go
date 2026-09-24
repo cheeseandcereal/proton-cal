@@ -18,6 +18,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"sync"
 
 	"golang.org/x/sync/errgroup"
@@ -134,6 +135,19 @@ func (s *Service) Calendars(ctx context.Context) ([]calendar.Info, error) {
 	return s.fetchCalendars(ctx, s.freshAPI)
 }
 
+// CalendarsWithDefault fetches the calendar list and the account's default
+// calendar ID fresh, still caching both, so a listing marks a default changed
+// elsewhere and later resolution uses it. A failure to read the default is
+// non-fatal: the ID is then empty and no calendar is marked default.
+func (s *Service) CalendarsWithDefault(ctx context.Context) ([]calendar.Info, string, error) {
+	cals, err := s.Calendars(ctx)
+	if err != nil {
+		return nil, "", err
+	}
+	defaultID, _ := calendar.DefaultCalendarID(ctx, s.freshAPI)
+	return cals, defaultID, nil
+}
+
 // listCalendars returns the calendar list for selector resolution, served
 // from the on-disk cache when fresh enough.
 func (s *Service) listCalendars(ctx context.Context) ([]calendar.Info, error) {
@@ -154,9 +168,9 @@ func (s *Service) fetchCalendars(ctx context.Context, api papi.API) ([]calendar.
 // resolveWith loads the cached calendar list (memory, then disk, then one
 // fresh fetch), applies resolve, and—if resolution fails on a possibly-stale
 // cached list—refetches fresh once before the error is final. needDefault
-// reports whether to consult the server default first (non-fatal on failure).
-// The bool reports whether the list resolved against came off the network
-// during this call.
+// reports whether to consult the server default first (non-fatal on failure;
+// see defaultCalendarIDFor). The bool reports whether the list resolved
+// against came off the network during this call.
 func resolveWith[T any](ctx context.Context, s *Service, needDefault bool, resolve func(cals []calendar.Info, defaultID string) (T, error)) (T, bool, error) {
 	var zero T
 	s.calMu.Lock()
@@ -175,7 +189,7 @@ func resolveWith[T any](ctx context.Context, s *Service, needDefault bool, resol
 
 	defaultID := ""
 	if needDefault {
-		defaultID, _ = s.DefaultCalendarID(ctx)
+		defaultID = s.defaultCalendarIDFor(ctx, cals)
 	}
 
 	out, err := resolve(cals, defaultID)
@@ -190,6 +204,22 @@ func resolveWith[T any](ctx context.Context, s *Service, needDefault bool, resol
 		fresh = true
 	}
 	return out, fresh, err
+}
+
+// defaultCalendarIDFor returns the account's default calendar ID for resolving
+// an empty selector against cals. A default read from cache that names no
+// calendar in cals may be stale (the default calendar was deleted and the
+// account default moved), so it is dropped and refetched once. Read failures
+// are non-fatal: the ID is then empty, and resolution falls back to the first
+// calendar, as it does for an ID that still names no listed calendar.
+func (s *Service) defaultCalendarIDFor(ctx context.Context, cals []calendar.Info) string {
+	id, _ := s.DefaultCalendarID(ctx)
+	listed := slices.ContainsFunc(cals, func(c calendar.Info) bool { return c.ID == id })
+	if id != "" && !listed && s.cacheAPI != nil && s.cacheAPI.servedAny(calendar.UserSettingsPath) {
+		s.cacheAPI.invalidate(calendar.UserSettingsPath)
+		id, _ = s.DefaultCalendarID(ctx)
+	}
+	return id
 }
 
 // resolveCalendar resolves a selector ("" = server-side default, else first)
