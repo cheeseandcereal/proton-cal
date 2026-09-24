@@ -64,7 +64,7 @@ func (s *Service) UpdateCalendar(ctx context.Context, in UpdateCalendarInput) (*
 		colorHex = &hex
 	}
 
-	info, err := s.resolveCalendar(ctx, in.Selector)
+	info, _, err := s.resolveCalendar(ctx, in.Selector)
 	if err != nil {
 		return nil, err
 	}
@@ -111,7 +111,7 @@ func (s *Service) UpdateCalendar(ctx context.Context, in UpdateCalendarInput) (*
 // since callers invalidate the relevant caches first) and reports whether it
 // is the account default. Shared by Create/UpdateCalendar's return tail.
 func (s *Service) refreshedCalendar(ctx context.Context, id string) (*GotCalendar, error) {
-	refreshed, err := s.resolveCalendar(ctx, id)
+	refreshed, _, err := s.resolveCalendar(ctx, id)
 	if err != nil {
 		return nil, err
 	}
@@ -225,14 +225,15 @@ type DeleteCalendarInput struct {
 // ResolveCalendarInfo resolves a selector to a calendar's Info without unlocking
 // keys. Used for pre-delete dry runs and to decide whether a password is needed.
 func (s *Service) ResolveCalendarInfo(ctx context.Context, selector string) (calendar.Info, error) {
-	return s.resolveCalendar(ctx, selector)
+	info, _, err := s.resolveCalendar(ctx, selector)
+	return info, err
 }
 
 // DeleteCalendar removes a calendar. Owned (normal) calendars need the elevated
 // scope (re-prove the login password via SRP); managed (holidays) use the managed
 // route without a password. Subscribed calendars cannot be deleted this way.
 func (s *Service) DeleteCalendar(ctx context.Context, in DeleteCalendarInput) error {
-	info, err := s.resolveCalendar(ctx, in.Selector)
+	info, _, err := s.resolveCalendar(ctx, in.Selector)
 	if err != nil {
 		return err
 	}

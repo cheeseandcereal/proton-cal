@@ -193,13 +193,14 @@ func resolveWith[T any](ctx context.Context, s *Service, needDefault bool, resol
 }
 
 // resolveCalendar resolves a selector ("" = server-side default, else first)
-// against the cached list, refetching fresh once if a stale list fails.
-func (s *Service) resolveCalendar(ctx context.Context, selector string) (calendar.Info, error) {
-	info, _, err := resolveWith(ctx, s, selector == "",
+// against the cached list, refetching fresh once if a stale list fails. The
+// bool reports whether it was resolved against a list fetched off the network
+// during this call.
+func (s *Service) resolveCalendar(ctx context.Context, selector string) (calendar.Info, bool, error) {
+	return resolveWith(ctx, s, selector == "",
 		func(cals []calendar.Info, defaultID string) (calendar.Info, error) {
 			return calendar.Resolve(cals, selector, defaultID)
 		})
-	return info, err
 }
 
 // resolveCalendars resolves a set of selectors (or all calendars) to calendar
@@ -219,8 +220,9 @@ func (s *Service) resolveCalendars(ctx context.Context, selectors []string, all 
 // withCalendars resolves selectors (or all calendars) and runs fn on them,
 // returning the calendars alongside fn's result. A calendar deleted since the
 // list was cached still resolves and fails fn with a not-found error; unless
-// the list came fresh off the network, it is then refetched (memory and disk)
-// and fn rerun once on the fresh resolution.
+// the list came fresh off the network, it is then refetched (memory and disk,
+// with the default calendar ID when no selector was given) and fn rerun once on
+// the fresh resolution.
 func withCalendars[T any](ctx context.Context, s *Service, selectors []string, all bool, fn func(cals []calendar.Info) (T, error)) ([]calendar.Info, T, error) {
 	var zero T
 	cals, fresh, err := s.resolveCalendars(ctx, selectors, all)
@@ -229,7 +231,7 @@ func withCalendars[T any](ctx context.Context, s *Service, selectors []string, a
 	}
 	out, err := fn(cals)
 	if err != nil && !fresh && papi.IsCode(err, papi.CodeNotFound) {
-		s.invalidateCalendarList()
+		s.invalidateResolution(!all && len(selectors) == 0)
 		if cals, _, err = s.resolveCalendars(ctx, selectors, all); err != nil {
 			return nil, zero, err
 		}
@@ -283,7 +285,7 @@ func (s *Service) listAcrossCalendars(ctx context.Context, cals []calendar.Info,
 // listOneCalendar unlocks one calendar's keys and lists the window. The
 // degraded flag reports a partial-decrypt result (the caller may heal+retry).
 func (s *Service) listOneCalendar(ctx context.Context, info calendar.Info, start, end int64, tz string) (calendarListing, error) {
-	_, access, err := s.access(ctx, info.ID)
+	_, access, _, err := s.access(ctx, info.ID)
 	if err != nil {
 		return calendarListing{}, err
 	}
@@ -301,15 +303,19 @@ func (s *Service) listOneCalendar(ctx context.Context, info calendar.Info, start
 
 // access resolves the selector and unlocks that calendar's keys (account keys
 // on first use). Resolution and the account-key unlock are independent and run
-// concurrently; the calendar key unlock then needs both.
-func (s *Service) access(ctx context.Context, selector string) (calendar.Info, *calendar.Access, error) {
+// concurrently; the calendar key unlock then needs both. The bool reports
+// whether the calendar was resolved against a list fetched off the network
+// during this call; it and the calendar are returned even when the calendar
+// key unlock fails.
+func (s *Service) access(ctx context.Context, selector string) (calendar.Info, *calendar.Access, bool, error) {
 	var info calendar.Info
+	var fresh bool
 	var kc *calendar.Keychain
 
 	g, gctx := errgroup.WithContext(ctx)
 	g.Go(func() error {
 		var err error
-		info, err = s.resolveCalendar(gctx, selector)
+		info, fresh, err = s.resolveCalendar(gctx, selector)
 		return err
 	})
 	g.Go(func() error {
@@ -318,24 +324,22 @@ func (s *Service) access(ctx context.Context, selector string) (calendar.Info, *
 		return err
 	})
 	if err := g.Wait(); err != nil {
-		return calendar.Info{}, nil, err
-	}
-	if selector == "" {
-		s.notify("Using calendar: " + info.Name)
+		return calendar.Info{}, nil, false, err
 	}
 
 	acc, err := kc.Unlock(ctx, info)
-	if err != nil && s.healCalendarKeys(info.ID) {
+	if err != nil && !papi.IsCode(err, papi.CodeNotFound) && s.healCalendarKeys(info.ID) {
 		// The calendar key material came from cache and may be stale
-		// (key rotation): refetch fresh and retry once.
+		// (key rotation): refetch fresh and retry once. A not-found means the
+		// calendar is gone, which fresh keys cannot fix.
 		if kc, kerr := s.keychainLazy(ctx); kerr == nil {
 			acc, err = kc.Unlock(ctx, info)
 		}
 	}
 	if err != nil {
-		return calendar.Info{}, nil, fmt.Errorf("unlocking calendar keys: %w", err)
+		return info, nil, fresh, fmt.Errorf("unlocking calendar keys: %w", err)
 	}
-	return info, acc, nil
+	return info, acc, fresh, nil
 }
 
 // keychainLazy unlocks the account keys on first use and returns the keychain.
@@ -377,24 +381,6 @@ func (s *Service) healCalendarKeys(calendarID string) bool {
 	return true
 }
 
-// staleCalendarList reports whether err (a 404/422) plausibly means a cached
-// calendar no longer exists; when so it invalidates the cached list so a retry
-// re-resolves freshly.
-func (s *Service) staleCalendarList(err error) bool {
-	if s.cacheAPI == nil || !s.cacheAPI.servedAny(calendar.APIPath) {
-		return false
-	}
-	var pe *papi.Error
-	if !errors.As(err, &pe) || (pe.Status != 404 && pe.Status != 422) {
-		return false
-	}
-	s.cacheAPI.invalidate(calendar.APIPath)
-	s.calMu.Lock()
-	s.cals = nil
-	s.calMu.Unlock()
-	return true
-}
-
 // invalidateCache drops the given cache keys (no-op when caching is
 // disabled). Used after a write so a subsequent read reflects the change.
 func (s *Service) invalidateCache(keys ...string) {
@@ -424,6 +410,17 @@ func (s *Service) invalidateCalendarList() {
 	s.calMu.Unlock()
 }
 
+// invalidateResolution drops what calendar resolution read from cache after a
+// resolved calendar came back not found: the list and, when usedDefault (an
+// empty selector consulted it), the default calendar ID, which may name the
+// deleted calendar.
+func (s *Service) invalidateResolution(usedDefault bool) {
+	s.invalidateCalendarList()
+	if usedDefault {
+		s.invalidateCache(calendar.UserSettingsPath)
+	}
+}
+
 // loginUsername resolves the username for SRP re-authentication: the persisted
 // config value, else the account name from the live user record.
 func (s *Service) loginUsername(ctx context.Context) (string, error) {
@@ -440,34 +437,49 @@ func (s *Service) loginUsername(ctx context.Context) (string, error) {
 	return user.Name, nil
 }
 
-// withAccess runs fn with resolved access, retrying once on stale cached data:
-// ErrDecryptDegraded with cached keys refetches keys and retries; a 404/422 with
-// a cached list refreshes it and retries only if the selector now resolves to a
-// DIFFERENT calendar. Fresh-data failures are final.
-func (s *Service) withAccess(ctx context.Context, selector string, fn func(info calendar.Info, access *calendar.Access) error) error {
-	info, access, err := s.access(ctx, selector)
-	if err != nil {
-		return err
-	}
-	err = fn(info, access)
+// accessFunc resolves a selector to a calendar and unlocks its keys, reporting
+// whether the list came fresh off the network (the shape of Service.access).
+type accessFunc func(ctx context.Context, selector string) (calendar.Info, *calendar.Access, bool, error)
+
+// withAccess runs fn on the calendar the selector resolves to, unlocked by
+// access (Service.access, or a stand-in for the key unlock in tests), and
+// retries once on stale cached data:
+//   - ErrDecryptDegraded on cached key material refetches the keys and reruns
+//     fn on the same calendar; if access then fails, the degraded outcome
+//     stands.
+//   - A not-found from the unlock or fn, on a list that did not come fresh off
+//     the network, may mean the calendar was deleted: the list (with the
+//     default calendar ID, for an empty selector) is refetched and fn rerun
+//     only if the selector now resolves to a DIFFERENT calendar. A selector
+//     that then fails to resolve reports that; the same calendar keeps the
+//     original error.
+//
+// Failures on fresh data are final. An empty selector announces the calendar
+// the outcome belongs to.
+func (s *Service) withAccess(ctx context.Context, access accessFunc, selector string, fn func(calendar.Info, *calendar.Access) error) error {
+	info, acc, fresh, err := access(ctx, selector)
 	if err == nil {
-		return nil
+		err = fn(info, acc)
 	}
-
-	requireNewID := false
 	switch {
+	case err == nil:
 	case errors.Is(err, event.ErrDecryptDegraded) && s.healCalendarKeys(info.ID):
-	case s.staleCalendarList(err):
-		requireNewID = true
-	default:
-		return err
+		if info2, acc2, _, err2 := access(ctx, selector); err2 == nil {
+			info, err = info2, fn(info2, acc2)
+		}
+	case !fresh && papi.IsCode(err, papi.CodeNotFound):
+		s.invalidateResolution(selector == "")
+		if info2, acc2, _, err2 := access(ctx, selector); info2.ID != info.ID {
+			info, err = info2, err2
+			if err == nil {
+				err = fn(info2, acc2)
+			}
+		}
 	}
-
-	info2, access2, err2 := s.access(ctx, selector)
-	if err2 != nil || (requireNewID && info2.ID == info.ID) {
-		return err // the original error stands
+	if selector == "" && info.ID != "" {
+		s.notify("Using calendar: " + info.Name)
 	}
-	return fn(info2, access2)
+	return err
 }
 
 // withAccessResult runs fn with resolved access and returns its result. fn's
@@ -481,7 +493,7 @@ func withAccessResult[T any](
 ) (*T, error) {
 	var out *T
 	attempt := 0
-	werr := s.withAccess(ctx, selector, func(info calendar.Info, access *calendar.Access) error {
+	werr := s.withAccess(ctx, s.access, selector, func(info calendar.Info, access *calendar.Access) error {
 		attempt++
 		res, degraded, err := fn(info, access)
 		if err != nil {

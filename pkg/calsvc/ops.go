@@ -354,10 +354,11 @@ type GotCalendar struct {
 // first), unlocks it to read default settings, and reports whether it is the
 // configured default. The bootstrap fetch is cached.
 func (s *Service) GetCalendar(ctx context.Context, selector string) (*GotCalendar, error) {
-	// The server-side default ID determines IsDefault. A failure to read it
-	// is non-fatal: the calendar is simply not marked default.
-	defaultID, _ := s.DefaultCalendarID(ctx)
 	return withAccessResult(ctx, s, selector, func(info calendar.Info, access *calendar.Access) (*GotCalendar, bool, error) {
+		// The server-side default ID determines IsDefault; read per attempt,
+		// since a retry may have refreshed it. A failure to read it is
+		// non-fatal: the calendar is simply not marked default.
+		defaultID, _ := s.DefaultCalendarID(ctx)
 		return &GotCalendar{
 			Info:      info,
 			Settings:  access.Settings,

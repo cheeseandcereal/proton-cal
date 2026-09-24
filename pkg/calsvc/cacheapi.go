@@ -23,7 +23,8 @@ const (
 	// outside password resets/key rotations, which surface as unlock/decrypt failures.
 	keyMaterialTTL = 30 * 24 * time.Hour
 	// calendarListTTL covers GET /calendar/v1; staleness is cosmetic/recoverable
-	// (unknown selectors, and listings that hit a deleted calendar, refresh the list).
+	// (unknown selectors, and event operations that hit a deleted calendar,
+	// refresh the list).
 	calendarListTTL = 7 * 24 * time.Hour
 )
 
@@ -39,7 +40,8 @@ func cacheTTL(path string) (time.Duration, bool) {
 		return calendarListTTL, true
 	case path == calendar.UserSettingsPath:
 		// The server default calendar (and other user prefs) change rarely;
-		// staleness is cosmetic and invalidated explicitly on a default change.
+		// the entry is invalidated on a default change and when the calendar
+		// it picked turns out to be deleted.
 		return calendarListTTL, true
 	case calKeyMaterialRe.MatchString(path):
 		return keyMaterialTTL, true

@@ -188,9 +188,10 @@ never cached** - every command fetches events fresh.
 
 The liberal TTLs are safe because staleness self-heals: wrong key material
 fails cryptographically, which invalidates the cached entries and retries once
-with fresh data; unknown calendar selectors, and event listings that hit a
-calendar deleted since the list was cached, refresh the list automatically,
-and `proton-cal calendars` always fetches fresh. The cache is scoped to the
+with fresh data; unknown calendar selectors, and event commands that hit a
+calendar deleted since the list was cached, refresh the list (and, when no
+calendar was named, the default-calendar setting) automatically, and
+`proton-cal calendars` always fetches fresh. The cache is scoped to the
 session (re-login discards it) and `proton-cal logout` deletes it. Pass
 `--no-cache` to bypass it entirely.
 

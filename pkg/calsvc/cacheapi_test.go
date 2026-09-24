@@ -10,9 +10,10 @@ import (
 	"github.com/cheeseandcereal/proton-cal/pkg/config"
 )
 
-// fakeRawAPI counts raw GETs and serves canned JSON bodies per path.
+// fakeRawAPI counts raw GETs and serves canned JSON bodies, or errors, per path.
 type fakeRawAPI struct {
 	bodies map[string]string
+	errs   map[string]error
 	gets   map[string]int
 }
 
@@ -21,6 +22,9 @@ func (f *fakeRawAPI) Get(_ context.Context, path string, _ url.Values, out any) 
 		f.gets = make(map[string]int)
 	}
 	f.gets[path]++
+	if err := f.errs[path]; err != nil {
+		return err
+	}
 	body, ok := f.bodies[path]
 	if !ok {
 		body = `{}`

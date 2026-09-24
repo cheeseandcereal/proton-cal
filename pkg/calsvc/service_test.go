@@ -73,7 +73,7 @@ func TestResolveCalendarByNameAndDefault(t *testing.T) {
 	ctx := context.Background()
 
 	// Explicit name (case-insensitive).
-	info, err := s.resolveCalendar(ctx, "personal")
+	info, _, err := s.resolveCalendar(ctx, "personal")
 	if err != nil {
 		t.Fatalf("resolve by name: %v", err)
 	}
@@ -82,7 +82,7 @@ func TestResolveCalendarByNameAndDefault(t *testing.T) {
 	}
 
 	// Empty selector -> server default (id2 / Work).
-	info, err = s.resolveCalendar(ctx, "")
+	info, _, err = s.resolveCalendar(ctx, "")
 	if err != nil {
 		t.Fatalf("resolve default: %v", err)
 	}
@@ -91,7 +91,7 @@ func TestResolveCalendarByNameAndDefault(t *testing.T) {
 	}
 
 	// Exact ID.
-	info, err = s.resolveCalendar(ctx, "id1")
+	info, _, err = s.resolveCalendar(ctx, "id1")
 	if err != nil {
 		t.Fatalf("resolve by id: %v", err)
 	}
@@ -108,7 +108,7 @@ func TestResolveCalendarEmptyDefaultFallsBackToFirst(t *testing.T) {
 		calendar.UserSettingsPath: userSettingsBody(""),
 	}}
 	s := detachedWithAPI(config.Config{}, fake)
-	info, err := s.resolveCalendar(context.Background(), "")
+	info, _, err := s.resolveCalendar(context.Background(), "")
 	if err != nil {
 		t.Fatalf("resolve default: %v", err)
 	}
@@ -122,7 +122,7 @@ func TestResolveCalendarNoMatch(t *testing.T) {
 		calendar.APIPath: calListBody(t, [2]string{"id1", "Personal"}),
 	}}
 	s := detachedWithAPI(config.Config{}, fake)
-	if _, err := s.resolveCalendar(context.Background(), "Nonexistent"); err == nil {
+	if _, _, err := s.resolveCalendar(context.Background(), "Nonexistent"); err == nil {
 		t.Fatal("want no-match error")
 	}
 }
@@ -188,7 +188,7 @@ func TestResolveCalendarStaleRefetch(t *testing.T) {
 	// Seed a stale in-memory list lacking "Work".
 	s.cals = []calendar.Info{{ID: "id1", Name: "Personal"}}
 
-	info, err := s.resolveCalendar(context.Background(), "Work")
+	info, _, err := s.resolveCalendar(context.Background(), "Work")
 	if err != nil {
 		t.Fatalf("resolve after refetch: %v", err)
 	}
