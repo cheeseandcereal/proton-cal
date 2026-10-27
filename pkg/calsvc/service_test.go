@@ -2,6 +2,8 @@ package calsvc
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"testing"
 
 	"github.com/cheeseandcereal/proton-cal/pkg/calendar"
@@ -196,5 +198,104 @@ func TestResolveCalendarStaleRefetch(t *testing.T) {
 	}
 	if fake.gets[calendar.APIPath] == 0 {
 		t.Error("expected a fresh calendar list fetch")
+	}
+}
+
+func TestCalendarsRefreshesDefault(t *testing.T) {
+	fake := &fakeRawAPI{bodies: map[string]string{
+		calendar.APIPath:          calListBody(t, [2]string{"first", "First"}, [2]string{"chosen", "Chosen"}),
+		calendar.UserSettingsPath: userSettingsBody("chosen"),
+	}}
+	s := healService(t, fake)
+	s.cacheAPI.cache.Put(calendar.UserSettingsPath, json.RawMessage(userSettingsBody("first")))
+	ctx := context.Background()
+	if _, err := s.Calendars(ctx); err != nil {
+		t.Fatal(err)
+	}
+	for range 2 {
+		if id, err := s.DefaultCalendarID(ctx); err != nil || id != "chosen" {
+			t.Fatalf("default = %q, %v; want chosen", id, err)
+		}
+	}
+	if fake.gets[calendar.UserSettingsPath] != 1 {
+		t.Fatalf("default GETs = %d, want 1", fake.gets[calendar.UserSettingsPath])
+	}
+}
+
+func TestResolveUnlistedDefault(t *testing.T) {
+	for _, source := range []string{"memory", "disk", "network", "no-cache"} {
+		t.Run(source, func(t *testing.T) {
+			fake := &fakeRawAPI{bodies: map[string]string{
+				calendar.APIPath:          calListBody(t, [2]string{"first", "First"}, [2]string{"chosen", "Chosen"}),
+				calendar.UserSettingsPath: userSettingsBody("chosen"),
+			}}
+			s := healService(t, fake)
+			if source == "no-cache" {
+				s.api, s.freshAPI, s.cacheAPI = fake, fake, nil
+				// A network-read default can be absent from an older memory list.
+				s.cals = []calendar.Info{{ID: "first", Name: "First"}, {ID: "gone", Name: "Deleted"}}
+			} else {
+				s.cacheAPI.cache.Put(calendar.UserSettingsPath, json.RawMessage(userSettingsBody("gone")))
+				switch source {
+				case "memory":
+					s.cals = []calendar.Info{{ID: "first", Name: "First"}, {ID: "chosen", Name: "Chosen"}}
+				case "disk":
+					s.cacheAPI.cache.Put(calendar.APIPath, json.RawMessage(fake.bodies[calendar.APIPath]))
+				}
+			}
+			info, err := s.resolveCalendar(context.Background(), "")
+			if err != nil || info.ID != "chosen" {
+				t.Fatalf("resolved = %q, %v; want chosen", info.ID, err)
+			}
+			if fake.gets[calendar.APIPath] != 1 {
+				t.Errorf("list GETs = %d, want 1", fake.gets[calendar.APIPath])
+			}
+			wantDefaultGets := 1
+			if source == "no-cache" {
+				wantDefaultGets = 2
+			}
+			if fake.gets[calendar.UserSettingsPath] != wantDefaultGets {
+				t.Errorf("default GETs = %d, want %d", fake.gets[calendar.UserSettingsPath], wantDefaultGets)
+			}
+		})
+	}
+}
+
+func TestDefaultRefreshBounds(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		cached    string
+		uncached  bool
+		server    string
+		readErr   error
+		wantID    string
+		wantReads int
+	}{
+		{name: "listed", cached: "chosen", server: "first", wantID: "chosen"},
+		{name: "unset", wantID: "first"},
+		{name: "still unlisted", cached: "gone", server: "gone", wantID: "first", wantReads: 1},
+		{name: "failed refresh", cached: "gone", readErr: errors.New("offline"), wantID: "first", wantReads: 1},
+		{name: "network default", uncached: true, server: "gone", wantID: "first", wantReads: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			fake := &fakeRawAPI{
+				bodies: map[string]string{
+					calendar.APIPath:          calListBody(t, [2]string{"first", "First"}, [2]string{"chosen", "Chosen"}),
+					calendar.UserSettingsPath: userSettingsBody(tc.server),
+				},
+				errs: map[string]error{calendar.UserSettingsPath: tc.readErr},
+			}
+			s := healService(t, fake)
+			if !tc.uncached {
+				s.cacheAPI.cache.Put(calendar.UserSettingsPath, json.RawMessage(userSettingsBody(tc.cached)))
+			}
+			info, err := s.resolveCalendar(context.Background(), "")
+			if err != nil || info.ID != tc.wantID {
+				t.Fatalf("resolved = %q, %v; want %s", info.ID, err, tc.wantID)
+			}
+			if fake.gets[calendar.UserSettingsPath] != tc.wantReads || fake.gets[calendar.APIPath] != 1 {
+				t.Errorf("GETs = %v, want default %d and list 1", fake.gets, tc.wantReads)
+			}
+		})
 	}
 }

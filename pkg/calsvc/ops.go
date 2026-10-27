@@ -13,6 +13,7 @@ import (
 	"github.com/cheeseandcereal/proton-cal/pkg/event"
 	"github.com/cheeseandcereal/proton-cal/pkg/eventview"
 	"github.com/cheeseandcereal/proton-cal/pkg/icaltime"
+	"github.com/cheeseandcereal/proton-cal/pkg/papi"
 )
 
 // ListEventsInput addresses a listing window with user-shaped strings. The
@@ -86,15 +87,20 @@ func (s *Service) ListEvents(ctx context.Context, in ListEventsInput) (*EventLis
 	if err != nil {
 		return nil, err
 	}
-	// Preserve the single-calendar notice: an empty selector resolving to one
-	// calendar tells the user which one was chosen.
-	if len(in.Calendars) == 0 && !in.AllCalendars && len(cals) == 1 {
-		s.notify("Using calendar: " + cals[0].Name)
-	}
-
 	listings, err := s.listAcrossCalendars(ctx, cals, start.Unix(), end.Unix(), tz)
+	if papi.IsCode(err, papi.CodeNotFound) {
+		s.invalidateCalendarList()
+		cals, err = s.resolveCalendars(ctx, in.Calendars, in.AllCalendars)
+		if err != nil {
+			return nil, err
+		}
+		listings, err = s.listAcrossCalendars(ctx, cals, start.Unix(), end.Unix(), tz)
+	}
 	if err != nil {
 		return nil, err
+	}
+	if len(in.Calendars) == 0 && !in.AllCalendars && len(cals) == 1 {
+		s.notify("Using calendar: " + cals[0].Name)
 	}
 
 	items := make([]ListedItem, 0)
@@ -356,10 +362,9 @@ type GotCalendar struct {
 // first), unlocks it to read default settings, and reports whether it is the
 // configured default. The bootstrap fetch is cached.
 func (s *Service) GetCalendar(ctx context.Context, selector string) (*GotCalendar, error) {
-	// The server-side default ID determines IsDefault. A failure to read it
-	// is non-fatal: the calendar is simply not marked default.
-	defaultID, _ := s.DefaultCalendarID(ctx)
 	return withAccessResult(ctx, s, selector, func(info calendar.Info, access *calendar.Access) (*GotCalendar, bool, error) {
+		// Read after resolution, which may refresh a stale default.
+		defaultID, _ := s.DefaultCalendarID(ctx)
 		return &GotCalendar{
 			Info:      info,
 			Settings:  access.Settings,

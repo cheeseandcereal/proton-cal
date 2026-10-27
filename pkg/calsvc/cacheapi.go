@@ -22,8 +22,7 @@ const (
 	// keyMaterialTTL covers users/addresses/passphrases/keys/members: immutable
 	// outside password resets/key rotations, which surface as unlock/decrypt failures.
 	keyMaterialTTL = 30 * 24 * time.Hour
-	// calendarListTTL covers GET /calendar/v1; staleness is cosmetic/recoverable
-	// (unknown selectors refresh the list).
+	// calendarListTTL covers the calendar list and account default setting.
 	calendarListTTL = 7 * 24 * time.Hour
 )
 
@@ -38,8 +37,6 @@ func cacheTTL(path string) (time.Duration, bool) {
 	case path == calendar.APIPath:
 		return calendarListTTL, true
 	case path == calendar.UserSettingsPath:
-		// The server default calendar (and other user prefs) change rarely;
-		// staleness is cosmetic and invalidated explicitly on a default change.
 		return calendarListTTL, true
 	case calKeyMaterialRe.MatchString(path):
 		return keyMaterialTTL, true

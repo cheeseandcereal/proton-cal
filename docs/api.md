@@ -72,7 +72,10 @@ and an unspecified `--calendar` selector resolves to it (falling back to the
 first calendar when it is unset or names a calendar no longer present).
 `update calendar --make-default` writes it via a partial
 `PUT /settings/calendar {"DefaultCalendarID": "<id>"}` (normal scope, no
-password). The fetch is cached and invalidated on a make-default write.
+password). The list and default setting are cached for 7 days. Refreshing or
+invalidating the calendar list also invalidates the cached default; make-default
+writes invalidate it directly. An unlisted default triggers one metadata refresh
+before falling back to the first calendar; a failed default read is non-fatal.
 
 ### Updating calendar metadata and settings (live-verified)
 

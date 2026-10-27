@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strconv"
+	"sync"
 	"testing"
 	"time"
 )
@@ -112,5 +114,39 @@ func TestClearCache(t *testing.T) {
 	}
 	if err := ClearCache(); err != nil {
 		t.Fatalf("ClearCache on missing file must be a no-op: %v", err)
+	}
+}
+
+func TestCacheConcurrentAccess(t *testing.T) {
+	t.Setenv(EnvConfigDir, t.TempDir())
+	c, err := OpenCache("concurrent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wg sync.WaitGroup
+	for i := range 8 {
+		wg.Go(func() {
+			key := strconv.Itoa(i)
+			data := json.RawMessage(key)
+			for range 10 {
+				c.Put(key, data)
+				if got, _, ok := c.Get(key); !ok || string(got) != key {
+					t.Errorf("Get(%s) = %s, %t", key, got, ok)
+				}
+				c.Delete(key)
+			}
+			c.Put(key, data)
+		})
+	}
+	wg.Wait()
+	reopened, err := OpenCache("concurrent")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for i := range 8 {
+		key := strconv.Itoa(i)
+		if got, _, ok := reopened.Get(key); !ok || string(got) != key {
+			t.Errorf("persisted Get(%s) = %s, %t", key, got, ok)
+		}
 	}
 }

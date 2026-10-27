@@ -45,10 +45,12 @@ This runs every live test, which now spans four packages:
   service (JSON output, the `--location ""` field-clear tri-state,
   create/delete).
 
-The service-, MCP- and CLI-layer tests build a real service with `calsvc.New`
-(cache disabled) using the same stored session, so they require the same
-prerequisites and the same `config.toml` test calendar. They skip themselves
-when that setup is missing.
+The service-, MCP- and CLI-layer tests use the same stored session and
+`config.toml` test calendar. Their shared services disable the disk cache;
+`TestE2ECachedDefaultRecovery` uses an isolated temporary cache seeded with an
+obsolete default ID. It temporarily makes the configured calendar the account
+default, verifies live resolution refreshes the cached value, and restores
+the original default.
 
 ## What it does (and safety)
 

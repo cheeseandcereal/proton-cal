@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 )
 
@@ -36,6 +37,7 @@ type cacheEntry struct {
 type Cache struct {
 	dir   string
 	scope string
+	mu    sync.RWMutex
 	doc   cacheDoc // in-memory snapshot from open time (reads are run-local)
 }
 
@@ -72,6 +74,8 @@ func (c *Cache) loadDoc() cacheDoc {
 // Get returns the cached body and its fetch time for key. ok is false on a
 // miss.
 func (c *Cache) Get(key string) (data json.RawMessage, fetchedAt time.Time, ok bool) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
 	e, ok := c.doc.Entries[key]
 	return e.Data, e.FetchedAt, ok
 }
@@ -98,6 +102,8 @@ func (c *Cache) Delete(keys ...string) {
 // update applies fn to the on-disk doc under the lock and refreshes the
 // in-memory snapshot. Best-effort: on error the snapshot stays updated.
 func (c *Cache) update(fn func(doc *cacheDoc)) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	unlock, err := lock(c.lockPath())
 	if err != nil {
 		fn(&c.doc)

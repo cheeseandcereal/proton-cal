@@ -180,18 +180,19 @@ revoke. Your account password is never stored.
 
 ### Bootstrap cache
 
-`cache.json` (same directory, mode 0600) caches the bootstrap responses that
-otherwise cost 5 sequential API round-trips on every invocation: your user and
-address keys (encrypted, 30-day TTL), per-calendar passphrases and keys
-(encrypted, 30-day TTL) and the calendar list (7-day TTL). **Event content is
-never cached** - every command fetches events fresh.
+`cache.json` (same directory, mode 0600) caches bootstrap responses: your user
+and address keys (encrypted, 30-day TTL), per-calendar passphrases and keys
+(encrypted, 30-day TTL), and the calendar list and account default setting
+(7-day TTL). **Event content is never cached**: every command fetches events fresh.
 
-The liberal TTLs are safe because staleness self-heals: wrong key material
-fails cryptographically, which invalidates the cached entries and retries once
-with fresh data; unknown calendar selectors refresh the list automatically,
-and `proton-cal calendars` always fetches fresh. The cache is scoped to the
+Wrong key material triggers one retry with fresh keys. Unknown selectors and
+missing-resource errors refresh calendar selection and the default setting.
+Missing-resource retries of single-calendar operations require the selector to
+resolve to a different calendar ID. An unlisted default is checked against fresh
+metadata before falling back to the first calendar. `proton-cal calendars` and MCP
+`list_calendars` refresh both the list and default. The cache is scoped to the
 session (re-login discards it) and `proton-cal logout` deletes it. Pass
-`--no-cache` to bypass it entirely.
+`--no-cache` to bypass the disk cache.
 
 ## MCP server
 

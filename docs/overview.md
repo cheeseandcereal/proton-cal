@@ -82,7 +82,7 @@ elevation.
 | 1000 | Success (single) |
 | 1001 | Success (batch envelope) |
 | 2001 | Sequence violation on exception row ("Single edits should have a Sequence greater or equal to main event") |
-| 2501 | Event does not exist (e.g. GET/sync against a deleted ID) |
+| 2501 | Calendar or event does not exist (e.g. GET/sync against a deleted ID) |
 | 9001 | Human verification required (details carry methods + token + URL) |
 | 9101 | Insufficient token scope (HTTP 403; e.g. key salts on a restored session) |
 

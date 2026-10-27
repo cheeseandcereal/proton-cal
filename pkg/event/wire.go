@@ -70,22 +70,19 @@ type syncResp struct {
 	} `json:"Responses"`
 }
 
-// firstError returns the response's failure: the first per-event reply's error,
-// else the top-level code, nil on success.
+// firstError returns the first failed per-event reply, or the top-level failure.
 func (r *syncResp) firstError() error {
 	if len(r.Responses) == 0 {
 		// Deletes return only a top-level code.
 		if r.Code == papi.CodeSuccess || r.Code == papi.CodeSuccessMulti {
 			return nil
 		}
-		return fmt.Errorf("sync failed: code %d", r.Code)
+		return fmt.Errorf("sync failed: %w", &papi.Error{Code: r.Code})
 	}
-	resp := r.Responses[0].Response
-	if resp.Code != papi.CodeSuccess {
-		if resp.Error != "" {
-			return fmt.Errorf("sync failed: code %d: %s", resp.Code, resp.Error)
+	for _, entry := range r.Responses {
+		if resp := entry.Response; resp.Code != papi.CodeSuccess {
+			return fmt.Errorf("sync failed: %w", &papi.Error{Code: resp.Code, Message: resp.Error})
 		}
-		return fmt.Errorf("sync failed: code %d", resp.Code)
 	}
 	return nil
 }
@@ -290,11 +287,8 @@ func deleteRows(ctx context.Context, client papi.API, calendarID string, eventID
 	if err != nil {
 		return err
 	}
-	if resp.Code == papi.CodeSuccess || resp.Code == papi.CodeSuccessMulti {
-		return nil
-	}
 	if err := resp.firstError(); err != nil {
 		return fmt.Errorf("deleting events: %w", err)
 	}
-	return fmt.Errorf("deleting events: code %d", resp.Code)
+	return nil
 }

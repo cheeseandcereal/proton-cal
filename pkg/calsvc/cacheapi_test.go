@@ -3,7 +3,9 @@ package calsvc
 import (
 	"context"
 	"encoding/json"
+	"maps"
 	"net/url"
+	"sync"
 	"testing"
 	"time"
 
@@ -12,15 +14,28 @@ import (
 
 // fakeRawAPI counts raw GETs and serves canned JSON bodies per path.
 type fakeRawAPI struct {
-	bodies map[string]string
-	gets   map[string]int
+	mu        sync.Mutex
+	bodies    map[string]string
+	gets      map[string]int
+	errs      map[string]error
+	beforeGet func(context.Context, string) error
 }
 
-func (f *fakeRawAPI) Get(_ context.Context, path string, _ url.Values, out any) error {
+func (f *fakeRawAPI) Get(ctx context.Context, path string, _ url.Values, out any) error {
+	if f.beforeGet != nil {
+		if err := f.beforeGet(ctx, path); err != nil {
+			return err
+		}
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	if f.gets == nil {
 		f.gets = make(map[string]int)
 	}
 	f.gets[path]++
+	if err := f.errs[path]; err != nil {
+		return err
+	}
 	body, ok := f.bodies[path]
 	if !ok {
 		body = `{}`
@@ -29,6 +44,12 @@ func (f *fakeRawAPI) Get(_ context.Context, path string, _ url.Values, out any) 
 		return json.Unmarshal([]byte(body), out)
 	}
 	return nil
+}
+
+func (f *fakeRawAPI) getCounts() map[string]int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return maps.Clone(f.gets)
 }
 
 func (f *fakeRawAPI) Put(context.Context, string, any, any) error  { return nil }
@@ -54,6 +75,7 @@ func TestCacheTTLPolicy(t *testing.T) {
 		{"/core/v4/users", keyMaterialTTL, true},
 		{"/core/v4/addresses", keyMaterialTTL, true},
 		{"/calendar/v1", calendarListTTL, true},
+		{"/settings/calendar", calendarListTTL, true},
 		{"/calendar/v2/CAL_ID/bootstrap", keyMaterialTTL, true},
 		// Event content must never be cached.
 		{"/calendar/v1/CAL_ID/events", 0, false},

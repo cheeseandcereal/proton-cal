@@ -1384,6 +1384,26 @@ func TestSyncErrorSurfacesCodeAndMessage(t *testing.T) {
 	if err == nil || !strings.Contains(err.Error(), "2001") || !strings.Contains(err.Error(), "Sequence greater") {
 		t.Errorf("error must carry code and message, got: %v", err)
 	}
+	if !papi.IsCode(err, 2001) {
+		t.Errorf("sync error must preserve its API code: %v", err)
+	}
+}
+
+func TestDeleteSyncErrorPreservesCode(t *testing.T) {
+	rec := newSyncRecorder()
+	rec.respond = func(map[string]any) any {
+		return map[string]any{
+			"Code": papi.CodeSuccessMulti,
+			"Responses": []any{
+				map[string]any{"Response": map[string]any{"Code": papi.CodeSuccess}},
+				map[string]any{"Response": map[string]any{"Code": papi.CodeNotFound, "Error": "This resource was not found"}},
+			},
+		}
+	}
+	err := deleteRows(context.Background(), newTestClient(t, rec), "cal1", []string{"event1", "event2"}, "member")
+	if !papi.IsCode(err, papi.CodeNotFound) {
+		t.Fatalf("delete error lost its API code: %v", err)
+	}
 }
 
 // TestUpdatePreservesWebClientFields guards against silently resetting card

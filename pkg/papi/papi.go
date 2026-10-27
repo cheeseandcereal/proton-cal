@@ -48,6 +48,8 @@ const (
 	// CodeSuccessMulti is the top-level multi-status code on batched
 	// sync calls (individual entries may still have failed).
 	CodeSuccessMulti = 1001
+	// CodeNotFound means the requested calendar or event does not exist.
+	CodeNotFound = 2501
 	// CodeInsufficientScope accompanies 403 responses when the session
 	// lacks the "locked" scope (password re-verification required).
 	CodeInsufficientScope = 9101
@@ -181,7 +183,7 @@ func (c *Client) setSession(sess config.Session) {
 	c.mu.Unlock()
 }
 
-// Error is a Proton API error from the raw request path.
+// Error is a Proton API error. Status is zero for errors inside a sync response.
 type Error struct {
 	Status  int
 	Code    int
