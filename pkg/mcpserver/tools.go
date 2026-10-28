@@ -341,7 +341,7 @@ func (s *server) listCalendars(ctx context.Context, _ *mcp.CallToolRequest, _ li
 	}
 	// Best-effort: a failure to read the server default just leaves no
 	// calendar marked default.
-	defaultID, _ := svc.DefaultCalendarID(ctx)
+	defaultID, _ := svc.RefreshDefaultCalendarID(ctx)
 	return textResult(renderCalendars(cals, defaultID)), listCalendarsOutput{Calendars: caljson.Calendars(cals, defaultID)}, nil
 }
 

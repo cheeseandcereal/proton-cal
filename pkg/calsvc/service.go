@@ -128,6 +128,11 @@ func (s *Service) DefaultCalendarID(ctx context.Context) (string, error) {
 	return calendar.DefaultCalendarID(ctx, s.api)
 }
 
+// RefreshDefaultCalendarID fetches the account default fresh, updating the cache.
+func (s *Service) RefreshDefaultCalendarID(ctx context.Context) (string, error) {
+	return calendar.DefaultCalendarID(ctx, s.freshAPI)
+}
+
 // Calendars refreshes the calendar list and invalidates the cached default so
 // subsequent reads reflect calendar and default changes in the Proton app.
 func (s *Service) Calendars(ctx context.Context) ([]calendar.Info, error) {
@@ -155,9 +160,8 @@ func (s *Service) fetchCalendars(ctx context.Context, api papi.API) ([]calendar.
 	return cals, nil
 }
 
-// resolveWith loads the cached calendar list (memory, then disk, then one
-// fresh fetch) and applies resolve. A failed resolution or an unlisted default
-// refreshes cached metadata once. Reading the default is non-fatal.
+// resolveWith refreshes an unlisted cached default before refreshing a stale list.
+// Failed default reads or refreshes of an otherwise usable list are non-fatal.
 func resolveWith[T any](ctx context.Context, s *Service, needDefault bool, resolve func(cals []calendar.Info, defaultID string) (T, error)) (T, error) {
 	var zero T
 	s.calMu.Lock()
@@ -179,21 +183,27 @@ func resolveWith[T any](ctx context.Context, s *Service, needDefault bool, resol
 		defaultID, _ = s.DefaultCalendarID(ctx)
 	}
 
+	missingDefault := func() bool {
+		return defaultID != "" && !slices.ContainsFunc(cals, func(c calendar.Info) bool { return c.ID == defaultID })
+	}
+	if missingDefault() && s.cacheAPI != nil && s.cacheAPI.servedAny(calendar.UserSettingsPath) {
+		s.invalidateCache(calendar.UserSettingsPath)
+		defaultID, _ = s.RefreshDefaultCalendarID(ctx)
+	}
+
 	out, err := resolve(cals, defaultID)
-	missingDefault := defaultID != "" && !slices.ContainsFunc(cals, func(c calendar.Info) bool { return c.ID == defaultID })
-	if !fresh && (err != nil || missingDefault) {
+	if !fresh && (err != nil || missingDefault()) {
 		refetched, ferr := s.Calendars(ctx)
 		if ferr != nil {
+			if err == nil {
+				return out, nil
+			}
 			return zero, ferr
 		}
 		if needDefault {
-			defaultID, _ = s.DefaultCalendarID(ctx)
+			defaultID, _ = s.RefreshDefaultCalendarID(ctx)
 		}
 		out, err = resolve(refetched, defaultID)
-	} else if missingDefault && s.cacheAPI != nil && s.cacheAPI.servedAny(calendar.UserSettingsPath) {
-		s.invalidateCache(calendar.UserSettingsPath)
-		defaultID, _ = s.DefaultCalendarID(ctx)
-		out, err = resolve(cals, defaultID)
 	}
 	return out, err
 }

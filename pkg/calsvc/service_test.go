@@ -222,6 +222,31 @@ func TestCalendarsRefreshesDefault(t *testing.T) {
 	}
 }
 
+func TestCalendarListingWithStaleDefaultResponse(t *testing.T) {
+	fake := &fakeRawAPI{bodies: map[string]string{
+		calendar.APIPath:          calListBody(t, [2]string{"first", "First"}, [2]string{"chosen", "Chosen"}),
+		calendar.UserSettingsPath: userSettingsBody("chosen"),
+	}}
+	s := healService(t, fake)
+	ctx := context.Background()
+	if _, err := s.Calendars(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// An in-flight settings response can repopulate the cache after invalidation.
+	s.cacheAPI.cache.Put(calendar.UserSettingsPath, json.RawMessage(userSettingsBody("first")))
+	id, err := s.RefreshDefaultCalendarID(ctx)
+	if err != nil || id != "chosen" {
+		t.Fatalf("listing default = %q, %v; want chosen", id, err)
+	}
+	info, err := s.resolveCalendar(ctx, "")
+	if err != nil || info.ID != "chosen" {
+		t.Fatalf("resolved = %q, %v; want chosen", info.ID, err)
+	}
+	if fake.gets[calendar.UserSettingsPath] != 1 {
+		t.Fatalf("default GETs = %d, want 1", fake.gets[calendar.UserSettingsPath])
+	}
+}
+
 func TestResolveUnlistedDefault(t *testing.T) {
 	for _, source := range []string{"memory", "disk", "network", "no-cache"} {
 		t.Run(source, func(t *testing.T) {
@@ -247,8 +272,12 @@ func TestResolveUnlistedDefault(t *testing.T) {
 			if err != nil || info.ID != "chosen" {
 				t.Fatalf("resolved = %q, %v; want chosen", info.ID, err)
 			}
-			if fake.gets[calendar.APIPath] != 1 {
-				t.Errorf("list GETs = %d, want 1", fake.gets[calendar.APIPath])
+			wantListGets := 1
+			if source == "memory" || source == "disk" {
+				wantListGets = 0
+			}
+			if fake.gets[calendar.APIPath] != wantListGets {
+				t.Errorf("list GETs = %d, want %d", fake.gets[calendar.APIPath], wantListGets)
 			}
 			wantDefaultGets := 1
 			if source == "no-cache" {
@@ -258,6 +287,49 @@ func TestResolveUnlistedDefault(t *testing.T) {
 				t.Errorf("default GETs = %d, want %d", fake.gets[calendar.UserSettingsPath], wantDefaultGets)
 			}
 		})
+	}
+}
+
+func TestDefaultRecoveryWithUnavailableList(t *testing.T) {
+	for _, source := range []string{"memory", "disk"} {
+		for _, tc := range []struct {
+			name          string
+			serverDefault string
+			settingsErr   error
+			wantID        string
+			wantListGets  int
+		}{
+			{name: "listed default", serverDefault: "chosen", wantID: "chosen"},
+			{name: "failed settings", settingsErr: errors.New("settings unavailable"), wantID: "first"},
+			{name: "unlisted default", serverDefault: "gone", wantID: "first", wantListGets: 1},
+		} {
+			t.Run(source+"/"+tc.name, func(t *testing.T) {
+				fake := &fakeRawAPI{
+					bodies: map[string]string{
+						calendar.APIPath:          calListBody(t, [2]string{"first", "First"}, [2]string{"chosen", "Chosen"}),
+						calendar.UserSettingsPath: userSettingsBody(tc.serverDefault),
+					},
+					errs: map[string]error{
+						calendar.APIPath:          errors.New("list unavailable"),
+						calendar.UserSettingsPath: tc.settingsErr,
+					},
+				}
+				s := healService(t, fake)
+				if source == "memory" {
+					s.cals = []calendar.Info{{ID: "first", Name: "First"}, {ID: "chosen", Name: "Chosen"}}
+				} else {
+					s.cacheAPI.cache.Put(calendar.APIPath, json.RawMessage(fake.bodies[calendar.APIPath]))
+				}
+				s.cacheAPI.cache.Put(calendar.UserSettingsPath, json.RawMessage(userSettingsBody("gone")))
+				info, err := s.resolveCalendar(context.Background(), "")
+				if err != nil || info.ID != tc.wantID {
+					t.Fatalf("resolved = %q, %v; want %s", info.ID, err, tc.wantID)
+				}
+				if fake.gets[calendar.UserSettingsPath] != 1 || fake.gets[calendar.APIPath] != tc.wantListGets {
+					t.Errorf("GETs = %v, want default 1 and list %d", fake.gets, tc.wantListGets)
+				}
+			})
+		}
 	}
 }
 

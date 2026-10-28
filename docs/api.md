@@ -74,8 +74,9 @@ first calendar when it is unset or names a calendar no longer present).
 `PUT /settings/calendar {"DefaultCalendarID": "<id>"}` (normal scope, no
 password). The list and default setting are cached for 7 days. Refreshing or
 invalidating the calendar list also invalidates the cached default; make-default
-writes invalidate it directly. An unlisted default triggers one metadata refresh
-before falling back to the first calendar; a failed default read is non-fatal.
+writes invalidate it directly. An unlisted cached default is refreshed before
+the calendar list. Default reads and list refreshes needed only to check an
+unlisted default are non-fatal; resolution can fall back to the first calendar.
 
 ### Updating calendar metadata and settings (live-verified)
 
