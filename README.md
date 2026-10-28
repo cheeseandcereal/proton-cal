@@ -47,7 +47,7 @@ The reverse-engineered API details are documented in [docs/](docs/).
 
 ## Install
 
-Requires Go 1.26+. Because `go-proton-api` needs a `replace` directive for
+Requires Go 1.27.3+. Because `go-proton-api` needs a `replace` directive for
 Proton's resty fork, `go install` does not work - build from a clone:
 
 ```bash
