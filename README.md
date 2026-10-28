@@ -14,7 +14,7 @@ The reverse-engineered API details are documented in [docs/](docs/).
 
 ## Features
 
-- **Auth**: SRP login, TOTP 2FA, manual CAPTCHA fallback, two-password mode,
+- **Auth**: SRP login, TOTP 2FA, browser-based CAPTCHA, two-password mode,
   persistent session with automatic token refresh
 - **Credentials**: bridge-style - after `login`, a derived *salted key
   passphrase* is stored (mode 0600), never your account password
@@ -57,6 +57,10 @@ make build        # produces ./proton-cal
 ```
 
 ## Usage
+
+If login requires a CAPTCHA, the CLI tries to open your browser and prints a
+backup link. Complete the challenge, then press Enter in the terminal to retry
+login.
 
 ```bash
 # Print the version and exit

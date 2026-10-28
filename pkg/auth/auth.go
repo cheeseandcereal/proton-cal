@@ -38,7 +38,7 @@ import (
 
 // Login runs the interactive login flow and persists the session (tokens +
 // salted key passphrase), returning the logged-in username for the caller to
-// persist. Handles captcha (manual token paste) and TOTP; FIDO2-only 2FA and
+// persist. Handles browser-based captcha and TOTP; FIDO2-only 2FA and
 // email-code verification are unsupported.
 func Login(ctx context.Context, prompter Prompter, cfg config.Config) (string, error) {
 	username, password, err := promptCredentials(prompter, cfg.Username)
@@ -277,85 +277,48 @@ func Logout(ctx context.Context) error {
 	return nil
 }
 
-// hvDetails is proton.APIError.Details on a human verification error (code
-// 9001): a superset of proton.APIHVDetails adding the hosted page URL.
-type hvDetails struct {
-	HumanVerificationMethods []string
-	HumanVerificationToken   string
-	WebURL                   string `json:"WebUrl"`
-}
+var openBrowser = browser.OpenURL
 
-// loginWithHumanVerification handles a captcha human-verification request
-// (code 9001) by walking the user through the manual token paste and retrying;
-// any other error is returned wrapped.
+// loginWithHumanVerification waits for browser CAPTCHA completion and retries
+// login on code 9001. Other errors are returned wrapped.
 func loginWithHumanVerification(ctx context.Context, m *proton.Manager, prompter Prompter, username, password string, loginErr error) (*proton.Client, proton.Auth, error) {
 	var apiErr *proton.APIError
 	if !errors.As(loginErr, &apiErr) || !apiErr.IsHVError() {
 		return nil, proton.Auth{}, fmt.Errorf("login failed: %w", loginErr)
 	}
 
-	var details hvDetails
+	var details proton.APIHVDetails
 	if err := json.Unmarshal(apiErr.Details, &details); err != nil {
 		return nil, proton.Auth{}, fmt.Errorf("parsing human verification details: %w", err)
 	}
 
-	prompter.Notify("Human verification required. Available methods: " + strings.Join(details.HumanVerificationMethods, ", "))
-
-	if !slices.Contains(details.HumanVerificationMethods, "captcha") {
+	if !slices.Contains(details.Methods, "captcha") {
 		return nil, proton.Auth{}, fmt.Errorf(
 			"no supported verification method available (methods: %s); try logging in at https://account.proton.me first, then retry",
-			strings.Join(details.HumanVerificationMethods, ", "),
+			strings.Join(details.Methods, ", "),
 		)
 	}
 
-	verifyURL := details.WebURL
-	if verifyURL == "" {
-		verifyURL = "https://account.proton.me/verify?methods=captcha&token=" + url.QueryEscape(details.HumanVerificationToken)
+	if details.Token == "" {
+		return nil, proton.Auth{}, errors.New("human verification response is missing a token")
 	}
 
-	token, err := captchaToken(prompter, verifyURL)
-	if err != nil {
-		return nil, proton.Auth{}, err
+	// The standalone page records CAPTCHA completion against the challenge token.
+	verifyURL := "https://verify.proton.me/?methods=captcha&token=" + url.QueryEscape(details.Token)
+	prompter.Notify("CAPTCHA verification required. Opening your browser.\nBackup URL: " + verifyURL)
+	if err := openBrowser(verifyURL); err != nil {
+		prompter.Notify("Could not open your browser automatically. Open the link above to continue.")
+	}
+	if _, err := prompter.Prompt("Press Enter after completing the CAPTCHA"); err != nil {
+		return nil, proton.Auth{}, fmt.Errorf("waiting for captcha verification: %w", err)
 	}
 
-	// Retry with the pasted token. go-proton-api builds the HV headers from
-	// APIHVDetails (token from Token, type from Methods joined by ","), so
-	// pass exactly {"captcha"} to get type header "captcha".
-	pc, a, err := m.NewClientWithLoginWithHVToken(ctx, username, []byte(password), &proton.APIHVDetails{
-		Methods: []string{"captcha"},
-		Token:   token,
-	})
+	details.Methods = []string{"captcha"}
+	pc, a, err := m.NewClientWithLoginWithHVToken(ctx, username, []byte(password), &details)
 	if err != nil {
 		return nil, proton.Auth{}, fmt.Errorf("login failed after captcha verification: %w", err)
 	}
 	return pc, a, nil
-}
-
-// captchaToken guides the user through manually capturing the captcha token
-// and returns the pasted token.
-func captchaToken(prompter Prompter, verifyURL string) (string, error) {
-	prompter.Notify("\nCAPTCHA verification required. Here's what to do:\n")
-	prompter.Notify("1. A browser window will open with the CAPTCHA.")
-	prompter.Notify("2. BEFORE solving it, open the browser console (F12 > Console)")
-	prompter.Notify("3. Paste this one-liner and press Enter:\n")
-	prompter.Notify(`   window.addEventListener("message", e => { let d = typeof e.data === "string" ? JSON.parse(e.data) : e.data; if (d.type === "HUMAN_VERIFICATION_SUCCESS") { document.title = "TOKEN:" + d.payload.token; console.log("TOKEN:", d.payload.token); } })`)
-	prompter.Notify("\n4. Now solve the CAPTCHA.")
-	prompter.Notify("5. The token will appear in the console and page title.\n")
-
-	// Best-effort browser launch; on failure just show the URL.
-	if err := browser.OpenURL(verifyURL); err != nil {
-		prompter.Notify("Open this URL: " + verifyURL)
-	}
-
-	token, err := prompter.Prompt("Paste the token here")
-	if err != nil {
-		return "", fmt.Errorf("reading captcha token: %w", err)
-	}
-	token = strings.TrimSpace(token)
-	if token == "" {
-		return "", errors.New("no captcha token provided")
-	}
-	return token, nil
 }
 
 // isInsufficientScope reports whether the token lacks scope (Proton code

@@ -11,8 +11,8 @@ import (
 
 // Prompter abstracts interactive input so the login flow is testable.
 type Prompter interface {
-	// Prompt reads a line of visible input (username, TOTP code, pasted
-	// token). The returned string has the trailing newline removed.
+	// Prompt reads a line of visible input (username, TOTP code, confirmation).
+	// The returned string has the trailing newline removed.
 	Prompt(label string) (string, error)
 	// PromptSecret reads a line of hidden input (passwords).
 	PromptSecret(label string) (string, error)

@@ -72,18 +72,26 @@ cookies, no CSRF tokens.
 ### Human verification (code 9001)
 
 Logins from new environments can be challenged: the error envelope carries
-`Code: 9001` and a `Details` object with `HumanVerificationMethods`,
-`HumanVerificationToken`, and a hosted-page `WebUrl`. For the `captcha`
-method, the hosted verification page posts a `HUMAN_VERIFICATION_SUCCESS`
-message (with `payload.token`) to its embedding window; capture that token
-(e.g. via a `window.addEventListener("message", ...)` snippet pasted into
-the browser console before solving the captcha) and retry the original
-request with:
+`Code: 9001` and a `Details` object with `HumanVerificationMethods` and
+`HumanVerificationToken`. When `captcha` is offered, open the standalone page:
 
 ```
-x-pm-human-verification-token: <token>
+https://verify.proton.me/?methods=captcha&token=<URL-encoded HumanVerificationToken>
+```
+
+The URL contains the challenge token. Once the CAPTCHA is solved, the page
+submits its response to `POST /core/v4/verification/captcha/<challenge token>`,
+making the challenge token redeemable. The user then presses Enter in the
+terminal, and the CLI retries SRP login with the original challenge token:
+
+```
+x-pm-human-verification-token: <HumanVerificationToken>
 x-pm-human-verification-token-type: captcha
 ```
+
+The page must run standalone, without `embed`, so it records completion on the
+server. This follows [Proton Bridge's CLI flow](https://github.com/ProtonMail/proton-bridge/blob/b9c5dac1651437100c40896dacd778a0518a26f2/internal/frontend/cli/accounts.go#L125-L184)
+and the [verification page's external CAPTCHA handling](https://github.com/ProtonMail/WebClients/blob/df5c7ae76a454a68812ab1a9a6fe3e6450a96b72/applications/verify/src/app/Verify.tsx#L150-L170).
 
 ## Key unlocking chain
 
