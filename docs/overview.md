@@ -43,8 +43,10 @@ the passphrase unlocks the key chain but cannot be used to authenticate.
   be persisted and restored.
 - On 401, `POST /auth/v4/refresh` rotates **both** tokens. Refresh tokens
   are single-use: concurrent refreshes race and the loser's tokens are dead.
-  Anything doing raw HTTP alongside a managed HTTP client must serialize
-  refreshes and re-read the rotated tokens afterwards.
+  `papi.Client` holds the cross-process session lock while re-reading,
+  rotating, and saving tokens, then retries the original request once.
+  Waiting clients adopt the saved tokens. Login and logout use the same
+  lock, and stale clients cannot overwrite a different login's session.
 - `DELETE /auth/v4` revokes the session (logout).
 
 ### The "locked" scope (live-verified June 2026)

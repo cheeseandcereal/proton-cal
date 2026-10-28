@@ -10,11 +10,13 @@ package config
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/BurntSushi/toml"
 	"github.com/gofrs/flock"
@@ -126,8 +128,11 @@ func (s Session) Valid() bool {
 	return s.UID != "" && s.AccessToken != "" && s.RefreshToken != ""
 }
 
-// ErrNoSession is returned when no session file exists.
+// ErrNoSession is returned when no usable session is saved.
 var ErrNoSession = errors.New("no saved session (run `proton-cal login`)")
+
+// ErrSessionChanged prevents a stale client from adopting another login.
+var ErrSessionChanged = errors.New("saved session changed; restart the command or MCP server")
 
 // SessionStore reads and writes session.json under an advisory file lock.
 type SessionStore struct {
@@ -188,31 +193,79 @@ func (s *SessionStore) saveLocked(sess Session) error {
 	return writeFileAtomic(s.sessionPath(), data)
 }
 
-// UpdateTokens persists rotated session tokens, preserving the stored salted
-// key passphrase. Used as the go-proton-api auth refresh handler.
-func (s *SessionStore) UpdateTokens(uid, accessToken, refreshToken string) error {
+// Refresh adopts newer tokens or rotates and saves them under the session lock.
+// Holding the lock across rotate serializes single-use tokens across processes.
+func (s *SessionStore) Refresh(ctx context.Context, previous Session, rotate func(Session) (Session, error)) (Session, error) {
+	fl := flock.New(s.lockPath())
+	if ok, err := fl.TryLockContext(ctx, 10*time.Millisecond); err != nil {
+		return Session{}, fmt.Errorf("locking session for refresh: %w", err)
+	} else if !ok {
+		return Session{}, ctx.Err()
+	}
+	defer func() { _ = fl.Unlock() }()
+
+	sess, err := s.loadLocked()
+	if err != nil {
+		return Session{}, err
+	}
+	if !sess.Valid() {
+		return Session{}, ErrNoSession
+	}
+	if sess.UID != previous.UID {
+		return Session{}, ErrSessionChanged
+	}
+	if sess.AccessToken != previous.AccessToken || sess.RefreshToken != previous.RefreshToken {
+		return sess, nil
+	}
+	rotated, err := rotate(sess)
+	if err != nil {
+		return Session{}, err
+	}
+	if !rotated.Valid() || rotated.UID != sess.UID {
+		return Session{}, errors.New("invalid refreshed session (run `proton-cal login`)")
+	}
+	sess.AccessToken = rotated.AccessToken
+	sess.RefreshToken = rotated.RefreshToken
+	if err := s.saveLocked(sess); err != nil {
+		return Session{}, fmt.Errorf("saving refreshed session (run `proton-cal login`): %w", err)
+	}
+	return sess, nil
+}
+
+// SetKeyPass updates this login's passphrase without overwriting rotated tokens.
+func (s *SessionStore) SetKeyPass(uid string, pass []byte) error {
 	unlock, err := lock(s.lockPath())
 	if err != nil {
 		return err
 	}
 	defer unlock()
 	sess, err := s.loadLocked()
-	if err != nil && !errors.Is(err, ErrNoSession) {
+	if err != nil {
 		return err
 	}
-	sess.UID = uid
-	sess.AccessToken = accessToken
-	sess.RefreshToken = refreshToken
+	if sess.UID != uid {
+		return ErrSessionChanged
+	}
+	sess.SaltedKeyPass = pass
 	return s.saveLocked(sess)
 }
 
-// Clear removes the session file.
-func (s *SessionStore) Clear() error {
+// Clear removes the session file only if it still belongs to this login.
+func (s *SessionStore) Clear(uid string) error {
 	unlock, err := lock(s.lockPath())
 	if err != nil {
 		return err
 	}
 	defer unlock()
+	sess, err := s.loadLocked()
+	if errors.Is(err, ErrNoSession) {
+		return nil
+	} else if err != nil {
+		return err
+	}
+	if sess.UID != uid {
+		return nil
+	}
 	if err := os.Remove(s.sessionPath()); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}

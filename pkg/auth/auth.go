@@ -55,39 +55,35 @@ func Login(ctx context.Context, prompter Prompter, cfg config.Config) (string, e
 	}
 	defer pc.Close()
 
-	// Persist tokens now so the raw client below reads them and any refresh
-	// lands in the store; written again later since the salted key passphrase
-	// needs salts fetched with a working session.
+	// The key passphrase needs salts fetched with a persisted session.
 	store, err := config.NewSessionStore()
 	if err != nil {
 		return "", fmt.Errorf("opening session store: %w", err)
 	}
-	if err := store.Save(config.Session{
+	sess := config.Session{
 		UID:          a.UID,
 		AccessToken:  a.AccessToken,
 		RefreshToken: a.RefreshToken,
-	}); err != nil {
+	}
+	if err := store.Save(sess); err != nil {
 		return "", fmt.Errorf("saving session: %w", err)
 	}
-	raw := papi.New(pc, store, cfg.EffectiveBaseURL())
+	raw := papi.New(sess, store, cfg.EffectiveBaseURL())
+	defer raw.Close()
 
 	keyPassword, err := promptKeyPassword(prompter, a.PasswordMode, password)
 	if err != nil {
 		return "", err
 	}
 
-	salts, err := fetchSalts(ctx, pc, m, raw, username, password)
+	salts, err := fetchSalts(ctx, m, raw, username, password)
 	if err != nil {
 		return "", err
 	}
 
-	user, err := pc.GetUser(ctx)
+	user, addrs, err := FetchKeyData(ctx, raw)
 	if err != nil {
-		return "", fmt.Errorf("fetching user: %w", err)
-	}
-	addrs, err := pc.GetAddresses(ctx)
-	if err != nil {
-		return "", fmt.Errorf("fetching addresses: %w", err)
+		return "", err
 	}
 
 	saltedKeyPass, err := deriveAndVerifyKeyPass(user, addrs, salts, keyPassword)
@@ -95,8 +91,8 @@ func Login(ctx context.Context, prompter Prompter, cfg config.Config) (string, e
 		return "", err
 	}
 
-	if err := persistKeyPass(store, saltedKeyPass); err != nil {
-		return "", err
+	if err := store.SetKeyPass(sess.UID, saltedKeyPass); err != nil {
+		return "", fmt.Errorf("saving key passphrase: %w", err)
 	}
 
 	prompter.Notify("Login successful. Session saved.")
@@ -140,6 +136,11 @@ func authenticate(ctx context.Context, m *proton.Manager, prompter Prompter, use
 		}
 	}
 
+	pc.AddAuthHandler(func(rotated proton.Auth) {
+		a.AccessToken = rotated.AccessToken
+		a.RefreshToken = rotated.RefreshToken
+	})
+
 	// Two-factor authentication. TwoFA.Enabled is a bitmask: HasTOTP (1),
 	// HasFIDO2 (2), HasFIDO2AndTOTP (3). Prefer TOTP when available.
 	switch {
@@ -178,39 +179,39 @@ func promptKeyPassword(prompter Prompter, mode proton.PasswordMode, loginPasswor
 
 // fetchSalts fetches the key salts. On insufficient scope it gains the
 // "locked" scope (SRP proof to /core/v4/users/unlock), retries once, then
-// drops the scope again (best effort).
-func fetchSalts(ctx context.Context, pc *proton.Client, m *proton.Manager, raw *papi.Client, username, password string) (proton.Salts, error) {
-	salts, err := pc.GetSalts(ctx)
-	if err == nil {
-		return salts, nil
-	}
-	if !isInsufficientScope(err) {
-		return nil, fmt.Errorf("fetching key salts: %w", err)
-	}
-	werr := WithLockedScope(ctx, m, raw, username, password, func() error {
-		salts, err = pc.GetSalts(ctx)
-		if err != nil {
+// drops the scope again.
+func fetchSalts(ctx context.Context, m *proton.Manager, raw *papi.Client, username, password string) (proton.Salts, error) {
+	var out struct{ KeySalts proton.Salts }
+	fetch := func() error {
+		if err := raw.Get(ctx, "/core/v4/keys/salts", nil, &out); err != nil {
 			return fmt.Errorf("fetching key salts: %w", err)
 		}
 		return nil
-	})
-	if werr != nil {
-		return nil, werr
 	}
-	return salts, nil
+	err := fetch()
+	if err == nil {
+		return out.KeySalts, nil
+	}
+	if !isInsufficientScope(err) {
+		return nil, err
+	}
+	if err := WithLockedScope(ctx, m, raw, username, password, fetch); err != nil {
+		return nil, err
+	}
+	return out.KeySalts, nil
 }
 
-// WithLockedScope gains the elevated "locked" scope (SRP proof of the LOGIN
-// password to PUT /core/v4/users/unlock), runs fn, then drops it again (PUT
-// /core/v4/users/lock, best effort). Sensitive ops on a restored session need
-// this since its token lacks the scope (Proton code 9101); password is always
-// the login password and a wrong one surfaces as a server-proof mismatch.
-func WithLockedScope(ctx context.Context, m *proton.Manager, raw *papi.Client, username, password string, fn func() error) error {
+// WithLockedScope gains the "locked" scope using the login password, runs fn,
+// then drops it. Cleanup is best effort except for session refresh failures.
+func WithLockedScope(ctx context.Context, m *proton.Manager, raw *papi.Client, username, password string, fn func() error) (err error) {
 	if err := unlockScope(ctx, m, raw, username, password); err != nil {
 		return fmt.Errorf("unlocking session scope: %w", err)
 	}
-	// Best-effort re-lock: drop the elevated scope when done.
-	defer func() { _ = raw.Put(ctx, "/core/v4/users/lock", struct{}{}, nil) }()
+	defer func() {
+		if lockErr := raw.Put(ctx, "/core/v4/users/lock", struct{}{}, nil); errors.Is(lockErr, papi.ErrRefresh) {
+			err = errors.Join(err, fmt.Errorf("re-locking session scope: %w", lockErr))
+		}
+	}()
 	return fn()
 }
 
@@ -243,22 +244,8 @@ func deriveAndVerifyKeyPass(user proton.User, addrs []proton.Address, salts prot
 	return saltedKeyPass, nil
 }
 
-// persistKeyPass adds the salted key passphrase to the stored session via a
-// read-modify-write, since tokens may have rotated since the initial save.
-func persistKeyPass(store *config.SessionStore, saltedKeyPass []byte) error {
-	sess, err := store.Load()
-	if err != nil {
-		return fmt.Errorf("reloading session: %w", err)
-	}
-	sess.SaltedKeyPass = saltedKeyPass
-	if err := store.Save(sess); err != nil {
-		return fmt.Errorf("saving session: %w", err)
-	}
-	return nil
-}
-
-// Logout best-effort revokes the current session with the API (AuthDelete)
-// and clears the session store. A missing session is not an error.
+// Logout clears the local session and cache before best-effort API revocation.
+// A missing session is not an error.
 func Logout(ctx context.Context) error {
 	store, err := config.NewSessionStore()
 	if err != nil {
@@ -266,10 +253,14 @@ func Logout(ctx context.Context) error {
 	}
 
 	sess, err := store.Load()
-	if errors.Is(err, config.ErrNoSession) {
-		return nil
-	} else if err != nil {
+	if err != nil && !errors.Is(err, config.ErrNoSession) {
 		return fmt.Errorf("loading session: %w", err)
+	}
+	if err := store.Clear(sess.UID); err != nil {
+		return fmt.Errorf("clearing session: %w", err)
+	}
+	if err := config.ClearCache(); err != nil {
+		return fmt.Errorf("clearing cache: %w", err)
 	}
 
 	if sess.Valid() {
@@ -277,22 +268,12 @@ func Logout(ctx context.Context) error {
 		if err != nil {
 			return fmt.Errorf("loading config: %w", err)
 		}
-		m := papi.NewManager(cfg.EffectiveBaseURL())
-		pc := m.NewClient(sess.UID, sess.AccessToken, sess.RefreshToken)
+		client := papi.New(sess, store, cfg.EffectiveBaseURL())
 		// Best effort: the session may already be expired or revoked.
-		_ = pc.AuthDelete(ctx)
-		pc.Close()
-		m.Close()
+		_ = client.Delete(ctx, "/auth/v4", nil)
+		client.Close()
 	}
 
-	if err := store.Clear(); err != nil {
-		return fmt.Errorf("clearing session: %w", err)
-	}
-	// The bootstrap cache holds (encrypted) key material scoped to the
-	// session that just ended; never leave it behind.
-	if err := config.ClearCache(); err != nil {
-		return fmt.Errorf("clearing cache: %w", err)
-	}
 	return nil
 }
 

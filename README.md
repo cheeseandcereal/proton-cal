@@ -178,6 +178,11 @@ derived salted key passphrase. It can unlock your calendar keys but cannot be
 used to log in to your account; delete it (or run `proton-cal logout`) to
 revoke. Your account password is never stored.
 
+On an expired access token, CLI and MCP processes coordinate through the
+session lock: one process rotates and saves both tokens, and others adopt
+them. The original request is retried once. A rejected refresh token reports
+that you need to run `proton-cal login`.
+
 ### Bootstrap cache
 
 `cache.json` (same directory, mode 0600) caches bootstrap responses: your user
@@ -257,7 +262,7 @@ pkg/mcpserver    MCP stdio server (tool schemas + rendering)
 pkg/calsvc       shared service layer: bootstrap, input parsing,
                  list/create/update/delete orchestration
 pkg/auth         login (SRP/2FA/captcha), key unlocking, salted passphrase
-pkg/papi         go-proton-api wrapper + raw calls for endpoints it lacks
+pkg/papi         authenticated API requests with serialized token refresh
 pkg/calendar     calendar listing, member resolution, calendar key unlock
 pkg/event        event CRUD: decrypt, encrypt, sync payloads, recurrence ops
 pkg/pgp          PGP primitives (detached sign, session-key encrypt/reuse)

@@ -24,11 +24,10 @@ for the broader research index.
   `replace github.com/go-resty/resty/v2 => github.com/ProtonMail/resty/v2`,
   which also means downstream `go install module@version` does not work
   (replace directives are ignored outside the main module).
-- **Token refresh coordination.** Its client auto-refreshes on 401 and
-  notifies registered auth handlers with the rotated tokens. Raw HTTP done
-  beside it must not refresh independently (single-use refresh tokens
-  race); instead trigger a cheap typed call to make the client refresh,
-  then re-read the persisted tokens.
+- **Token refresh coordination.** Its client's automatic refresh is not
+  coordinated across processes. Persisted sessions use `papi.Client`, which
+  holds the session file lock while re-reading, rotating, and saving tokens.
+  Concurrent requests adopt the saved tokens and retry once.
 - **No `/core/v4/users/unlock` binding.** Scope elevation (the "locked"
   scope dance in [overview.md](overview.md)) must be done via raw HTTP with
   an SRP proof from `github.com/ProtonMail/go-srp` (`NewAuth` +

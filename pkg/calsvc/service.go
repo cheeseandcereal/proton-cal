@@ -405,14 +405,14 @@ func (s *Service) loginUsername(ctx context.Context) (string, error) {
 	if s.cfg.Username != "" {
 		return s.cfg.Username, nil
 	}
-	user, err := s.client.Proton().GetUser(ctx)
-	if err != nil {
+	var out struct{ User struct{ Name string } }
+	if err := s.client.Get(ctx, auth.UsersPath, nil, &out); err != nil {
 		return "", fmt.Errorf("resolving account username: %w", err)
 	}
-	if user.Name == "" {
+	if out.User.Name == "" {
 		return "", errors.New("could not determine login username; re-run `proton-cal login`")
 	}
-	return user.Name, nil
+	return out.User.Name, nil
 }
 
 // withAccess retries once for stale keys or a missing resource. Missing resources

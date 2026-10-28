@@ -52,6 +52,11 @@ obsolete default ID. It temporarily makes the configured calendar the account
 default, verifies live resolution refreshes the cached value, and restores
 the original default.
 
+`TestConcurrentSessionRefresh` injects simultaneous 401 responses for two
+clients, then verifies one real token refresh, successful calendar reads, and
+persisted credentials usable by a fresh client. It needs no password and keeps
+the rotated tokens in the real session store for subsequent CLI/MCP calls.
+
 ## What it does (and safety)
 
 - The suite **creates, updates and deletes real events** on the configured

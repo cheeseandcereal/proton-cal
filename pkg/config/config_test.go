@@ -1,7 +1,9 @@
 package config
 
 import (
+	"context"
 	"errors"
+	"reflect"
 	"testing"
 )
 
@@ -85,26 +87,39 @@ func TestSessionStoreLifecycle(t *testing.T) {
 		t.Errorf("loaded session = %+v", got)
 	}
 
-	// UpdateTokens rotates tokens but preserves the key passphrase.
-	if err := store.UpdateTokens("u2", "a2", "r2"); err != nil {
-		t.Fatalf("UpdateTokens: %v", err)
+	// Rotation preserves the key passphrase.
+	if _, err := store.Refresh(t.Context(), sess, func(Session) (Session, error) {
+		return Session{UID: "u", AccessToken: "a2", RefreshToken: "r2"}, nil
+	}); err != nil {
+		t.Fatalf("Refresh: %v", err)
 	}
 	got, err = store.Load()
 	if err != nil {
 		t.Fatalf("Load after rotate: %v", err)
 	}
-	if got.UID != "u2" || got.AccessToken != "a2" || got.RefreshToken != "r2" {
+	if got.UID != "u" || got.AccessToken != "a2" || got.RefreshToken != "r2" {
 		t.Errorf("tokens not rotated: %+v", got)
 	}
 	if string(got.SaltedKeyPass) != "secret" {
-		t.Errorf("UpdateTokens dropped the key passphrase: %q", got.SaltedKeyPass)
+		t.Errorf("Refresh dropped the key passphrase: %q", got.SaltedKeyPass)
+	}
+
+	if err := store.SetKeyPass("u", []byte("derived")); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Clear("another-login"); err != nil {
+		t.Fatal(err)
+	}
+	got, err = store.Load()
+	if err != nil || got.AccessToken != "a2" || got.RefreshToken != "r2" || string(got.SaltedKeyPass) != "derived" {
+		t.Fatalf("session after key update and stale logout = %+v, %v", got, err)
 	}
 
 	// Clear removes it; a second Clear is a no-op (not an error).
-	if err := store.Clear(); err != nil {
+	if err := store.Clear("u"); err != nil {
 		t.Fatalf("Clear: %v", err)
 	}
-	if err := store.Clear(); err != nil {
+	if err := store.Clear("u"); err != nil {
 		t.Fatalf("Clear (already gone): %v", err)
 	}
 	if _, err := store.Load(); !errors.Is(err, ErrNoSession) {
@@ -112,18 +127,65 @@ func TestSessionStoreLifecycle(t *testing.T) {
 	}
 }
 
-// UpdateTokens on an empty store creates a fresh session rather than erroring.
-func TestUpdateTokensFromEmpty(t *testing.T) {
-	t.Setenv(EnvConfigDir, t.TempDir())
-	store, err := NewSessionStore()
+func TestRefreshAdoptsOrRejectsSavedSession(t *testing.T) {
+	previous := Session{UID: "u", AccessToken: "a", RefreshToken: "r"}
+	for _, tc := range []struct {
+		name string
+		disk Session
+		err  error
+	}{
+		{"rotated access", Session{UID: "u", AccessToken: "a2", RefreshToken: "r"}, nil},
+		{"rotated refresh", Session{UID: "u", AccessToken: "a", RefreshToken: "r2"}, nil},
+		{"another login", Session{UID: "other", AccessToken: "a2", RefreshToken: "r2"}, ErrSessionChanged},
+		{"incomplete", Session{UID: "u"}, ErrNoSession},
+		{"logged out", Session{}, ErrNoSession},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			store := &SessionStore{dir: t.TempDir()}
+			if tc.disk.UID != "" {
+				if err := store.Save(tc.disk); err != nil {
+					t.Fatal(err)
+				}
+			}
+			got, err := store.Refresh(t.Context(), previous, func(Session) (Session, error) {
+				t.Error("unexpected token rotation")
+				return Session{}, nil
+			})
+			if !errors.Is(err, tc.err) {
+				t.Fatalf("Refresh error = %v, want %v", err, tc.err)
+			}
+			if err == nil && !reflect.DeepEqual(got, tc.disk) {
+				t.Errorf("adopted session = %+v, want %+v", got, tc.disk)
+			}
+			if tc.disk.UID != previous.UID {
+				if err := store.SetKeyPass(previous.UID, []byte("stale")); !errors.Is(err, tc.err) {
+					t.Errorf("SetKeyPass error = %v, want %v", err, tc.err)
+				}
+			}
+			if tc.disk.UID != "" && tc.disk.UID != previous.UID {
+				disk, err := store.Load()
+				if err != nil || !reflect.DeepEqual(disk, tc.disk) {
+					t.Fatalf("replacement login changed: %+v, %v", disk, err)
+				}
+			}
+		})
+	}
+}
+
+func TestRefreshCancelledWhileWaitingForLock(t *testing.T) {
+	store := &SessionStore{dir: t.TempDir()}
+	unlock, err := lock(store.lockPath())
 	if err != nil {
-		t.Fatalf("NewSessionStore: %v", err)
+		t.Fatal(err)
 	}
-	if err := store.UpdateTokens("u", "a", "r"); err != nil {
-		t.Fatalf("UpdateTokens from empty: %v", err)
-	}
-	got, err := store.Load()
-	if err != nil || !got.Valid() {
-		t.Fatalf("session after UpdateTokens = %+v, err %v", got, err)
+	defer unlock()
+	ctx, cancel := context.WithCancel(t.Context())
+	cancel()
+	_, err = store.Refresh(ctx, Session{}, func(Session) (Session, error) {
+		t.Error("cancelled refresh called rotate")
+		return Session{}, nil
+	})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("Refresh error = %v, want context.Canceled", err)
 	}
 }

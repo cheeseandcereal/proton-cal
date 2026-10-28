@@ -1,19 +1,14 @@
-// Package papi wraps go-proton-api's Manager/Client and adds a raw request
-// path for the calendar endpoints go-proton-api does not implement (most
-// importantly PUT /calendar/v1/{id}/events/sync, and GET /calendar/v1 whose
-// response shape go-proton-api's types no longer match).
+// Package papi provides authenticated Proton API requests and a go-proton-api
+// Manager for SRP authentication.
 //
-// Token refresh strategy: only go-proton-api's Client ever refreshes tokens
-// (it auto-refreshes on 401 and notifies the registered auth handler, which
-// persists the rotated tokens to the session store). The raw path NEVER
-// refreshes on its own - on a 401 it makes a cheap typed call to trigger the
-// client's refresh, re-reads the persisted tokens, and retries once. This
-// avoids refresh-token rotation races.
+// On 401, requests adopt or rotate tokens under the cross-process session lock,
+// persist both tokens, and retry once. Clients stay bound to their login's UID.
 package papi
 
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -38,6 +33,7 @@ const (
 
 	maxRateLimitRetries = 3
 	maxRetryAfter       = 60 * time.Second
+	refreshPath         = "/auth/v4/refresh"
 )
 
 // Proton API response codes observed on the calendar endpoints (see
@@ -81,37 +77,27 @@ type API interface {
 	Delete(ctx context.Context, path string, out any) error
 }
 
-// Client couples a go-proton-api client with the session store and a raw
-// HTTP path for endpoints go-proton-api lacks.
+// Client makes authenticated requests using a persisted Proton session.
 type Client struct {
-	pc      *proton.Client
-	m       *proton.Manager // owned manager (FromSession); nil otherwise
+	m       *proton.Manager
 	store   *config.SessionStore
 	baseURL string
 	httpc   *http.Client
 
 	mu   sync.Mutex
-	sess config.Session // cached tokens; zero until first use
+	sess config.Session // cached tokens, bound to one login
 }
 
-// New wires a Client over an existing proton.Client, registering auth/deauth
-// handlers that persist token rotations. Callers must not register their own.
-func New(pc *proton.Client, store *config.SessionStore, baseURL string) *Client {
-	c := &Client{
-		pc:      pc,
+// New builds a Client for sess, which must already be saved in store.
+// Call Close when done.
+func New(sess config.Session, store *config.SessionStore, baseURL string) *Client {
+	return &Client{
+		m:       NewManager(baseURL),
 		store:   store,
 		baseURL: baseURL,
 		httpc:   &http.Client{Timeout: 60 * time.Second},
+		sess:    sess,
 	}
-	pc.AddAuthHandler(func(auth proton.Auth) {
-		_ = store.UpdateTokens(auth.UID, auth.AccessToken, auth.RefreshToken)
-		c.setSession(config.Session{UID: auth.UID, AccessToken: auth.AccessToken, RefreshToken: auth.RefreshToken})
-	})
-	pc.AddDeauthHandler(func() {
-		_ = store.Clear()
-		c.setSession(config.Session{})
-	})
-	return c
 }
 
 // FromSession restores a Client from the persisted session. The returned
@@ -124,28 +110,15 @@ func FromSession(store *config.SessionStore, baseURL string) (*Client, error) {
 	if !sess.Valid() {
 		return nil, config.ErrNoSession
 	}
-	m := NewManager(baseURL)
-	pc := m.NewClient(sess.UID, sess.AccessToken, sess.RefreshToken)
-	c := New(pc, store, baseURL)
-	c.m = m
-	c.setSession(sess) // seed the token cache; saves a locked disk read
-	return c, nil
+	return New(sess, store, baseURL), nil
 }
 
-// Close releases the underlying go-proton-api client (and the manager when
-// the Client owns one, i.e. it came from FromSession).
+// Close releases the client's manager.
 func (c *Client) Close() {
-	c.pc.Close()
-	if c.m != nil {
-		c.m.Close()
-	}
+	c.m.Close()
 }
 
-// Proton exposes the typed go-proton-api client.
-func (c *Client) Proton() *proton.Client { return c.pc }
-
-// Manager exposes the owned go-proton-api Manager (nil unless built via
-// FromSession). Needed for the SRP scope-elevation handshake (Manager.AuthInfo).
+// Manager exposes the manager for the SRP scope-elevation handshake.
 func (c *Client) Manager() *proton.Manager { return c.m }
 
 // Store exposes the session store the client persists tokens to.
@@ -161,20 +134,14 @@ func (c *Client) SessionUID() (string, error) {
 	return sess.UID, nil
 }
 
-// session returns the cached tokens, loading from the store on first use; the
-// cache avoids a locked disk read per request (rotations update it via the handler).
+// session returns the cached tokens, avoiding a locked disk read per request.
 func (c *Client) session() (config.Session, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if c.sess.Valid() {
 		return c.sess, nil
 	}
-	sess, err := c.store.Load()
-	if err != nil {
-		return config.Session{}, err
-	}
-	c.sess = sess
-	return sess, nil
+	return config.Session{}, config.ErrNoSession
 }
 
 func (c *Client) setSession(sess config.Session) {
@@ -189,6 +156,9 @@ type Error struct {
 	Code    int
 	Message string
 }
+
+// ErrRefresh marks a failed session refresh, including persistence failures.
+var ErrRefresh = errors.New("session refresh failed")
 
 func (e *Error) Error() string {
 	return fmt.Sprintf("proton api error: status=%d code=%d: %s", e.Status, e.Code, e.Message)
@@ -228,16 +198,15 @@ func (c *Client) Delete(ctx context.Context, path string, out any) error {
 	return c.Do(ctx, http.MethodDelete, path, nil, nil, out)
 }
 
-// Do performs a raw authenticated request. On 401 it re-reads the persisted
-// session, else triggers the typed client's refresh (once) and retries; on 429
-// it honours Retry-After.
+// Do performs an authenticated request. On 401 it refreshes and retries once;
+// on 429 it honours Retry-After.
 func (c *Client) Do(ctx context.Context, method, path string, query url.Values, body, out any) error {
+	sess, err := c.session()
+	if err != nil {
+		return err
+	}
 	refreshed := false
 	for attempt := 0; ; attempt++ {
-		sess, err := c.session()
-		if err != nil {
-			return err
-		}
 		status, respBody, err := c.doOnce(ctx, method, path, query, body, sess)
 		if err != nil {
 			return err
@@ -246,17 +215,13 @@ func (c *Client) Do(ctx context.Context, method, path string, query url.Values, 
 		switch {
 		case status == http.StatusUnauthorized && !refreshed:
 			refreshed = true
-			// Another process may have rotated tokens; prefer the persisted
-			// session when it differs from what we just used.
-			if disk, derr := c.store.Load(); derr == nil && disk.Valid() && disk.AccessToken != sess.AccessToken {
-				c.setSession(disk)
-				continue
+			sess, err = c.store.Refresh(ctx, sess, func(current config.Session) (config.Session, error) {
+				return c.rotateTokens(ctx, current)
+			})
+			if err != nil {
+				return fmt.Errorf("%w: %w", ErrRefresh, err)
 			}
-			// Let the typed client refresh; its auth handler updates both
-			// the store and the in-memory cache.
-			if _, err := c.pc.GetUser(ctx); err != nil {
-				return fmt.Errorf("session refresh failed: %w", err)
-			}
+			c.setSession(sess)
 			continue
 		case status == http.StatusTooManyRequests && attempt < maxRateLimitRetries:
 			wait := retryAfter(respBody.retryAfter)
@@ -269,7 +234,11 @@ func (c *Client) Do(ctx context.Context, method, path string, query url.Values, 
 		}
 
 		if status < 200 || status >= 300 {
-			return &Error{Status: status, Code: respBody.envelope.Code, Message: respBody.envelope.Message}
+			err := &Error{Status: status, Code: respBody.envelope.Code, Message: respBody.envelope.Message}
+			if status == http.StatusUnauthorized {
+				return fmt.Errorf("session unauthorized (run `proton-cal login`): %w", err)
+			}
+			return err
 		}
 		if out != nil {
 			if err := json.Unmarshal(respBody.raw, out); err != nil {
@@ -278,6 +247,46 @@ func (c *Client) Do(ctx context.Context, method, path string, query url.Values, 
 		}
 		return nil
 	}
+}
+
+// rotateTokens sends the single-use refresh token exactly once.
+func (c *Client) rotateTokens(ctx context.Context, sess config.Session) (config.Session, error) {
+	if err := ctx.Err(); err != nil {
+		return config.Session{}, err
+	}
+	body := proton.AuthRefreshReq{
+		UID:          sess.UID,
+		RefreshToken: sess.RefreshToken,
+		AccessToken:  sess.AccessToken,
+		ResponseType: "token",
+		GrantType:    "refresh_token",
+		RedirectURI:  "https://protonmail.ch",
+		State:        rand.Text(),
+	}
+	// Once sent, finish the rotation even if the caller cancels. The HTTP
+	// timeout bounds the wait; losing the response would lose the shared tokens.
+	status, resp, err := c.doOnce(context.WithoutCancel(ctx), http.MethodPost, refreshPath, nil, body, config.Session{})
+	if err != nil {
+		return config.Session{}, fmt.Errorf("refresh response unavailable (run `proton-cal login`): %w", err)
+	}
+	if status < 200 || status >= 300 || (resp.envelope.Code != 0 && resp.envelope.Code != CodeSuccess) {
+		err := &Error{Status: status, Code: resp.envelope.Code, Message: resp.envelope.Message}
+		if status >= 200 && status < 300 {
+			return config.Session{}, fmt.Errorf("invalid refresh response (run `proton-cal login`): %w", err)
+		}
+		if status == http.StatusBadRequest || status == http.StatusUnauthorized || status == http.StatusForbidden || status == http.StatusUnprocessableEntity || err.Code == int(proton.AuthRefreshTokenInvalid) {
+			return config.Session{}, fmt.Errorf("refresh token rejected (run `proton-cal login`): %w", err)
+		}
+		return config.Session{}, err
+	}
+	var auth proton.Auth
+	if err := json.Unmarshal(resp.raw, &auth); err != nil {
+		return config.Session{}, fmt.Errorf("decoding refreshed session (run `proton-cal login`): %w", err)
+	}
+	if auth.UID == "" {
+		auth.UID = sess.UID
+	}
+	return config.Session{UID: auth.UID, AccessToken: auth.AccessToken, RefreshToken: auth.RefreshToken}, nil
 }
 
 type rawResponse struct {
@@ -310,8 +319,12 @@ func (c *Client) doOnce(ctx context.Context, method, path string, query url.Valu
 	if err != nil {
 		return 0, resp, err
 	}
-	req.Header.Set("x-pm-uid", sess.UID)
-	req.Header.Set("Authorization", "Bearer "+sess.AccessToken)
+	if sess.UID != "" {
+		req.Header.Set("x-pm-uid", sess.UID)
+	}
+	if sess.AccessToken != "" {
+		req.Header.Set("Authorization", "Bearer "+sess.AccessToken)
+	}
 	req.Header.Set("x-pm-appversion", AppVersion)
 	req.Header.Set("User-Agent", UserAgent)
 	req.Header.Set("Accept", "application/vnd.protonmail.v1+json")
@@ -319,7 +332,15 @@ func (c *Client) doOnce(ctx context.Context, method, path string, query url.Valu
 		req.Header.Set("Content-Type", "application/json")
 	}
 
-	res, err := c.httpc.Do(req)
+	httpc := c.httpc
+	if path == refreshPath {
+		// Disable redirects and transport body replay for a single-use token.
+		req.GetBody = nil
+		single := *httpc
+		single.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+		httpc = &single
+	}
+	res, err := httpc.Do(req)
 	if err != nil {
 		return 0, resp, err
 	}
