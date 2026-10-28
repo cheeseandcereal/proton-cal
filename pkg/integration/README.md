@@ -32,7 +32,7 @@ If `config.toml` or the stored session is missing, the suite skips itself.
 make integration
 ```
 
-This runs every live test, which now spans four packages:
+This runs every live test across four packages:
 
 - `pkg/integration` - the original domain-layer suite (the `event` and
   `calendar` packages directly), plus the crash-recovery sweep.

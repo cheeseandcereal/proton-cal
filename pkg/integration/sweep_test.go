@@ -12,9 +12,8 @@ import (
 	"github.com/cheeseandcereal/proton-cal/pkg/event"
 )
 
-// TestZSweep runs last (Z prefix keeps it last in declaration order). It scans
-// every calendar over now+25d..now+40d and deletes any leftover row whose summary
-// carries the suite tag, cleaning up crashed runs. Per-row failures are non-fatal.
+// TestZSweep deletes tagged leftovers in configured calendars over now+25d..now+40d.
+// Run it after other live tests finish. Per-row failures are non-fatal.
 func TestZSweep(t *testing.T) {
 	ctx := context.Background()
 	s := setup(t)
