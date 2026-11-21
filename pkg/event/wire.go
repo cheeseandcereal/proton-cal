@@ -134,6 +134,10 @@ const (
 	// windowPadSeconds widens each window end by a day: the server buckets by
 	// timezone-local start/end, so slack avoids missing all-day/boundary rows.
 	windowPadSeconds = 86400
+
+	// codeUnsupportedTimezone is returned by GET /events when Timezone is not
+	// in Proton's supported list (e.g. Asia/Singapore).
+	codeUnsupportedTimezone = 2011
 )
 
 // queryTypes is the full set the server partitions events across; all must be
@@ -191,6 +195,9 @@ func query(ctx context.Context, client papi.API, calendarID string, start, end i
 		})
 	}
 	if err := g.Wait(); err != nil {
+		if tzName != "" && tzName != "UTC" && papi.IsCode(err, codeUnsupportedTimezone) {
+			return query(ctx, client, calendarID, start, end, "UTC")
+		}
 		return nil, err
 	}
 

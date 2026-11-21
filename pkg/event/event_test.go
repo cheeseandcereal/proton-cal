@@ -592,6 +592,56 @@ func TestQueryChunksWideWindow(t *testing.T) {
 	}
 }
 
+func TestQueryFallsBackToUTCOnUnsupportedTimezone(t *testing.T) {
+	var mu sync.Mutex
+	var seenTZ []string
+
+	mux := http.NewServeMux()
+	mux.HandleFunc("/calendar/v1/cal1/events", func(w http.ResponseWriter, r *http.Request) {
+		tz := r.URL.Query().Get("Timezone")
+		mu.Lock()
+		seenTZ = append(seenTZ, tz)
+		mu.Unlock()
+
+		w.Header().Set("Content-Type", "application/json")
+		if tz != "UTC" {
+			w.WriteHeader(http.StatusBadRequest)
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"Code":  codeUnsupportedTimezone,
+				"Error": "The time zone is not supported",
+			})
+			return
+		}
+		_ = json.NewEncoder(w).Encode(eventsResponse{
+			Events: []*caltypes.RawEvent{{ID: "ev1", StartTime: 150, EndTime: 250}},
+		})
+	})
+
+	client := newTestClient(t, mux)
+	got, err := query(context.Background(), client, "cal1", 100, 1000, "Asia/Singapore")
+	if err != nil {
+		t.Fatalf("query(Asia/Singapore): %v", err)
+	}
+	if len(got) != 1 || got[0].ID != "ev1" {
+		t.Fatalf("got = %+v, want [ev1]", got)
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	sawSG, sawUTC := false, false
+	for _, tz := range seenTZ {
+		switch tz {
+		case "Asia/Singapore":
+			sawSG = true
+		case "UTC":
+			sawUTC = true
+		}
+	}
+	if !sawSG || !sawUTC {
+		t.Errorf("seen Timezone params = %v, want both Asia/Singapore and UTC", seenTZ)
+	}
+}
+
 // ---------- Create ----------
 
 func TestQueryPaginatesViaMoreCursor(t *testing.T) {
